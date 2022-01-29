@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -38,6 +38,7 @@
 #include "psi4/libmints/basisset.h"
 #include "psi4/libmints/onebody.h"
 #include "psi4/libmints/vector.h"
+#include "psi4/libmints/vector3.h"
 #include "psi4/libmints/wavefunction.h"
 #include "psi4/libmints/molecule.h"
 #include "psi4/libmints/integral.h"
@@ -54,6 +55,8 @@
 #include "psi4/libpsi4util/libpsi4util.h"
 #include "psi4/libpsi4util/PsiOutStream.h"
 #include "psi4/libpsi4util/process.h"
+#include "psi4/libfock/cubature.h"
+#include "psi4/libfock/points.h"
 
 #include <iostream>
 #include <cstdlib>
@@ -65,6 +68,9 @@
 #include <regex>
 #include <tuple>
 #include <functional>
+#include <memory>
+#include <map>
+#include <vector>
 
 namespace psi {
 
@@ -821,6 +827,8 @@ void OEProp::compute() {
     if (tasks_.count("MO_EXTENTS")) compute_mo_extents();
     if (tasks_.count("MULLIKEN_CHARGES")) compute_mulliken_charges();
     if (tasks_.count("LOWDIN_CHARGES")) compute_lowdin_charges();
+    if (tasks_.count("MBIS_VOLUME_RATIOS")) compute_mbis_multipoles(true);
+    else if (tasks_.count("MBIS_CHARGES")) compute_mbis_multipoles(false);
     if (tasks_.count("MAYER_INDICES")) compute_mayer_indices();
     if (tasks_.count("WIBERG_LOWDIN_INDICES")) compute_wiberg_lowdin_indices();
     if (tasks_.count("NO_OCCUPATIONS")) compute_no_occupations();
@@ -830,17 +838,62 @@ void OEProp::compute() {
 
 void OEProp::compute_multipoles(int order, bool transition) {
     MultipolePropCalc::MultipoleOutputType mpoles = mpc_.compute_multipoles(order, transition, true, print_ > 4);
-    for (auto it = mpoles->begin(); it != mpoles->end(); ++it) {
-        std::string name;
-        double total_mpole = 0.0;
-        // unpack the multipole, which is: name, nuc, elec, total, ignore nuc and elec:
-        std::tie(name, std::ignore, std::ignore, total_mpole) = *it;
-        /*- Process::environment.globals["DIPOLE X"] -*/
-        /*- Process::environment.globals["DIPOLE Y"] -*/
-        /*- Process::environment.globals["32-POLE XXXXX"] -*/
-        /*- Process::environment.globals["32-POLE XXXXY"] -*/
-        Process::environment.globals[name] = total_mpole;
-        wfn_->set_scalar_variable(name, total_mpole);
+
+    for (int l = 1; l <= order; ++l) {
+        int component = 0;
+        int ncomponents = (l + 1) * (l + 2) / 2;
+        auto multipole_array = std::make_shared<Matrix>(1, ncomponents);
+
+        std::stringstream sstream;
+        sstream << title_;
+        if (title_ != "") sstream << " ";
+        if (l == 1) {
+            sstream << "DIPOLE";
+        } else if (l == 2) {
+            sstream << "QUADRUPOLE";
+        } else if (l == 3) {
+            sstream << "OCTUPOLE";
+        } else if (l == 4) {
+            sstream << "HEXADECAPOLE";
+        } else {
+            int n = (1 << l);
+            sstream << n << "-POLE";
+        }
+        std::string mname = sstream.str();
+
+        for (auto it = mpoles->begin(); it != mpoles->end(); ++it) {
+            std::string name;
+            double total_mpole = 0.0;
+            int order_mpole;
+            // unpack the multipole, which is: name, nuc, elec, total, order, ignore nuc and elec:
+            std::tie(name, std::ignore, std::ignore, total_mpole, order_mpole) = *it;
+            /*- Process::environment.globals["mtd DIPOLE X"] -*/
+            /*- Process::environment.globals["mtd DIPOLE Y"] -*/
+            /*- Process::environment.globals["mtd DIPOLE Z"] -*/
+            /*- Process::environment.globals["mtd QUADRUPOLE XX"] -*/
+            /*- Process::environment.globals["mtd OCTUPOLE XXX"] -*/
+            /*- Process::environment.globals["mtd HEXADECAPOLE XXXX"] -*/
+            /*- Process::environment.globals["mtd 32-POLE XXXXX"] -*/
+            /*- Process::environment.globals["mtd 32-POLE XXXXY"] -*/
+            /*- Process::environment.globals["mtd 64-POLE XXXXXX"] -*/
+            /*- Process::environment.globals["mtd 128-POLE XXXXXXX"] -*/
+            /*- Process::environment.globals["mtd DIPOLE"] -*/
+            /*- Process::environment.globals["mtd QUADRUPOLE"] -*/
+            /*- Process::environment.globals["mtd OCTUPOLE"] -*/
+            /*- Process::environment.globals["mtd HEXADECAPOLE"] -*/
+            /*- Process::environment.globals["mtd 32-POLE"] -*/
+            /*- Process::environment.globals["mtd 64-POLE"] -*/
+            /*- Process::environment.globals["mtd 128-POLE"] -*/
+
+            if (order_mpole == l) {
+                Process::environment.globals[name] = total_mpole;
+                wfn_->set_scalar_variable(name, total_mpole);
+                multipole_array->set(0, component, total_mpole);
+                ++component;
+            }
+        }
+        Process::environment.arrays[sstream.str()] = multipole_array;
+        wfn_->set_array_variable(sstream.str(), multipole_array);
     }
 }
 
@@ -919,7 +972,7 @@ MultipolePropCalc::MultipoleOutputType MultipolePropCalc::compute_multipoles(int
                 outfile->Printf(" %-20s: %18.7f   %18.7f   %18.7f\n", name.c_str(), elec, nuc, tot);
             }
             std::string upper_name = to_upper_copy(name);
-            mot->push_back(std::make_tuple(upper_name, nuc, elec, tot));
+            mot->push_back(std::make_tuple(upper_name, nuc, elec, tot, l));
             ++address;
         }
         if (print_output) {
@@ -1045,7 +1098,6 @@ SharedVector ESPPropCalc::compute_esp_over_grid_in_memory(SharedMatrix input_gri
 
     bool convert = mol->units() == Molecule::Angstrom;
 
-#pragma omp parallel for
     for (int i = 0; i < number_of_grid_points; ++i) {
         Vector3 origin(input_grid->get(i, 0), input_grid->get(i, 1), input_grid->get(i, 2));
         if (convert) origin /= pc_bohr2angstroms;
@@ -1117,6 +1169,53 @@ void ESPPropCalc::compute_field_over_grid(bool print_output) {
     fclose(gridout);
 }
 
+SharedMatrix ESPPropCalc::compute_field_over_grid_in_memory(SharedMatrix input_grid) const {
+    // We only want a plain matrix to work with here:
+    if (input_grid->nirrep() != 1) {
+        throw PSIEXCEPTION("ESPPropCalc only allows \"plain\" input matrices with, i.e. nirrep == 1.");
+    }
+    if (input_grid->coldim() != 3) {
+        throw PSIEXCEPTION("ESPPropCalc only allows \"plain\" input matrices with a dimension of N (rows) x 3 (cols)");
+    }
+
+    std::shared_ptr<Molecule> mol = basisset_->molecule();
+
+    SharedMatrix Dtot = wfn_->matrix_subset_helper(Da_so_, Ca_so_, "CartAO", "D");
+    if (same_dens_) {
+        Dtot->scale(2.0);
+    } else {
+        Dtot->add(wfn_->matrix_subset_helper(Db_so_, Cb_so_, "CartAO", "D beta"));
+    }
+
+    std::shared_ptr<ElectricFieldInt> field_ints(dynamic_cast<ElectricFieldInt*>(wfn_->integral()->electric_field()));
+
+    // Scale the coordinates if needed
+    auto coords = input_grid;
+
+    if (mol->units() == Molecule::Angstrom) {
+        coords = input_grid->clone();
+        coords->scale(1.0 / pc_bohr2angstroms);
+    }
+
+    // Compute the electric field at all grid points.
+    int number_of_grid_points = coords->rowdim();
+
+    SharedMatrix efield = std::make_shared<Matrix>("efield", number_of_grid_points, 3);
+
+    auto field_functor = ContractOverDensityFieldFunctor(efield, Dtot);
+    field_ints->compute_with_functor(field_functor, coords);
+
+    // Add the nuclear contribution.
+    for (int i = 0; i < number_of_grid_points; ++i) {
+        Vector3 origin(coords->get(i, 0), coords->get(i, 1), coords->get(i, 2));
+        Vector3 nuc = field_ints->nuclear_contribution(origin, mol);
+        efield->set(i, 0, efield->get(i, 0) + nuc[0]);
+        efield->set(i, 1, efield->get(i, 1) + nuc[1]);
+        efield->set(i, 2, efield->get(i, 2) + nuc[2]);
+    }
+    return efield;
+}
+
 void OEProp::compute_esp_at_nuclei() {
     std::shared_ptr<std::vector<double>> nesps = epc_.compute_esp_at_nuclei(true, print_ > 2);
     for (int atom1 = 0; atom1 < nesps->size(); ++atom1) {
@@ -1132,7 +1231,7 @@ void OEProp::compute_esp_at_nuclei() {
 std::shared_ptr<std::vector<double>> ESPPropCalc::compute_esp_at_nuclei(bool print_output, bool verbose) {
     std::shared_ptr<Molecule> mol = basisset_->molecule();
 
-    std::shared_ptr<std::vector<double>> nesps(new std::vector<double>(mol->natom()));
+    auto nesps = std::make_shared<std::vector<double>>(mol->natom());
     std::shared_ptr<ElectrostaticInt> epot(dynamic_cast<ElectrostaticInt*>(integral_->electrostatic()));
 
     int nbf = basisset_->nbf();
@@ -1194,6 +1293,19 @@ void OEProp::compute_dipole(bool transition) {
     s << title_ << " DIPOLE Z";
     Process::environment.globals[s.str()] = dipole->get(2);
     wfn_->set_scalar_variable(s.str(), dipole->get(2));
+
+    // Dipole array in au
+    auto dipole_array = std::make_shared<Matrix>(1, 3);
+    dipole_array->set(0, 0, dipole->get(0) / pc_dipmom_au2debye);
+    dipole_array->set(0, 1, dipole->get(1) / pc_dipmom_au2debye);
+    dipole_array->set(0, 2, dipole->get(2) / pc_dipmom_au2debye);
+
+    s.str(std::string());
+    s << title_;
+    if (title_ != "") s << " ";
+    s << "DIPOLE";
+    Process::environment.arrays[s.str()] = dipole_array;
+    wfn_->set_array_variable(s.str(), dipole_array);
 }
 
 SharedVector MultipolePropCalc::compute_dipole(bool transition, bool print_output, bool verbose) {
@@ -1219,9 +1331,9 @@ SharedVector MultipolePropCalc::compute_dipole(bool transition, bool print_outpu
         }
     } else {
         // Don't use symmetry
-        dipole_ints.push_back(SharedMatrix(new Matrix("AO Dipole X", basisset_->nbf(), basisset_->nbf())));
-        dipole_ints.push_back(SharedMatrix(new Matrix("AO Dipole Y", basisset_->nbf(), basisset_->nbf())));
-        dipole_ints.push_back(SharedMatrix(new Matrix("AO Dipole Z", basisset_->nbf(), basisset_->nbf())));
+        dipole_ints.push_back(std::make_shared<Matrix>("AO Dipole X", basisset_->nbf(), basisset_->nbf()));
+        dipole_ints.push_back(std::make_shared<Matrix>("AO Dipole Y", basisset_->nbf(), basisset_->nbf()));
+        dipole_ints.push_back(std::make_shared<Matrix>("AO Dipole Z", basisset_->nbf(), basisset_->nbf()));
         std::shared_ptr<OneBodyAOInt> aodOBI(integral_->ao_dipole());
         aodOBI->set_origin(origin_);
         aodOBI->compute(dipole_ints);
@@ -1319,6 +1431,22 @@ void OEProp::compute_quadrupole(bool transition) {
     s << title_ << " QUADRUPOLE YZ";
     Process::environment.globals[s.str()] = quadrupole->get(1, 2);
     wfn_->set_scalar_variable(s.str(), quadrupole->get(1, 2));
+
+    // Quadrupole array in au
+    auto quadrupole_array = std::make_shared<Matrix>(1, 6);
+    quadrupole_array->set(0, 0, quadrupole->get(0, 0) / (pc_dipmom_au2debye * pc_bohr2angstroms));
+    quadrupole_array->set(0, 1, quadrupole->get(0, 1) / (pc_dipmom_au2debye * pc_bohr2angstroms));
+    quadrupole_array->set(0, 2, quadrupole->get(0, 2) / (pc_dipmom_au2debye * pc_bohr2angstroms));
+    quadrupole_array->set(0, 3, quadrupole->get(1, 1) / (pc_dipmom_au2debye * pc_bohr2angstroms));
+    quadrupole_array->set(0, 4, quadrupole->get(1, 2) / (pc_dipmom_au2debye * pc_bohr2angstroms));
+    quadrupole_array->set(0, 5, quadrupole->get(2, 2) / (pc_dipmom_au2debye * pc_bohr2angstroms));
+
+    s.str(std::string());
+    s << title_;
+    if (title_ != "") s << " ";
+    s << "QUADRUPOLE";
+    Process::environment.arrays[s.str()] = quadrupole_array;
+    wfn_->set_array_variable(s.str(), quadrupole_array);
 }
 
 SharedMatrix MultipolePropCalc::compute_quadrupole(bool transition, bool print_output, bool verbose) {
@@ -1432,7 +1560,6 @@ void OEProp::compute_mo_extents() {
 }
 
 std::vector<SharedVector> MultipolePropCalc::compute_mo_extents(bool print_output) {
-
     SharedMatrix Ca = Ca_ao();
 
     std::vector<SharedVector> mo_es;
@@ -1464,7 +1591,6 @@ std::vector<SharedVector> MultipolePropCalc::compute_mo_extents(bool print_outpu
     quadrupole.push_back(std::make_shared<Vector>("Orbital Quadrupole ZZ", Ca->ncol()));
 
     if (same_orbs_) {
-
         // Quadrupoles
         for (int i = 0; i < Ca->ncol(); ++i) {
             double sumx = 0.0, sumy = 0.0, sumz = 0.0;
@@ -1537,7 +1663,7 @@ void OEProp::compute_mulliken_charges() {
     for (size_t i = 0; i < apcs->size(); i++) {
         vec_apcs->set(0, i, (*apcs)[i]);
     }
-    wfn_->set_array_variable("MULLIKEN_CHARGES", vec_apcs);
+    wfn_->set_array_variable("MULLIKEN CHARGES", vec_apcs);
 }
 
 std::tuple<PAC::SharedStdVector, PAC::SharedStdVector, PAC::SharedStdVector>
@@ -1632,7 +1758,7 @@ void OEProp::compute_lowdin_charges() {
     for (size_t i = 0; i < apcs->size(); i++) {
         vec_apcs->set(0, i, (*apcs)[i]);
     }
-    wfn_->set_array_variable("LOWDIN_CHARGES", vec_apcs);
+    wfn_->set_array_variable("LOWDIN CHARGES", vec_apcs);
 }
 
 std::tuple<PAC::SharedStdVector, PAC::SharedStdVector, PAC::SharedStdVector>
@@ -1721,12 +1847,610 @@ PopulationAnalysisCalc::compute_lowdin_charges(bool print_output) {
 
     return std::make_tuple(Qa, Qb, apcs);
 }
+
+// See PopulationAnalysisCalc::compute_mbis_multipoles
+void OEProp::compute_mbis_multipoles(bool free_atom_volumes) {
+    SharedMatrix mpole, dpole, qpole, opole;
+    std::tie(mpole, dpole, qpole, opole) = pac_.compute_mbis_multipoles(free_atom_volumes, true);
+
+    wfn_->set_array_variable("MBIS CHARGES", mpole);
+    wfn_->set_array_variable("MBIS DIPOLES", dpole);
+    wfn_->set_array_variable("MBIS QUADRUPOLES", qpole);
+    wfn_->set_array_variable("MBIS OCTUPOLES", opole);
+}
+
+/// Helper Methods for MBIS (JCTC, 2016, p. 3894-3912, Verstraelen et al.)
+
+// Proatomic density of a specific shell of an atom  (Equation 7 in Verstraelen et al.)
+double rho_ai_0(double n, double sigma, double distance) {
+    return n * exp(-distance / sigma) / (pow(sigma, 3) * 8 * M_PI);
+}
+
+/* Updated parameters for initial MBIS params Nai and 1/Sai
+   (from https://github.com/theochem/denspart/blob/740449c375f7e1c7b14cc8a978a8d0b1ed4617e3/denspart/mbis.py#L82 by Toon
+   Verstraelen) */
+// Attention: MBIS is not supported for elements with atomic number greater than 36
+std::tuple<double, double> get_mbis_params(int atomic_num, int shell_num) {
+    std::map<int, std::vector<std::tuple<double, double>>> params;
+    params[1] = {std::make_tuple(1.00000, 1.76216)};
+    params[2] = {std::make_tuple(2.00000, 3.11975)};
+
+    params[3] = {std::make_tuple(1.86359, 5.56763), std::make_tuple(1.13641, 0.80520)};
+    params[4] = {std::make_tuple(1.75663, 8.15111), std::make_tuple(2.24337, 1.22219)};
+    params[5] = {std::make_tuple(1.73486, 10.46135), std::make_tuple(3.26514, 1.51797)};
+    params[6] = {std::make_tuple(1.70730, 12.79758), std::make_tuple(4.29270, 1.85580)};
+    params[7] = {std::make_tuple(1.68283, 15.13096), std::make_tuple(5.31717, 2.19942)};
+    params[8] = {std::make_tuple(1.66122, 17.46129), std::make_tuple(6.33878, 2.54326)};
+    params[9] = {std::make_tuple(1.64171, 19.78991), std::make_tuple(7.35829, 2.88601)};
+    params[10] = {std::make_tuple(1.62380, 22.11938), std::make_tuple(8.37620, 3.22746)};
+
+    params[11] = {std::make_tuple(1.48140, 25.82522), std::make_tuple(8.28761, 4.02120),
+                  std::make_tuple(1.23098, 0.80897)};
+    params[12] = {std::make_tuple(1.39674, 29.19802), std::make_tuple(8.10904, 4.76791),
+                  std::make_tuple(2.49422, 1.08302)};
+    params[13] = {std::make_tuple(1.34503, 32.33363), std::make_tuple(8.12124, 5.42812),
+                  std::make_tuple(3.53372, 1.15994)};
+    params[14] = {std::make_tuple(1.28865, 35.65432), std::make_tuple(7.98931, 6.17545),
+                  std::make_tuple(4.72204, 1.33797)};
+    params[15] = {std::make_tuple(1.23890, 39.00531), std::make_tuple(7.83125, 6.95265),
+                  std::make_tuple(5.92985, 1.52690)};
+    params[16] = {std::make_tuple(1.19478, 42.38177), std::make_tuple(7.66565, 7.75584),
+                  std::make_tuple(7.13957, 1.71687)};
+    params[17] = {std::make_tuple(1.15482, 45.79189), std::make_tuple(7.50031, 8.58542),
+                  std::make_tuple(8.34487, 1.90546)};
+    params[18] = {std::make_tuple(1.11803, 49.24317), std::make_tuple(7.33917, 9.44200),
+                  std::make_tuple(9.54280, 2.09210)};
+
+    params[19] = {std::make_tuple(1.09120, 52.59376), std::make_tuple(7.15086, 10.29851),
+                  std::make_tuple(9.57061, 2.42121), std::make_tuple(1.18733, 0.67314)};
+    params[20] = {std::make_tuple(1.07196, 55.86008), std::make_tuple(7.01185, 11.11887),
+                  std::make_tuple(9.29555, 2.76621), std::make_tuple(2.62063, 0.88692)};
+    params[21] = {std::make_tuple(1.05870, 59.04659), std::make_tuple(6.96404, 11.86718),
+                  std::make_tuple(9.97866, 2.93024), std::make_tuple(2.99860, 0.98040)};
+    params[22] = {std::make_tuple(1.04755, 62.22091), std::make_tuple(6.90438, 12.62229),
+                  std::make_tuple(10.84355, 3.08264), std::make_tuple(3.20452, 1.05403)};
+    params[23] = {std::make_tuple(1.03828, 65.38117), std::make_tuple(6.83516, 13.38417),
+                  std::make_tuple(11.79532, 3.23508), std::make_tuple(3.33124, 1.11609)};
+    params[24] = {std::make_tuple(1.03069, 68.52633), std::make_tuple(6.75998, 14.15132),
+                  std::make_tuple(12.79256, 3.38991), std::make_tuple(3.41677, 1.17116)};
+    params[25] = {std::make_tuple(1.02450, 71.65908), std::make_tuple(6.68141, 14.92337),
+                  std::make_tuple(13.81149, 3.54730), std::make_tuple(3.48260, 1.22220)};
+    params[26] = {std::make_tuple(1.01960, 74.77846), std::make_tuple(6.60101, 15.69935),
+                  std::make_tuple(14.84330, 3.70685), std::make_tuple(3.53609, 1.27026)};
+    params[27] = {std::make_tuple(1.01575, 77.88779), std::make_tuple(6.51976, 16.47941),
+                  std::make_tuple(15.88061, 3.86829), std::make_tuple(3.58388, 1.31647)};
+    params[28] = {std::make_tuple(1.01282, 80.98814), std::make_tuple(6.43837, 17.26336),
+                  std::make_tuple(16.92012, 4.03115), std::make_tuple(3.62869, 1.36133)};
+    params[29] = {std::make_tuple(1.01839, 83.81831), std::make_tuple(6.47823, 17.85149),
+                  std::make_tuple(18.65720, 4.05312), std::make_tuple(2.84618, 1.37570)};
+    params[30] = {std::make_tuple(1.00931, 87.16777), std::make_tuple(6.27682, 18.84319),
+                  std::make_tuple(18.99747, 4.35989), std::make_tuple(3.71640, 1.44857)};
+    params[31] = {std::make_tuple(1.00600, 90.34057), std::make_tuple(6.16315, 19.71091),
+                  std::make_tuple(19.81836, 4.57852), std::make_tuple(4.01249, 1.29122)};
+    params[32] = {std::make_tuple(0.99467, 93.80965), std::make_tuple(5.91408, 20.85993),
+                  std::make_tuple(19.89501, 4.95158), std::make_tuple(5.19624, 1.39361)};
+    params[33] = {std::make_tuple(0.98548, 97.22822), std::make_tuple(5.68319, 22.01684),
+                  std::make_tuple(19.83497, 5.33969), std::make_tuple(6.49637, 1.51963)};
+    params[34] = {std::make_tuple(0.97822, 100.60094), std::make_tuple(5.47209, 23.17528),
+                  std::make_tuple(19.68845, 5.73803), std::make_tuple(7.86124, 1.65366)};
+    params[35] = {std::make_tuple(0.97231, 103.94730), std::make_tuple(5.27765, 24.33975),
+                  std::make_tuple(19.48822, 6.14586), std::make_tuple(9.26182, 1.78869)};
+    params[36] = {std::make_tuple(0.96735, 107.28121), std::make_tuple(5.09646, 25.51581),
+                  std::make_tuple(19.25332, 6.56380), std::make_tuple(10.68288, 1.92256)};
+
+    return params[atomic_num][shell_num];
+}
+
+// A Helper Method That Calculates Radial Moments using Atomic Electron Densities derived from Charge Partitioning
+std::vector<SharedMatrix> compute_radial_moments(const std::shared_ptr<DFTGrid>& grid,
+                                                 const std::vector<double>& rho_a_points,
+                                                 const std::vector<double>& distances, int num_atoms) {
+    Options& options = Process::environment.options;
+    const int max_power = std::max(4, options.get_int("MAX_RADIAL_MOMENT"));
+
+    std::vector<SharedMatrix> rmoms;
+
+    for (int n = 2; n <= max_power; n++) {
+        std::stringstream sstream;
+        sstream << "ATOMIC RADIAL MOMENTS <R^" << n << ">";
+        auto mat_name = sstream.str();
+
+        rmoms.push_back(std::make_shared<Matrix>(mat_name, num_atoms, 1));
+    }
+
+    auto blocks = grid->blocks();
+    size_t total_points = grid->npoints();
+
+#pragma omp parallel for
+    for (int a = 0; a < num_atoms; a++) {
+        for (int n = 2; n <= max_power; n++) {
+            size_t running_points = 0;
+            double val = 0;
+            for (int b = 0; b < blocks.size(); b++) {
+                auto block = blocks[b];
+                SharedVector rho_block;
+                size_t num_points = block->npoints();
+
+                double* x = block->x();
+                double* y = block->y();
+                double* z = block->z();
+                double* w = block->w();
+
+                for (size_t p = running_points; p < running_points + num_points; p++) {
+                    auto ap = a * total_points + p;
+                    val += w[p - running_points] * rho_a_points[ap] * pow(distances[ap], n);
+                }
+                running_points += num_points;
+            }
+            rmoms[n - 2]->set(a, 0, val);
+        }
+    }
+
+    return rmoms;
+}
+
+// Minimal Basis Iterative Stockholder (JCTC, 2016, p. 3894-3912, Verstraelen et al.)
+std::tuple<SharedMatrix, SharedMatrix, SharedMatrix, SharedMatrix> PopulationAnalysisCalc::compute_mbis_multipoles(
+    bool free_atom_volumes, bool print_output) {
+    if (print_output) outfile->Printf("  ==> Computing MBIS Charges <==\n\n");
+    timer_on("MBIS");
+
+    // => Setup 1RDM on DFTGrid <= //
+
+    Options& options = Process::environment.options;
+    const int max_iter = options.get_int("MBIS_MAXITER");
+    const double conv = options.get_double("MBIS_D_CONVERGENCE");
+    const int debug = options.get_int("DEBUG");
+    std::shared_ptr<Molecule> mol = basisset_->molecule();
+
+    // MBIS grid options
+    std::map<std::string, int> mbis_grid_options_int;
+    std::map<std::string, std::string> mbis_grid_options_str;
+
+    mbis_grid_options_int["DFT_RADIAL_POINTS"] = options.get_int("MBIS_RADIAL_POINTS");
+    mbis_grid_options_int["DFT_SPHERICAL_POINTS"] = options.get_int("MBIS_SPHERICAL_POINTS");
+    mbis_grid_options_str["DFT_PRUNING_SCHEME"] = options.get_str("MBIS_PRUNING_SCHEME");
+
+    auto grid = std::make_shared<DFTGrid>(mol, basisset_, mbis_grid_options_int, mbis_grid_options_str, options);
+
+    if (print_output && debug >= 1) grid->print();
+
+    int nbf = basisset_->nbf();
+    int num_atoms = mol->natom();
+    size_t total_points = grid->npoints();
+
+    SharedMatrix Da = wfn_->Da_subset("AO");
+    SharedMatrix Db;
+    auto point_func = (std::shared_ptr<PointFunctions>)(std::make_shared<RKSFunctions>(basisset_, total_points, nbf));
+
+    if (same_dens_) {
+        Db = Da->clone();
+        point_func->set_pointers(Da);
+    } else {
+        Db = wfn_->Db_subset("AO");
+        point_func = (std::shared_ptr<PointFunctions>)(std::make_shared<UKSFunctions>(basisset_, total_points, nbf));
+        point_func->set_pointers(Da, Db);
+    }
+
+    std::vector<std::shared_ptr<BlockOPoints>> blocks = grid->blocks();
+    size_t running_points = 0;
+
+    // Coordinates, weights, and rho (molecular electron density) at each grid point
+    std::vector<double> x_points(total_points, 0.0);
+    std::vector<double> y_points(total_points, 0.0);
+    std::vector<double> z_points(total_points, 0.0);
+    std::vector<double> weights(total_points, 0.0);
+    std::vector<double> rho(total_points, 0.0);
+
+    for (int b = 0; b < blocks.size(); b++) {
+        std::shared_ptr<BlockOPoints> block = blocks[b];
+        SharedVector rho_block;
+        size_t num_points = block->npoints();
+
+        point_func->set_max_functions(block->local_nbf());
+        point_func->set_max_points(num_points);
+        point_func->compute_points(block);
+        rho_block = point_func->point_values()["RHO_A"];
+
+        if (!same_dens_) {
+            rho_block->add(point_func->point_values()["RHO_B"]);
+        }
+
+        double* x = block->x();
+        double* y = block->y();
+        double* z = block->z();
+        double* w = block->w();
+
+        for (size_t p = 0; p < num_points; p++) {
+            x_points[running_points + p] = x[p];
+            y_points[running_points + p] = y[p];
+            z_points[running_points + p] = z[p];
+            weights[running_points + p] = w[p];
+            rho[running_points + p] = rho_block->get(p);
+        }
+
+        running_points += num_points;
+    }
+
+    // Electron count via numerical interagration
+    double grid_electrons = 0.0;
+    for (int p = 0; p < total_points; p++) {
+        grid_electrons += weights[p] * rho[p];
+    }
+
+    // Actual electron count
+    double mol_electrons = -1.0 * mol->molecular_charge();
+    for (int a = 0; a < num_atoms; a++) {
+        mol_electrons += mol->Z(a);
+    }
+
+    double electron_diff = grid_electrons - mol_electrons;
+
+    if (print_output)
+        outfile->Printf("  Electron Count from Grid (Expected Number): %8.5f (%8.5f)\n", grid_electrons, mol_electrons);
+    if (print_output) outfile->Printf("  Difference: %8.5f\n\n", electron_diff);
+
+    if (fabs(electron_diff) > 0.1) {
+        throw PsiException("Number of electrons calculated using the grid (" +
+                               std::to_string(round(100000.0 * grid_electrons) / 100000.0) +
+                               ") does not match the number of electrons in the molecule. "
+                               "Try increasing the number of radial or spherical points (mbis_radial_points and "
+                               "mbis_spherical_points options).",
+                           __FILE__, __LINE__);
+    } else if (fabs(electron_diff) > 0.001) {
+        outfile->Printf(
+            "WARNING: The number of electrons calculated using the grid (%8.5f) differs from the number of electrons "
+            "in the molecule by more than 0.001. "
+            "Try increasing the number of radial or spherical points (mbis_radial_points and mbis_spherical_points "
+            "options).\n\n",
+            grid_electrons);
+    }
+
+    // Distances and displacements between grid points and nuclei
+    std::vector<double> distances(num_atoms * total_points, 0.0);
+    std::vector<std::vector<double>> disps(3, std::vector<double>(num_atoms * total_points, 0.0));
+
+#pragma omp parallel for
+    for (int atom = 0; atom < num_atoms; atom++) {
+        for (size_t point = 0; point < total_points; point++) {
+            Vector3 dr = Vector3(x_points[point], y_points[point], z_points[point]) - mol->xyz(atom);
+            distances[atom * total_points + point] = dr.norm();
+            disps[0][atom * total_points + point] = dr[0];
+            disps[1][atom * total_points + point] = dr[1];
+            disps[2][atom * total_points + point] = dr[2];
+        }
+    }
+
+    // => Setup Proatom Basis Functions <= //
+
+    // mA is the number of shells in an isolated atom
+    std::vector<int> mA(num_atoms);
+    for (int atom = 0; atom < num_atoms; atom++) {
+        int atomic_num = static_cast<int>(mol->Z(atom));
+        if (atomic_num <= 2) {
+            mA[atom] = 1;
+        } else if (atomic_num <= 10) {
+            mA[atom] = 2;
+        } else if (atomic_num <= 18) {
+            mA[atom] = 3;
+        } else if (atomic_num <= 36) {
+            mA[atom] = 4;
+        } else {
+            throw PsiException("Atomic Number " + std::to_string(atomic_num) + " unsupported by MBIS", __FILE__,
+                               __LINE__);
+        }
+    }
+
+    // Atomic shell populations (N) and widths (S) (up to 4 shells per atom), from equations 18 and 19 in Verstraelen et
+    // al.
+    std::vector<std::vector<double>> Nai(num_atoms, std::vector<double>(4, 0.0));
+    std::vector<std::vector<double>> Sai(num_atoms, std::vector<double>(4, 0.0));
+
+    // Next iteration populations and widths
+    std::vector<std::vector<double>> Nai_next(num_atoms, std::vector<double>(4, 0.0));
+    std::vector<std::vector<double>> Sai_next(num_atoms, std::vector<double>(4, 0.0));
+
+    // Population and width guesses, from get_mbis_params function
+    for (int atom = 0; atom < num_atoms; atom++) {
+        int atomic_num = static_cast<int>(mol->Z(atom));
+
+        for (int m = 0; m < mA[atom]; m++) {
+            std::tie(Nai[atom][m], Sai[atom][m]) = get_mbis_params(atomic_num, m);
+            Sai[atom][m] = 1.0 / Sai[atom][m];
+
+            if (print_output && debug >= 1) {
+                outfile->Printf("  INITIAL ATOM %d, SHELL %d, POP %8.5f, WIDTH %8.5f\n", atom + 1, m + 1, Nai[atom][m],
+                                Sai[atom][m]);
+            }
+
+            Nai_next[atom][m] = Nai[atom][m];
+            Sai_next[atom][m] = Sai[atom][m];
+        }
+    }
+
+    // Promolecular and proatomic densities
+    std::vector<double> rho_0_points(total_points, 0.0);
+    std::vector<double> rho_a_0_points(num_atoms * total_points, 0.0);
+
+    // Next iteration densities
+    std::vector<double> rho_0_points_next(total_points, 0.0);
+    std::vector<double> rho_a_0_points_next(num_atoms * total_points, 0.0);
+
+// Calculate initial proatom and promolecule density at all points
+#pragma omp parallel for
+    for (size_t point = 0; point < total_points; point++) {
+        rho_0_points[point] = 0.0;
+        for (int atom = 0; atom < num_atoms; atom++) {
+            rho_a_0_points[atom * total_points + point] = 0.0;
+            for (int m = 0; m < mA[atom]; m++) {
+                rho_a_0_points[atom * total_points + point] +=
+                    rho_ai_0(Nai[atom][m], Sai[atom][m], distances[atom * total_points + point]);
+            }
+            rho_0_points[point] += rho_a_0_points[atom * total_points + point];
+        }
+    }
+
+    // => Main Stockholder Loop <= //
+
+    int iter = 1;
+    bool is_converged = false;
+    double delta_rho_max_0;
+
+    if (print_output && debug >= 1) outfile->Printf("                     Delta D\n");
+    while (iter < max_iter) {
+// Self-consistent update of population and density
+#pragma omp parallel for
+        for (int atom = 0; atom < num_atoms; atom++) {
+            for (int m = 0; m < mA[atom]; m++) {
+                double sum_n = 0.0;
+                double sum_s = 0.0;
+
+                for (int point = 0; point < total_points; point++) {
+                    double rho_ai_0_point =
+                        rho_ai_0(Nai[atom][m], Sai[atom][m], distances[atom * total_points + point]);
+                    sum_n += weights[point] * rho[point] * rho_ai_0_point / rho_0_points[point];
+                    sum_s += weights[point] * distances[atom * total_points + point] * rho[point] * rho_ai_0_point /
+                             rho_0_points[point];
+                }
+
+                Nai_next[atom][m] = sum_n;
+                Sai_next[atom][m] = sum_s / (3 * Nai_next[atom][m]);
+            }
+        }
+
+        std::fill(rho_0_points_next.begin(), rho_0_points_next.end(), 0.0);
+        std::fill(rho_a_0_points_next.begin(), rho_a_0_points_next.end(), 0.0);
+
+#pragma omp parallel for
+        for (size_t point = 0; point < total_points; point++) {
+            for (int atom = 0; atom < num_atoms; atom++) {
+                for (int m = 0; m < mA[atom]; m++) {
+                    rho_a_0_points_next[atom * total_points + point] +=
+                        rho_ai_0(Nai_next[atom][m], Sai_next[atom][m], distances[atom * total_points + point]);
+                }
+                rho_0_points_next[point] += rho_a_0_points_next[atom * total_points + point];
+            }
+        }
+
+        // Convergence check (Equation 20 in Verstraelen et al.) and update of pro-densities
+        std::vector<double> delta_rho_atoms_0(num_atoms, 0.0);
+
+#pragma omp parallel for
+        for (int atom = 0; atom < num_atoms; atom++) {
+            double delta;
+            for (size_t point = 0; point < total_points; point++) {
+                delta = rho_a_0_points_next[atom * total_points + point] - rho_a_0_points[atom * total_points + point];
+                delta_rho_atoms_0[atom] += weights[point] * delta * delta;
+            }
+            delta_rho_atoms_0[atom] = sqrt(delta_rho_atoms_0[atom]);
+        }
+
+        delta_rho_max_0 = 0.0;
+        for (int atom = 0; atom < num_atoms; atom++) {
+            if (delta_rho_atoms_0[atom] > delta_rho_max_0) delta_rho_max_0 = delta_rho_atoms_0[atom];
+        }
+
+        // Update populations, widths, and densities
+        Nai = Nai_next;
+        Sai = Sai_next;
+        rho_0_points = rho_0_points_next;
+        rho_a_0_points = rho_a_0_points_next;
+
+        if (print_output && debug >= 1) outfile->Printf("   @MBIS iter %3d:  %.3e\n", iter, delta_rho_max_0);
+
+        if (delta_rho_max_0 < conv) {
+            if (print_output && debug >= 1) outfile->Printf("  MBIS Atomic Density Converged\n\n");
+            is_converged = true;
+            break;
+        }
+
+        iter += 1;
+    }
+
+    if (!is_converged) throw ConvergenceError<int>("MBIS", max_iter, conv, delta_rho_max_0, __FILE__, __LINE__);
+
+    // => Post-Processing <= //
+
+    // Atomic density, as defined in Equation 5 of Verstraelen et al.
+    std::vector<double> rho_a(num_atoms * total_points, 0.0);
+
+#pragma omp parallel for
+    for (int atom = 0; atom < num_atoms; atom++) {
+        for (size_t point = 0; point < total_points; point++) {
+            rho_a[atom * total_points + point] =
+                rho[point] * rho_a_0_points[atom * total_points + point] / rho_0_points[point];
+        }
+    }
+
+    // Kronecker Delta
+    std::vector<std::vector<double>> k_delta = {{1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}};
+
+    // Non-redundant cartesian quadrupole components
+    std::vector<std::vector<int>> qpole_inds = {{0, 0}, {0, 1}, {0, 2}, {1, 1}, {1, 2}, {2, 2}};
+
+    // Non-redundant cartesian octupole components
+    std::vector<std::vector<int>> opole_inds = {{0, 0, 0}, {0, 0, 1}, {0, 0, 2}, {0, 1, 1}, {0, 1, 2},
+                                                {0, 2, 2}, {1, 1, 1}, {1, 1, 2}, {1, 2, 2}, {2, 2, 2}};
+
+    // Non-redundant cartesian multipoles, as given in the convention in the HORTON software
+    /* Commented out lines ending in _stone represent multipole conventions given in
+       "The Theory of Intermolecular Forces (2nd Edition)" by Anthony Stone (A possible future addition) */
+    auto mpole = std::make_shared<Matrix>("MBIS Charges: (a.u.)", num_atoms, 1);
+    auto dpole = std::make_shared<Matrix>("MBIS Dipoles: (a.u.)", num_atoms, 3);
+    auto qpole = std::make_shared<Matrix>("MBIS Quadrupoles: (a.u.)", num_atoms, 6);
+    auto opole = std::make_shared<Matrix>("MBIS Octupoles: (a.u.)", num_atoms, 10);
+// auto qpole_stone = std::make_shared<Matrix>("MBIS Quadrupoles: (a.u.)", num_atoms, 6);
+// auto opole_stone = std::make_shared<Matrix>("MBIS Octupoles: (a.u.)", num_atoms, 10);
+// Calculate atomic multipoles
+#pragma omp parallel for
+    for (int a = 0; a < num_atoms; a++) {
+        mpole->add(a, 0, mol->Z(a));
+        for (size_t p = 0; p < total_points; p++) {
+            auto ap = a * total_points + p;
+
+            // Atomic monopole
+            mpole->add(a, 0, weights[p] * -rho_a[ap]);
+
+            // Atomic dipole
+            for (int i = 0; i < 3; i++) {
+                dpole->add(a, i, weights[p] * -rho_a[ap] * disps[i][ap]);
+            }
+
+            // Atomic quadrupole
+            for (int q = 0; q < 6; q++) {
+                int i = qpole_inds[q][0], j = qpole_inds[q][1];
+                qpole->add(a, q, weights[p] * -rho_a[ap] * (disps[i][ap] * disps[j][ap]));
+                // qpole_stone->add(a, q, weights[p] * rho_a[ap] * (1.5 * disps[i][ap] * disps[j][ap] - 0.5 *
+                // pow(distances[ap], 2) * k_delta[i][j]));
+            }
+
+            // Atomic octupole
+            for (int o = 0; o < 10; o++) {
+                int i = opole_inds[o][0], j = opole_inds[o][1], k = opole_inds[o][2];
+                opole->add(a, o, weights[p] * -rho_a[ap] * (disps[i][ap] * disps[j][ap] * disps[k][ap]));
+                // opole_stone->add(a, o, weights[p] * rho_a[ap]
+                //    * (2.5 * disps[i][ap] * disps[j][ap] * disps[k][ap] - 0.5 * pow(distances[ap], 2)
+                //        * (k_delta[j][k] * disps[i][ap] + k_delta[i][k] * disps[j][ap] + k_delta[i][j] *
+                //        disps[k][ap])));
+            }
+        }
+    }
+
+    if (print_output) {
+        outfile->Printf("  MBIS Charges: (a.u.)\n");
+        outfile->Printf("   Center  Symbol  Z      Pop.       Charge\n");
+
+        for (int a = 0; a < num_atoms; a++) {
+            outfile->Printf("  %5d      %2s %4d   %9.6f   %9.6f\n", a + 1, mol->label(a).c_str(),
+                            static_cast<int>(mol->Z(a)), mol->Z(a) - mpole->get(a, 0), mpole->get(a, 0));
+        }
+
+        outfile->Printf("\n  MBIS Dipoles: [e a0]\n");
+        outfile->Printf("   Center  Symbol  Z        X           Y           Z\n");
+
+        for (int a = 0; a < num_atoms; a++) {
+            outfile->Printf("  %5d      %2s %4d   %9.6f   %9.6f   %9.6f\n", a + 1, mol->label(a).c_str(),
+                            static_cast<int>(mol->Z(a)), dpole->get(a, 0), dpole->get(a, 1), dpole->get(a, 2));
+        }
+
+        outfile->Printf("\n  MBIS Quadrupoles: [e a0^2]\n");
+        outfile->Printf("   Center  Symbol  Z      XX        XY        XZ        YY        YZ        ZZ\n");
+
+        for (int a = 0; a < num_atoms; a++) {
+            outfile->Printf("  %5d      %2s %4d   %7.4f   %7.4f   %7.4f   %7.4f   %7.4f   %7.4f\n", a + 1,
+                            mol->label(a).c_str(), static_cast<int>(mol->Z(a)), qpole->get(a, 0), qpole->get(a, 1),
+                            qpole->get(a, 2), qpole->get(a, 3), qpole->get(a, 4), qpole->get(a, 5));
+        }
+
+        outfile->Printf("\n  MBIS Octupoles: [e a0^3]\n");
+        outfile->Printf(
+            "   Center  Symbol  Z      XXX       XXY       XXZ       XYY       XYZ       XZZ       YYY       YYZ       "
+            "YZZ       ZZZ\n");
+
+        for (int a = 0; a < num_atoms; a++) {
+            outfile->Printf(
+                "  %5d      %2s %4d   %7.4f   %7.4f   %7.4f   %7.4f   %7.4f   %7.4f   %7.4f   %7.4f   %7.4f   %7.4f\n",
+                a + 1, mol->label(a).c_str(), static_cast<int>(mol->Z(a)), opole->get(a, 0), opole->get(a, 1),
+                opole->get(a, 2), opole->get(a, 3), opole->get(a, 4), opole->get(a, 5), opole->get(a, 6),
+                opole->get(a, 7), opole->get(a, 8), opole->get(a, 9));
+        }
+    }
+
+    const int max_power = options.get_int("MAX_RADIAL_MOMENT");
+    auto rmoms = compute_radial_moments(grid, rho_a, distances, num_atoms);
+
+    for (int n = 2; n <= max_power; n++) {
+        std::stringstream sstream;
+        sstream << "MBIS RADIAL MOMENTS <R^" << n << ">";
+
+        auto var_name = sstream.str();
+        wfn_->set_array_variable(var_name, rmoms[n - 2]);
+    }
+
+    auto valence_widths = std::make_shared<Matrix>("MBIS Valence Widths", num_atoms, 1);
+    for (int atom = 0; atom < num_atoms; atom++) {
+        valence_widths->set(atom, 0, Sai[atom][mA[atom] - 1]);
+    }
+    wfn_->set_array_variable("MBIS VALENCE WIDTHS", valence_widths);
+
+    // Compute the volume widths, only for molecules
+    bool free_atom = (num_atoms == 1);
+    auto volume_ratios = valence_widths->clone();
+    if (free_atom_volumes) {
+        volume_ratios->zero();
+        if (free_atom == false) {
+            for (int a = 0; a < num_atoms; ++a) {
+                double free_atom = wfn_->scalar_variable("MBIS FREE ATOM " + mol->label(a) + " VOLUME");
+                double vr = rmoms[1]->get(a, 0) / free_atom;
+                volume_ratios->set(a, 0, vr);
+            }
+            wfn_->set_array_variable("MBIS VOLUME RATIOS", volume_ratios);
+        }
+    }
+
+    if (print_output) {
+        outfile->Printf("\n  MBIS Radial Moments:");
+        outfile->Printf("\n   Center  Symbol  Z      ");
+        for (int n = 2; n <= max_power; n++) {
+            outfile->Printf("[a0^%d]      ", n);
+        }
+        for (int a = 0; a < num_atoms; a++) {
+            outfile->Printf("\n  %5d      %2s %4d", a + 1, mol->label(a).c_str(), static_cast<int>(mol->Z(a)));
+            for (int n = 2; n <= max_power; n++) {
+                outfile->Printf("   %9.6f", rmoms[n - 2]->get(a, 0));
+            }
+        }
+
+        outfile->Printf("\n\n  MBIS Valence Widths: [a0]\n");
+        outfile->Printf("   Center  Symbol  Z     Width\n");
+
+        for (int a = 0; a < num_atoms; a++) {
+            outfile->Printf("  %5d      %2s %4d   %9.6f\n", a + 1, mol->label(a).c_str(), static_cast<int>(mol->Z(a)),
+                            valence_widths->get(a, 0));
+        }
+        if (free_atom_volumes) {
+            if (free_atom == false) {
+                outfile->Printf("\n\n  MBIS Volume Ratios: \n");
+                outfile->Printf("   Center  Symbol  Z     \n");
+                for (int a = 0; a < num_atoms; a++) {
+                    outfile->Printf("  %5d      %2s %4d   %9.6f\n", a + 1, mol->label(a).c_str(),
+                                    static_cast<int>(mol->Z(a)), volume_ratios->get(a, 0));
+                }
+            }
+        }
+    }
+
+    timer_off("MBIS");
+
+    return std::make_tuple(mpole, dpole, qpole, opole);
+}
+
 void OEProp::compute_mayer_indices() {
     SharedMatrix MBI_total, MBI_alpha, MBI_beta;
     SharedVector MBI_valence;
     std::tie(MBI_total, MBI_alpha, MBI_beta, MBI_valence) = pac_.compute_mayer_indices(true);
 
-    wfn_->set_array_variable("MAYER_INDICES", MBI_total);
+    wfn_->set_array_variable("MAYER INDICES", MBI_total);
 }
 
 std::tuple<SharedMatrix, SharedMatrix, SharedMatrix, SharedVector> PopulationAnalysisCalc::compute_mayer_indices(
@@ -1818,7 +2542,7 @@ std::tuple<SharedMatrix, SharedMatrix, SharedMatrix, SharedVector> PopulationAna
     //    Note: The computed Mayer bond indices (MBI) will be different from the MBI values computed using
     //    some other program packages for the unrestricted case. The reason is that these programs left out
     //    the spin density contribution in the MBI equation for the unrestricted wavefunctions. As the result,
-    //    the MBI value will be underestimated. For example, the MBI value for the H–H bond of H2+
+    //    the MBI value will be underestimated. For example, the MBI value for the H-H bond of H2+
     //    is calculated to be 0.25 using the NBO program. The equation coded above gives the correct value of 0.5.
     //    For reference, see IJQC 29 (1986) P. 73 and IJQC 29 (1986) P. 477.
 
@@ -1847,7 +2571,7 @@ void OEProp::compute_wiberg_lowdin_indices() {
     SharedMatrix WBI_total, WBI_alpha, WBI_beta;
     SharedVector WBI_valence;
     std::tie(WBI_total, WBI_alpha, WBI_beta, WBI_valence) = pac_.compute_wiberg_lowdin_indices(true);
-    wfn_->set_array_variable("WIBERG_LOWDIN_INDICES", WBI_total);
+    wfn_->set_array_variable("WIBERG LOWDIN INDICES", WBI_total);
 }
 
 std::tuple<SharedMatrix, SharedMatrix, SharedMatrix, SharedVector>
@@ -2168,457 +2892,5 @@ void OEProp::set_Db_mo(SharedMatrix Db) {
     pac_.set_Db_mo(Db);
     epc_.set_Db_mo(Db);
 }
-
-// GridProp::GridProp(std::shared_ptr<Wavefunction> wfn) : filename_("out.grid"), Prop(wfn)
-//{
-//    common_init();
-//}
-// GridProp::GridProp() : filename_("out.grid"), Prop(Process::environment.legacy_wavefunction())
-//{
-//    common_init();
-//}
-// GridProp::~GridProp()
-//{
-//    reset();
-//    free_block(temp_tens_);
-//}
-// void GridProp::common_init()
-//{
-//    initialized_ = false;
-//    format_ = "DF3";
-//
-//    n_[0] = 40;
-//    n_[1] = 40;
-//    n_[2] = 40;
-//
-//    l_[0] = 5.0;
-//    l_[1] = 5.0;
-//    l_[2] = 5.0;
-//
-//    o_[0] = 0.0;
-//    o_[1] = 0.0;
-//    o_[2] = 0.0;
-//
-//    block_size_= 5000;
-//
-//    irrep_offsets_[0] = 0;
-//    for (int h = 0; h < Ca_so_->nirrep() - 1; h++)
-//        irrep_offsets_[h + 1] = irrep_offsets_[h] + Ca_so_->colspi()[h];
-//
-//    temp_tens_ = block_matrix(block_size_, basisset_->nbf());
-//}
-// void GridProp::add_alpha_mo(int irrep, int index)
-//{
-//    alpha_mos_.push_back(make_pair(irrep,index));
-//}
-// void GridProp::add_beta_mo(int irrep, int index)
-//{
-//    beta_mos_.push_back(make_pair(irrep,index));
-//}
-// void GridProp::add_basis_fun(int irrep, int index)
-//{
-//    basis_funs_.push_back(make_pair(irrep,index));
-//}
-// void GridProp::print_header()
-//{
-//    outfile->Printf( "\n GRIDPROP: One-electron grid properties.\n");
-//    outfile->Printf( "  by Rob Parrish and Justin Turney.\n");
-//    outfile->Printf( "  built on LIBMINTS.\n\n");
-//}
-// double*** GridProp::block_grid(int nx, int ny, int nz)
-//{
-//    double*** grid = new double**[nx];
-//
-//    double** pointers = new double*[nx*(size_t)ny];
-//
-//    double* memory = new double[nx*(size_t)ny*nz];
-//    memset(static_cast<void*>(memory), '\0', sizeof(double)*nx*ny*nz);
-//
-//    for (int i = 0; i < nx; i++)
-//        for (int j = 0; j < ny; j++)
-//            pointers[i*(size_t)ny + j] = &memory[i*(size_t)ny*nz + j*(size_t)nz];
-//
-//    for (int i = 0; i < nx; i++)
-//        grid[i] = &pointers[i*(size_t)ny];
-//
-//    return grid;
-//}
-// void GridProp::free_grid(double*** grid)
-//{
-//    delete[] grid[0][0];
-//    delete[] grid[0];
-//    delete[] grid;
-//}
-// void GridProp::build_grid_overages(double over)
-//{
-//    std::shared_ptr<Molecule> mol = basisset_->molecule();
-//
-//    double min_x = mol->x(0);
-//    double min_y = mol->y(0);
-//    double min_z = mol->z(0);
-//    double max_x = mol->x(0);
-//    double max_y = mol->y(0);
-//    double max_z = mol->z(0);
-//
-//    for (int A = 0; A < mol->natom(); A++) {
-//        if (mol->x(A) <= min_x)
-//            min_x = mol->x(A);
-//        if (mol->x(A) >= max_x)
-//            max_x = mol->x(A);
-//        if (mol->y(A) <= min_y)
-//            min_y = mol->y(A);
-//        if (mol->y(A) >= max_y)
-//            max_y = mol->y(A);
-//        if (mol->z(A) <= min_z)
-//            min_z = mol->z(A);
-//        if (mol->z(A) >= max_z)
-//            max_z = mol->z(A);
-//    }
-//
-//    min_x -= over;
-//    min_y -= over;
-//    min_z -= over;
-//    max_x += over;
-//    max_y += over;
-//    max_z += over;
-//
-//    o_[0] = 0.5*(min_x + max_x);
-//    o_[1] = 0.5*(min_y + max_y);
-//    o_[2] = 0.5*(min_z + max_z);
-//    l_[0] = (-min_x + max_x);
-//    l_[1] = (-min_y + max_y);
-//    l_[2] = (-min_z + max_z);
-//
-//    caxis_[0] = 0.0;
-//    caxis_[1] = 1.0;
-//
-//    build_grid();
-//}
-// void GridProp::build_grid()
-//{
-//    int nx = n_[0] + 1;
-//    int ny = n_[1] + 1;
-//    int nz = n_[2] + 1;
-//
-//    grid_["x"] = block_grid(nx,ny,nz);
-//    grid_["y"] = block_grid(nx,ny,nz);
-//    grid_["z"] = block_grid(nx,ny,nz);
-//
-//    double* x = new double[nx];
-//    double* y = new double[nx];
-//    double* z = new double[nx];
-//
-//    double*** xg = grid_["x"];
-//    double*** yg = grid_["y"];
-//    double*** zg = grid_["z"];
-//
-//    if (nx == 0)
-//        x[0] = 0.0;
-//    else
-//        for (int i = 0; i < nx; i++)
-//            x[i] = ((double) i) / (double (nx - 1));
-//    if (ny == 0)
-//        y[0] = 0.0;
-//    else
-//        for (int i = 0; i < ny; i++)
-//           y[i] = ((double) i) / (double (ny - 1));
-//    if (nz == 0)
-//        z[0] = 0.0;
-//    else
-//        for (int i = 0; i < nz; i++)
-//           z[i] = ((double) i) / (double (nz - 1));
-//
-//    for (int i = 0; i < nx; i++) {
-//        x[i] = l_[0] * (x[i] - 0.5) + o_[0];
-//    }
-//    for (int i = 0; i < ny; i++) {
-//        y[i] = l_[1] * (y[i] - 0.5) + o_[1];
-//    }
-//    for (int i = 0; i < nz; i++) {
-//        z[i] = l_[2] * (z[i] - 0.5) + o_[2];
-//    }
-//
-//    for (int i = 0; i < nx; i++)
-//        for (int j = 0; j < ny; j++)
-//            for (int k = 0; k < nz; k++) {
-//                xg[i][j][k] = x[i];
-//                yg[i][j][k] = y[j];
-//                zg[i][j][k] = z[k];
-//            }
-//
-//    delete[] x;
-//    delete[] y;
-//    delete[] z;
-//}
-// void GridProp::allocate_arrays()
-//{
-//    int nx = n_[0] + 1;
-//    int ny = n_[1] + 1;
-//    int nz = n_[2] + 1;
-//
-//    for (std::set<std::string>::iterator it = tasks_.begin(); it != tasks_.end(); it++) {
-//        if ((*it) == "MOS") {
-//            // TODO
-//        } else if ((*it) == "BASIS_FUNS") {
-//            // Also TODO
-//        } else {
-//            grid_[(*it)] = block_grid(nx,ny,nz);
-//        }
-//    }
-//}
-// void GridProp::compute()
-//{
-//#if 0
-//    reset();
-//
-//    initialized_ = true;
-//
-//    Da_ao_ = Da_ao();
-//    Ca_ao_ = Ca_ao();
-//    if (restricted_) {
-//        Db_ao_ = Da_ao_;
-//        Cb_ao_ = Ca_ao_;
-//    } else {
-//        Db_ao_ = Db_ao();
-//        Cb_ao_ = Cb_ao();
-//    }
-//
-//    print_header();
-//    build_grid();
-//    allocate_arrays();
-//
-//    int nx = n_[0] + 1;
-//    int ny = n_[1] + 1;
-//    int nz = n_[2] + 1;
-//    size_t ngrid = nx*(size_t)ny*nz;
-//    int nblock = ngrid / block_size_;
-//    if (ngrid % block_size_ != 0)
-//        nblock++;
-//
-//    double*** xp = grid_["x"];
-//    double*** yp = grid_["y"];
-//    double*** zp = grid_["z"];
-//
-//    // Basis points object (heavy lifting)
-//    points_ = std::make_shared<BasisPoints>(basisset_, block_size_);
-//    if (tasks_.count("GAMMA_AA") || tasks_.count("GAMMA_BB") || tasks_.count("GAMMA_AB") \
-//        || tasks_.count("TAU_A") || tasks_.count("TAU_B"))
-//        points_->setToComputeGradients(true);
-//
-//    // Grid block traversal object
-//    auto gridblock = std::make_shared<GridBlock>();
-//    gridblock->setMaxPoints(block_size_);
-//
-//    for (int block = 0; block < nblock; block++) {
-//        // Indexing
-//        int size = block_size_;
-//        if (block*(size_t)block_size_ >= ngrid)
-//            size = ngrid - block*(size_t)block_size_;
-//
-//        size_t offset = block*(size_t)block_size_;
-//
-//        // Line up gridblock pointers
-//        // Last xp is a dirty hack b/c w is not needed for points
-//        gridblock->setGrid(&xp[0][0][offset],&yp[0][0][offset],&zp[0][0][offset],&xp[0][0][offset]);
-//        gridblock->setTruePoints(size);
-//
-//        // Compute basis functions/gradients
-//        points_->computePoints(gridblock);
-//
-//        // Call compute routines
-//        if (tasks_.count("MOS"))
-//            compute_mos(gridblock, offset);
-//        if (tasks_.count("BASIS_FUNS"))
-//            compute_basis_funs(gridblock, offset);
-//        if (tasks_.count("RHO"))
-//            compute_rho(gridblock, &grid_["RHO"][0][0][offset]);
-//        if (tasks_.count("RHO_S"))
-//            compute_rho_s(gridblock, &grid_["RHO_S"][0][0][offset]);
-//        if (tasks_.count("RHO_A"))
-//            compute_rho_a(gridblock, &grid_["RHO_A"][0][0][offset]);
-//        if (tasks_.count("RHO_B"))
-//            compute_rho_b(gridblock, &grid_["RHO_B"][0][0][offset]);
-//        if (tasks_.count("GAMMA_AA"))
-//            compute_gamma_aa(gridblock, &grid_["GAMMA_AA"][0][0][offset]);
-//        if (tasks_.count("GAMMA_AB"))
-//            compute_gamma_ab(gridblock, &grid_["GAMMA_AB"][0][0][offset]);
-//        if (tasks_.count("GAMMA_BB"))
-//            compute_gamma_bb(gridblock, &grid_["GAMMA_BB"][0][0][offset]);
-//        if (tasks_.count("TAU_A"))
-//            compute_rho_b(gridblock, &grid_["TAU_A"][0][0][offset]);
-//        if (tasks_.count("TAU_B"))
-//            compute_rho_b(gridblock, &grid_["TAU_B"][0][0][offset]);
-//    }
-//
-//    // ESP is special we think
-//    if (tasks_.count("ESP"))
-//        compute_ESP();
-//
-//    if (format_ == "DF3")
-//        write_df3_grid();
-//    else
-//        write_data_grid();
-//
-//#endif
-//}
-// void GridProp::write_data_grid()
-//{
-//    int nx = n_[0] + 1;
-//    int ny = n_[1] + 1;
-//    int nz = n_[2] + 1;
-//
-//    for (std::map<std::string, double***>::iterator it = grid_.begin(); it != grid_.end(); it++) {
-//        std::string key = (*it).first;
-//        double*** data = (*it).second;
-//
-//        /* Write it to a file */
-//        int i,j,k;
-//        std::string file = filename_ + "." + key + ".dat";
-//        FILE* fptr = fopen(file.c_str(),"w");
-//        outfile->Printf(fptr,"%d %d %d\n\n", nx,ny,nz);
-//        for (k=0;k<nz;k++) {
-//           for (j=0;j<ny;j++) {
-//              for (i=0;i<nx;i++) {
-//                    outfile->Printf(fptr,"%24.16f ", data[i][j][k]);
-//                }
-//            outfile->Printf(fptr,"\n");
-//           }
-//           outfile->Printf(fptr,"\n");
-//        }
-//        fclose(fptr);
-//    }
-//}
-// void GridProp::write_df3_grid()
-//{
-//    int nx = n_[0] + 1;
-//    int ny = n_[1] + 1;
-//    int nz = n_[2] + 1;
-//
-//    for (std::map<std::string, double***>::iterator it = grid_.begin(); it != grid_.end(); it++) {
-//        std::string key = (*it).first;
-//        double*** data = (*it).second;
-//
-//        double v;
-//        double themin = data[0][0][0];
-//        double themax = data[0][0][0];
-//
-//        /* Write it to a file */
-//        std::string file = filename_ + "." + key + ".df3";
-//        FILE* fptr = fopen(file.c_str(),"w");
-//        fputc(nx >> 8,fptr);
-//        fputc(nx & 0xff,fptr);
-//        fputc(ny >> 8,fptr);
-//        fputc(ny & 0xff,fptr);
-//        fputc(nz >> 8,fptr);
-//        fputc(nz & 0xff,fptr);
-//        int i,j,k;
-//        for (k=0;k<nz;k++) {
-//           for (j=0;j<ny;j++) {
-//              for (i=0;i<nx;i++) {
-//                 if (data[i][j][k] > caxis_[1] )
-//                    v = 255;
-//                 else if (data[i][j][k] < caxis_[0])
-//                    v = 0;
-//                 else
-//                    v = 255 * (data[i][j][k]-caxis_[0])/(caxis_[1] - caxis_[0]);
-//                 fputc((int)v,fptr);
-//              }
-//           }
-//        }
-//        fclose(fptr);
-//    }
-//}
-// void GridProp::reset()
-//{
-//    if (!initialized_)
-//        return;
-//
-//    // Free the points object
-//    //points_.reset();
-//
-//    // Free the grids
-//    for (std::map<std::string, double***>::iterator it = grid_.begin(); it != grid_.end(); ++it) {
-//        free_grid((*it).second);
-//    }
-//}
-//#if 0
-// void GridProp::compute_mos(std::shared_ptr<GridBlock> g, size_t offset)
-//{
-//    throw FeatureNotImplemented("GridProp", "This property not implemented", __FILE__, __LINE__);
-//}
-// void GridProp::compute_basis_funs(std::shared_ptr<GridBlock> g, size_t offset)
-//{
-//    throw FeatureNotImplemented("GridProp", "This property not implemented", __FILE__, __LINE__);
-//}
-// void GridProp::compute_rho(std::shared_ptr<GridBlock> g, double* results)
-//{
-//    int npoints = g->getTruePoints();
-//    int nbf = basisset_->nbf();
-//    double** points = points_->getPoints();
-//    double** Da = Da_ao_->pointer();
-//    double** Db = Db_ao_->pointer();
-//
-//    // rho_a_
-//    // rho_a^Q = phi_m^Q * Da_mn * phi_n^Q
-//    C_DGEMM('N', 'N', npoints, nbf, nbf, 1.0, &points[0][0], nbf, &Da[0][0], nbf, \
-//        0.0, &temp_tens_[0][0], nbf);
-//
-//    for (int Q = 0; Q < npoints; Q++) {
-//        results[Q] = C_DDOT(nbf, &temp_tens_[Q][0], 1, &points[Q][0], 1);
-//        //printf(" Q = %d, rho = %14.10E\n", Q, rho_a_[Q]);
-//    }
-//
-//    if (!restricted_) {
-//
-//        // rho_b^Q = phi_m^Q * Db_mn * phi_n^Q
-//        C_DGEMM('N', 'N', npoints, nbf, nbf, 1.0, &points[0][0], nbf, &Db[0][0], nbf, \
-//            0.0, &temp_tens_[0][0], nbf);
-//
-//        for (int Q = 0; Q < npoints; Q++) {
-//            results[Q] += C_DDOT(nbf, &temp_tens_[Q][0], 1, &points[Q][0], 1);
-//            //printf(" Q = %d, rho = %14.10E\n", Q, rho_b_[Q]);
-//        }
-//
-//    } else {
-//        C_DSCAL(npoints,2.0,results,1);
-//    }
-//}
-// void GridProp::compute_rho_s(std::shared_ptr<GridBlock> g, double* results)
-//{
-//    throw FeatureNotImplemented("GridProp", "This property not implemented", __FILE__, __LINE__);
-//}
-// void GridProp::compute_rho_a(std::shared_ptr<GridBlock> g, double* results)
-//{
-//    throw FeatureNotImplemented("GridProp", "This property not implemented", __FILE__, __LINE__);
-//}
-// void GridProp::compute_rho_b(std::shared_ptr<GridBlock> g, double* results)
-//{
-//    throw FeatureNotImplemented("GridProp", "This property not implemented", __FILE__, __LINE__);
-//}
-// void GridProp::compute_gamma_aa(std::shared_ptr<GridBlock> g, double* results)
-//{
-//    throw FeatureNotImplemented("GridProp", "This property not implemented", __FILE__, __LINE__);
-//}
-// void GridProp::compute_gamma_ab(std::shared_ptr<GridBlock> g, double* results)
-//{
-//    throw FeatureNotImplemented("GridProp", "This property not implemented", __FILE__, __LINE__);
-//}
-// void GridProp::compute_gamma_bb(std::shared_ptr<GridBlock> g, double* results)
-//{
-//    throw FeatureNotImplemented("GridProp", "This property not implemented", __FILE__, __LINE__);
-//}
-// void GridProp::compute_tau_a(std::shared_ptr<GridBlock> g, double* results)
-//{
-//    throw FeatureNotImplemented("GridProp", "This property not implemented", __FILE__, __LINE__);
-//}
-// void GridProp::compute_tau_b(std::shared_ptr<GridBlock> g, double* results)
-//{
-//    throw FeatureNotImplemented("GridProp", "This property not implemented", __FILE__, __LINE__);
-//}
-//#endif
-// void GridProp::compute_ESP()
-//{
-//    throw FeatureNotImplemented("GridProp", "This property not implemented", __FILE__, __LINE__);
-//}
 
 }  // namespace psi

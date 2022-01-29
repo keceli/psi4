@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -40,22 +40,18 @@
 
 #include "algebra_interface.h"
 #include "blas.h"
-#include "debugging.h"
 #include "matrix.h"
 #include "operation.h"
 
 namespace psi {
 
 namespace psimrcc {
-extern MOInfo *moinfo;
 
 /**
  * This is the core of the CCBLAS class. Computes the expression in the CCOperation class.
  */
 void CCOperation::compute() {
     // Here we distinguis between all the possible cases
-    DEBUGGING(2, outfile->Printf("\nPerforming "); print_operation(););
-
     Timer numerical_timer;
     // (1) Assignment of a number
     //     Expression of the type A = - 1/2
@@ -107,8 +103,8 @@ void CCOperation::compute() {
  * Add a number to each element of a matrix
  */
 void CCOperation::add_numerical_factor() {
-    for (int h = 0; h < moinfo->get_nirreps(); ++h) {
-        CCMatIrTmp AMatIrTmp = blas->get_MatIrTmp(A_Matrix, h, none);
+    for (int h = 0; h < wfn_->moinfo()->get_nirreps(); ++h) {
+        CCMatIrTmp AMatIrTmp = wfn_->blas()->get_MatIrTmp(A_Matrix, h, none);
         check_and_zero_target_block(h);
         AMatIrTmp->add_numerical_factor(factor, h);
     }
@@ -117,12 +113,12 @@ void CCOperation::add_numerical_factor() {
 void CCOperation::dot_product() {
     if (compatible_dot()) {
         double dot_product = 0.0;
-        for (int h = 0; h < moinfo->get_nirreps(); ++h) {
-            CCMatIrTmp BMatIrTmp = blas->get_MatIrTmp(B_Matrix, h, none);
-            CCMatIrTmp CMatIrTmp = blas->get_MatIrTmp(C_Matrix, h, none);
+        for (int h = 0; h < wfn_->moinfo()->get_nirreps(); ++h) {
+            CCMatIrTmp BMatIrTmp = wfn_->blas()->get_MatIrTmp(B_Matrix, h, none);
+            CCMatIrTmp CMatIrTmp = wfn_->blas()->get_MatIrTmp(C_Matrix, h, none);
             dot_product += CCMatrix::dot_product(BMatIrTmp.get_CCMatrix(), CMatIrTmp.get_CCMatrix(), h);
         }
-        CCMatTmp AMatTmp = blas->get_MatTmp(A_Matrix, none);
+        CCMatTmp AMatTmp = wfn_->blas()->get_MatTmp(A_Matrix, none);
         if (assignment == "=" || assignment == ">=")
             AMatTmp->set_scalar(dot_product * factor);
         else
@@ -133,11 +129,11 @@ void CCOperation::dot_product() {
 
 void CCOperation::element_by_element_product() {
     if (compatible_element_by_element()) {
-        for (int h = 0; h < moinfo->get_nirreps(); ++h) {
-            CCMatIrTmp AMatIrTmp = blas->get_MatIrTmp(A_Matrix, h, none);
+        for (int h = 0; h < wfn_->moinfo()->get_nirreps(); ++h) {
+            CCMatIrTmp AMatIrTmp = wfn_->blas()->get_MatIrTmp(A_Matrix, h, none);
             check_and_zero_target_block(h);
-            CCMatIrTmp BMatIrTmp = blas->get_MatIrTmp(B_Matrix, h, none);
-            CCMatIrTmp CMatIrTmp = blas->get_MatIrTmp(C_Matrix, h, none);
+            CCMatIrTmp BMatIrTmp = wfn_->blas()->get_MatIrTmp(B_Matrix, h, none);
+            CCMatIrTmp CMatIrTmp = wfn_->blas()->get_MatIrTmp(C_Matrix, h, none);
             AMatIrTmp->element_by_element_product(factor, BMatIrTmp.get_CCMatrix(), CMatIrTmp.get_CCMatrix(), h);
         }
     } else
@@ -146,11 +142,11 @@ void CCOperation::element_by_element_product() {
 
 void CCOperation::element_by_element_division() {
     if (compatible_element_by_element()) {
-        for (int h = 0; h < moinfo->get_nirreps(); ++h) {
-            CCMatIrTmp AMatIrTmp = blas->get_MatIrTmp(A_Matrix, h, none);
+        for (int h = 0; h < wfn_->moinfo()->get_nirreps(); ++h) {
+            CCMatIrTmp AMatIrTmp = wfn_->blas()->get_MatIrTmp(A_Matrix, h, none);
             check_and_zero_target_block(h);
-            CCMatIrTmp BMatIrTmp = blas->get_MatIrTmp(B_Matrix, h, none);
-            CCMatIrTmp CMatIrTmp = blas->get_MatIrTmp(C_Matrix, h, none);
+            CCMatIrTmp BMatIrTmp = wfn_->blas()->get_MatIrTmp(B_Matrix, h, none);
+            CCMatIrTmp CMatIrTmp = wfn_->blas()->get_MatIrTmp(C_Matrix, h, none);
             AMatIrTmp->element_by_element_division(factor, BMatIrTmp.get_CCMatrix(), CMatIrTmp.get_CCMatrix(), h);
         }
     } else
@@ -159,44 +155,32 @@ void CCOperation::element_by_element_division() {
 
 void CCOperation::element_by_element_addition() {
     if (compatible_element_by_element() && (reindexing.size() == 0)) {
-        DEBUGGING(4, outfile->Printf("\n...same indexing for the target and the output of this operation"););
-        for (int h = 0; h < moinfo->get_nirreps(); ++h) {
-            CCMatIrTmp AMatIrTmp = blas->get_MatIrTmp(A_Matrix, h, none);
+        for (int h = 0; h < wfn_->nirrep(); ++h) {
+            CCMatIrTmp AMatIrTmp = wfn_->blas()->get_MatIrTmp(A_Matrix, h, none);
             check_and_zero_target_block(h);
-            CCMatIrTmp BMatIrTmp = blas->get_MatIrTmp(B_Matrix, h, none);
+            CCMatIrTmp BMatIrTmp = wfn_->blas()->get_MatIrTmp(B_Matrix, h, none);
             AMatIrTmp->element_by_element_addition(factor, BMatIrTmp.get_CCMatrix(), h);
         }
     } else if (reindexing.size() != 0) {
-        DEBUGGING(4, outfile->Printf("\n...different indexing for the target and the output of this operation"););
-        CCMatTmp AMatTmp = blas->get_MatTmp(A_Matrix, none);
+        CCMatTmp AMatTmp = wfn_->blas()->get_MatTmp(A_Matrix, none);
         check_and_zero_target();
-        CCMatTmp BMatTmp = blas->get_MatTmp(B_Matrix, none);
+        CCMatTmp BMatTmp = wfn_->blas()->get_MatTmp(B_Matrix, none);
         sort();
     } else
         fail_to_compute();
 }
 
 void CCOperation::tensor_product() {
-    DEBUGGING(4, outfile->Printf("\n...different indexing for the target and the output of this operation"););
     if (reindexing.size() == 0) reindexing = "1234";
     // Perform this for all the matrix at once
-    CCMatTmp AMatTmp = blas->get_MatTmp(A_Matrix, none);
+    CCMatTmp AMatTmp = wfn_->blas()->get_MatTmp(A_Matrix, none);
     check_and_zero_target();
-    CCMatTmp BMatTmp = blas->get_MatTmp(B_Matrix, none);
-    CCMatTmp CMatTmp = blas->get_MatTmp(C_Matrix, none);
+    CCMatTmp BMatTmp = wfn_->blas()->get_MatTmp(B_Matrix, none);
+    CCMatTmp CMatTmp = wfn_->blas()->get_MatTmp(C_Matrix, none);
     AMatTmp->tensor_product(reindexing, factor, BMatTmp.get_CCMatrix(), CMatTmp.get_CCMatrix());
 }
 
-void CCOperation::contract() {
-    if (compatible_contract() && (reindexing.size() == 0)) {
-        // Same indexing contract, let BLAS directly handle this (although we guide it)
-        DEBUGGING(4, outfile->Printf("\n...same indexing for the target and the output of this operation"););
-    } else {
-        // Different indexing contract, we work this by hand at first
-        DEBUGGING(4, outfile->Printf("\n...different indexing for the target and the output of this operation"););
-    }
-    setup_contractions();
-}
+void CCOperation::contract() { setup_contractions(); }
 
 void CCOperation::zero_two_diagonal() { A_Matrix->zero_two_diagonal(); }
 
@@ -209,7 +193,7 @@ void CCOperation::check_and_zero_target_block(int h) {
 }
 
 void CCOperation::zero_target() {
-    for (int h = 0; h < moinfo->get_nirreps(); ++h) A_Matrix->zero_matrix();
+    for (int h = 0; h < wfn_->moinfo()->get_nirreps(); ++h) A_Matrix->zero_matrix();
 }
 
 void CCOperation::zero_target_block(int h) {
@@ -227,11 +211,6 @@ void CCOperation::fail_to_compute() {
 
 //   Timer zero_timer;
 //   // Parse the assignment for "= >=" and in this case zero A_Matrix
-//   if(assignment=="=" || assignment==">="){
-//     DEBUGGING(4,
-//       outfile->Printf("\n...zero the target Matrix");
-//
-//   }
 //   zero_timing += zero_timer.get();
 
 // void CCBlas::compute(std::vector<double>& factors,std::vector<int>& types,std::vector<std::string>&
@@ -248,26 +227,6 @@ void CCOperation::fail_to_compute() {
 //     string operation = operations[group+1];
 //     if(operation!="plus")
 //       C_type    = types[group_index++];
-//
-//     if(operation!="plus"){
-//       DEBUGGING(4,
-//
-//         factor,matrix_labels(B_type).c_str(),operation.c_str(),matrix_labels(C_type).c_str(),matrix_labels(A_type).c_str());
-//     }else{
-//       DEBUGGING(4,
-//       outfile->Printf("\n\nPerforming %lf %s -> %s",
-//         factor,matrix_labels(B_type).c_str(),matrix_labels(A_type).c_str());
-//     }
-//
-//     // What is the size of the first operation? This determines whether
-//     // we are incrementing the existing array or assigning a new value
-//     if((group==0) && (operations[0]=="=")){
-//       DEBUGGING(4,
-//         outfile->Printf("\n...zero the target Matrix");
-//       zero_matrix(types[0]);
-//     }
-//
-//
 //   }
 // }
 

@@ -3,7 +3,7 @@
 .. #
 .. # Psi4: an open-source quantum chemistry software package
 .. #
-.. # Copyright (c) 2007-2019 The Psi4 Developers.
+.. # Copyright (c) 2007-2022 The Psi4 Developers.
 .. #
 .. # The copyrights for code used from other parties are included in
 .. # the corresponding files.
@@ -41,28 +41,28 @@ Interface to programs through FCHK files |w---w| :py:func:`~psi4.fchk()`
 .. sectionauthor:: Andrew C. Simmonett
 
 Many post-processing tools can read information from `Gaussian's formatted
-checkpoint (FCHK) files <http://www.gaussian.com/g_tech/g_ur/f_formchk.htm>`_.
+checkpoint (FCHK) files <https://gaussian.com/formchk/>`_.
 To allow interoperability with such tools, |PSIfour| includes a utility to
 generate FCHK files.  Wavefunction information, such as orbitals, densities,
 orbital energies and basis set information is currently supported, but geometry
 optimization and vibrational frequency information are not supported at this
 time.  To generate a FCHK file, simply store the wavefunction from the energy
-calculation, and use it to create an FCHK writer::
+calculation, and hand it to the fchk driver function::
 
     energy, wfn = energy('scf', return_wfn=True)
-    fchk_writer = psi4.core.FCHKWriter(wfn)
-    fchk_writer.write('output.fchk')
+    fchk(wfn,'output.fchk')
 
-The file will be written to the name passed to the FCHK writer's *write()*
-method.  Note that for MP2 and CCSD methods, the energy can be computed without
+The file will be written to the name passed to the fchk function.
+Note that for MP2 and CCSD methods, the energy can be computed without
 the expensive steps required to compute the density, so energy calls for these
 methods will return a wavefunction that has the Hartree--Fock density.  If a
 density is required for these methods, the user should instead request a
 gradient computation, to ensure that the density is updated appropriately::
 
     grad, wfn = gradient('mp2', return_wfn=True)
-    fchk_writer = psi4.core.FCHKWriter(wfn)
-    fchk_writer.write('output.fchk')
+    fchk(wfn,'output.fchk')
+
 
 .. autofunction:: psi4.fchk(wfn, filename)
+   :noindex:
 

@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -111,6 +111,8 @@ class DataType {
     virtual void assign(double);
     virtual void assign(std::string);
 
+    virtual std::vector<std::string> choices();
+
     virtual void reset();
 
     virtual Data& operator[](std::string);
@@ -212,6 +214,8 @@ class StringDataType : public DataType {
     void assign(int i) override;
     void assign(double d) override;
     void assign(std::string s) override;
+
+    std::vector<std::string> choices() override { return choices_; }
 };
 
 #ifdef __INTEL_COMPILER
@@ -239,6 +243,8 @@ class IStringDataType : public DataType {
     void assign(int i) override;
     void assign(double d) override;
     void assign(std::string s) override;
+
+    std::vector<std::string> choices() override { return choices_; }
 };
 
 class PSI_API Data {
@@ -282,6 +288,8 @@ class PSI_API Data {
     void assign(int i);
     void assign(double d);
     void assign(std::string s);
+
+    std::vector<std::string> choices();
 
     void reset();
 

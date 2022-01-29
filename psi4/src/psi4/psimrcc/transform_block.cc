@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -34,7 +34,6 @@ PRAGMA_WARNING_PUSH
 PRAGMA_WARNING_IGNORE_DEPRECATED_DECLARATIONS
 #include <memory>
 PRAGMA_WARNING_POP
-#include "psi4/libmoinfo/libmoinfo.h"
 #include "psi4/libpsi4util/libpsi4util.h"
 
 #define CCTRANSFORM_USE_BLAS
@@ -55,12 +54,8 @@ PRAGMA_WARNING_POP
 #include "index.h"
 #include "transform.h"
 
-extern FILE *outfile;
-
 namespace psi {
 namespace psimrcc {
-extern MOInfo *moinfo;
-extern MemoryManager *memory_manager;
 
 /**
  * Read at least one block of the two electron MO integrals from an iwl buffer assuming Pitzer ordering and store them
@@ -85,32 +80,28 @@ int CCTransform::read_tei_mo_integrals_block(int first_irrep) {
  * Allocate as many blocks of the tei_mo array and exit(EXIT_FAILURE) if there is not enough space
  */
 int CCTransform::allocate_tei_mo_block(int first_irrep) {
-    if (first_irrep > moinfo->get_nirreps()) {
+    if (first_irrep > wfn_->nirrep()) {
         outfile->Printf("\n    Transform: allocate_tei_mo_block() was called with first_irrep > nirreps !");
 
         exit(EXIT_FAILURE);
     }
 
     size_t available_transform_memory =
-        static_cast<size_t>(static_cast<double>(memory_manager->get_FreeMemory()) * fraction_of_memory_for_presorting);
+        static_cast<size_t>(static_cast<double>(wfn_->free_memory_) * fraction_of_memory_for_presorting);
 
     int last_irrep = first_irrep;
 
-    if (tei_mo == nullptr) {
-        // Allocate the tei_mo matrix blocks
-        allocate1(double *, tei_mo, moinfo->get_nirreps());
-        for (int h = 0; h < moinfo->get_nirreps(); ++h) tei_mo[h] = nullptr;
-    }
+    tei_mo = std::vector<std::vector<double>>(wfn_->nirrep());
 
     // Find how many irreps we can store in 95% of the free memory
     std::vector<size_t> pairpi = tei_mo_indexing->get_pairpi();
-    for (int h = first_irrep; h < moinfo->get_nirreps(); ++h) {
+    for (int h = first_irrep; h < wfn_->nirrep(); ++h) {
         size_t required_memory = (INDEX(pairpi[h] - 1, pairpi[h] - 1) + 1) * static_cast<size_t>(sizeof(double));
         if (required_memory != 0) {
             if (required_memory < available_transform_memory) {
                 available_transform_memory -= required_memory;
-                allocate1(double, tei_mo[h], INDEX(pairpi[h] - 1, pairpi[h] - 1) + 1)
-                    zero_arr(tei_mo[h], INDEX(pairpi[h] - 1, pairpi[h] - 1) + 1);
+                wfn_->free_memory_ -= required_memory;
+                tei_mo[h] = std::vector<double>(INDEX(pairpi[h] - 1, pairpi[h] - 1) + 1, 0);
                 last_irrep++;
             }
         } else {
@@ -128,19 +119,11 @@ int CCTransform::allocate_tei_mo_block(int first_irrep) {
     return (last_irrep);
 }
 
-/**
- * Free the blocks included in the first_irrep->last_irrep range
- */
-void CCTransform::free_tei_mo_integrals_block(int first_irrep, int last_irrep) {
-    for (int h = first_irrep; h < last_irrep; ++h) {
-        if (tei_mo[h] != nullptr) {
-            release1(tei_mo[h]);
-        }
+void CCTransform::free_tei_mo_block(int first_irrep, int last_irrep) {
+    for (auto h = first_irrep; h < last_irrep; h++) {
+        wfn_->free_memory_ += sizeof(double) * tei_mo[h].size();
     }
-    if (last_irrep >= moinfo->get_nirreps()) {
-        release1(tei_mo);
-        tei_mo = nullptr;
-    }
+    tei_mo.clear();
 }
 
 double CCTransform::tei_block(int p, int q, int r, int s) {

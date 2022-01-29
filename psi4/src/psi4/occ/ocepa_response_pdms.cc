@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -36,9 +36,9 @@ namespace occwave {
 void OCCWave::ocepa_response_pdms() {
     // outfile->Printf("\n response_pdms is starting... \n");
 
-    // Build G intermediates
+    // Build G intermediates, correlation correction to 1PDM
     timer_on("G int");
-    ocepa_g_int();
+    second_order_opdm();
     timer_off("G int");
 
     if (reference_ == "RESTRICTED") {
@@ -46,7 +46,7 @@ void OCCWave::ocepa_response_pdms() {
         gamma1corr->zero();
         g1symm->zero();
 
-        // OPDM
+        // Impose hermitian symmetry on the OPDM blocks, and assemble them into a single matrix.
         timer_on("OPDM");
 // OO-block alpha contrb.
 #pragma omp parallel for
@@ -89,33 +89,6 @@ void OCCWave::ocepa_response_pdms() {
         if (print_ > 1) {
             g1symm->print();
         }
-
-        // TPDM
-        timer_on("V int");
-        v_int();
-        timer_off("V int");
-        timer_on("TPDM OOVV");
-        tpdm_oovv();
-        timer_off("TPDM OOVV");
-        timer_on("TPDM OOOO");
-        tpdm_oooo();
-        timer_off("TPDM OOOO");
-
-        if (twopdm_abcd_type == "COMPUTE") {
-            timer_on("TPDM VVVV");
-            ocepa_tpdm_vvvv();
-            timer_off("TPDM VVVV");
-        }
-
-        timer_on("TPDM OVOV");
-        tpdm_ovov();
-        timer_off("TPDM OVOV");
-        timer_on("TPDM REF");
-        tpdm_ref();
-        timer_off("TPDM REF");
-        timer_on("TPDM CORR OPDM");
-        tpdm_corr_opdm();
-        timer_off("TPDM CORR OPDM");
     }  // end if (reference_ == "RESTRICTED")
 
     else if (reference_ == "UNRESTRICTED") {
@@ -125,7 +98,7 @@ void OCCWave::ocepa_response_pdms() {
         g1symmA->zero();
         g1symmB->zero();
 
-        // OPDM
+        // For each spin: Impose hermitian symmetry on the OPDM blocks, and assemble them into a single matrix.
         timer_on("OPDM");
 // OO-block alpha contrb.
 #pragma omp parallel for
@@ -204,40 +177,43 @@ void OCCWave::ocepa_response_pdms() {
             g1symmB->print();
         }
 
-        // TPDM
-        timer_on("V int");
-        v_int();
-        timer_off("V int");
-        timer_on("TPDM OOVV");
-        tpdm_oovv();
-        timer_off("TPDM OOVV");
-        timer_on("TPDM OOOO");
-        tpdm_oooo();
-        timer_off("TPDM OOOO");
+    }  // end if (reference_ == "UNRESTRICTED")
 
-        if (twopdm_abcd_type == "COMPUTE") {
-            timer_on("TPDM VVVV");
-            ocepa_tpdm_vvvv();
-            timer_off("TPDM VVVV");
-        }
+    // TPDM
+    timer_on("V int");
+    v_int();
+    timer_off("V int");
+    timer_on("TPDM OOVV");
+    tpdm_oovv();
+    timer_off("TPDM OOVV");
+    timer_on("TPDM OOOO");
+    tpdm_oooo();
+    timer_off("TPDM OOOO");
 
-        timer_on("TPDM OVOV");
-        tpdm_ovov();
-        timer_off("TPDM OVOV");
+    if (twopdm_abcd_type == "COMPUTE") {
+        timer_on("TPDM VVVV");
+        ocepa_tpdm_vvvv();
+        timer_off("TPDM VVVV");
+    }
+
+    timer_on("TPDM OVOV");
+    tpdm_ovov();
+    timer_off("TPDM OVOV");
+    if (reference_ == "UNRESTRICTED") {
         timer_on("TPDM VOVO");
         tpdm_vovo();
         timer_off("TPDM VOVO");
         timer_on("TPDM OVVO");
         tpdm_ovvo();
         timer_off("TPDM OVVO");
-        timer_on("TPDM REF");
-        tpdm_ref();
-        timer_off("TPDM REF");
-        timer_on("TPDM CORR OPDM");
-        tpdm_corr_opdm();
-        timer_off("TPDM CORR OPDM");
-    }  // end if (reference_ == "UNRESTRICTED")
-       // outfile->Printf("\n response_pdms done... \n");
+    }
+    timer_on("TPDM REF");
+    tpdm_ref();
+    timer_off("TPDM REF");
+    timer_on("TPDM CORR OPDM");
+    tpdm_corr_opdm();
+    timer_off("TPDM CORR OPDM");
+   // outfile->Printf("\n response_pdms done... \n");
 }  // end of response_pdms
 }
 }  // End Namespaces

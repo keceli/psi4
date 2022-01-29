@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -34,10 +34,8 @@
 #include "psi4/libpsi4util/libpsi4util.h"
 
 #include "blas.h"
-#include "debugging.h"
 #include "idmrpt2.h"
-
-extern FILE* outfile;
+#include "psimrcc_wfn.h"
 
 namespace psi {
 namespace psimrcc {
@@ -57,14 +55,13 @@ void IDMRPT2::build_F_intermediates() {
  * \f]
  */
 void IDMRPT2::build_F_ae_intermediates() {
-    START_TIMER(1, "Building the F_ae Intermediates");
+    START_TIMER("Building the F_ae Intermediates");
 
-    blas->solve("F_ae[v][v]{u} = fock[v][v]{u}");
-    blas->solve_zero_two_diagonal("F_ae[v][v]{u}");
-    blas->zero_non_external("F_ae[v][v]{u}");
+    wfn_->blas()->solve("F_ae[v][v]{u} = fock[v][v]{u}");
+    wfn_->blas()->solve_zero_two_diagonal("F_ae[v][v]{u}");
+    wfn_->blas()->zero_non_external("F_ae[v][v]{u}");
 
-    DEBUGGING(3, blas->print("F_ae[v][v]{u}"););
-    END_TIMER(1);
+    END_TIMER("Building the F_ae Intermediates");
 }
 
 /**
@@ -74,14 +71,13 @@ void IDMRPT2::build_F_ae_intermediates() {
  * \f]
  */
 void IDMRPT2::build_F_AE_intermediates() {
-    START_TIMER(1, "Building the F_AE Intermediates");
+    START_TIMER("Building the F_AE Intermediates");
 
-    blas->solve("F_AE[V][V]{u} = fock[V][V]{u}");
-    blas->solve_zero_two_diagonal("F_AE[V][V]{u}");
-    blas->zero_non_external("F_AE[V][V]{u}");
+    wfn_->blas()->solve("F_AE[V][V]{u} = fock[V][V]{u}");
+    wfn_->blas()->solve_zero_two_diagonal("F_AE[V][V]{u}");
+    wfn_->blas()->zero_non_external("F_AE[V][V]{u}");
 
-    DEBUGGING(3, blas->print("F_AE[V][V]{u}"););
-    END_TIMER(1);
+    END_TIMER("Building the F_AE Intermediates");
 }
 
 /**
@@ -91,14 +87,13 @@ void IDMRPT2::build_F_AE_intermediates() {
  * \f]
  */
 void IDMRPT2::build_F_mi_intermediates() {
-    START_TIMER(1, "Building the F_mi Intermediates");
+    START_TIMER("Building the F_mi Intermediates");
 
-    blas->solve("F_mi[o][o]{u} = fock[o][o]{u}");
-    blas->solve_zero_two_diagonal("F_mi[o][o]{u}");
-    blas->zero_non_doubly_occupied("F_mi[o][o]{u}");
+    wfn_->blas()->solve("F_mi[o][o]{u} = fock[o][o]{u}");
+    wfn_->blas()->solve_zero_two_diagonal("F_mi[o][o]{u}");
+    wfn_->blas()->zero_non_doubly_occupied("F_mi[o][o]{u}");
 
-    DEBUGGING(3, blas->print("F_mi[o][o]{u}"););
-    END_TIMER(1);
+    END_TIMER("Building the F_mi Intermediates");
 }
 
 /**
@@ -108,14 +103,13 @@ void IDMRPT2::build_F_mi_intermediates() {
  * \f]
  */
 void IDMRPT2::build_F_MI_intermediates() {
-    START_TIMER(1, "Building the F_MI Intermediates");
+    START_TIMER("Building the F_MI Intermediates");
 
-    blas->solve("F_MI[O][O]{u} = fock[O][O]{u}");
-    blas->solve_zero_two_diagonal("F_MI[O][O]{u}");
-    blas->zero_non_doubly_occupied("F_MI[O][O]{u}");
+    wfn_->blas()->solve("F_MI[O][O]{u} = fock[O][O]{u}");
+    wfn_->blas()->solve_zero_two_diagonal("F_MI[O][O]{u}");
+    wfn_->blas()->zero_non_doubly_occupied("F_MI[O][O]{u}");
 
-    DEBUGGING(3, blas->print("F_MI[O][O]{u}"););
-    END_TIMER(1);
+    END_TIMER("Building the F_MI Intermediates");
 }
 
 }  // namespace psimrcc

@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -104,6 +104,11 @@ void CoupledPair::WriteBanner() {
     if (options_.get_str("CEPA_LEVEL") == "CEPA(0)") {
         outfile->Printf("        *                       CEPA(0)                       *\n");
         outfile->Printf("        *        Coupled Electron Pair Approximation          *\n");
+        if (options_.get_bool("CEPA_NO_SINGLES")) {
+            outfile->Printf("        *                  (Linearized CCD)                   *\n");
+        } else {
+            outfile->Printf("        *                  (Linearized CCSD)                  *\n");
+        }
     } else if (options_.get_str("CEPA_LEVEL") == "CEPA(1)") {
         outfile->Printf("        *                       CEPA(1)                       *\n");
         outfile->Printf("        *        Coupled Electron Pair Approximation          *\n");
@@ -150,68 +155,76 @@ double CoupledPair::compute_energy() {
     tstop();
 
     // mp2 energy
-    Process::environment.globals["MP2 CORRELATION ENERGY"] = emp2;
-    Process::environment.globals["MP2 OPPOSITE-SPIN CORRELATION ENERGY"] = emp2_os;
-    Process::environment.globals["MP2 SAME-SPIN CORRELATION ENERGY"] = emp2_ss;
-    Process::environment.globals["MP2 TOTAL ENERGY"] = emp2 + escf;
+    set_scalar_variable("MP2 SINGLES ENERGY", 0.0);  // fnocc RHF only
+    set_scalar_variable("MP2 DOUBLES ENERGY", emp2_os + emp2_ss);
+    set_scalar_variable("MP2 CORRELATION ENERGY", emp2);
+    set_scalar_variable("MP2 OPPOSITE-SPIN CORRELATION ENERGY", emp2_os);
+    set_scalar_variable("MP2 SAME-SPIN CORRELATION ENERGY", emp2_ss);
+    set_scalar_variable("MP2 TOTAL ENERGY", emp2 + escf);
 
     // cepa energy
     char *cepatype = (char *)malloc(100 * sizeof(char));
     if (cepa_level == 0) {
         if (options_.get_bool("CEPA_NO_SINGLES")) {
-            Process::environment.globals["LCCD CORRELATION ENERGY"] = eccsd;
-            Process::environment.globals["LCCD OPPOSITE-SPIN CORRELATION ENERGY"] = eccsd_os;
-            Process::environment.globals["LCCD SAME-SPIN CORRELATION ENERGY"] = eccsd_ss;
-            Process::environment.globals["LCCD TOTAL ENERGY"] = eccsd + escf;
+            set_scalar_variable("LCCD SINGLES ENERGY", 0.0);  // fnocc RHF only
+            set_scalar_variable("LCCD DOUBLES ENERGY", eccsd_os + eccsd_ss);
+            set_scalar_variable("LCCD CORRELATION ENERGY", eccsd);
+            set_scalar_variable("LCCD OPPOSITE-SPIN CORRELATION ENERGY", eccsd_os);
+            set_scalar_variable("LCCD SAME-SPIN CORRELATION ENERGY", eccsd_ss);
+            set_scalar_variable("LCCD TOTAL ENERGY", eccsd + escf);
         } else {
-            Process::environment.globals["LCCSD CORRELATION ENERGY"] = eccsd;
-            Process::environment.globals["LCCSD OPPOSITE-SPIN CORRELATION ENERGY"] = eccsd_os;
-            Process::environment.globals["LCCSD SAME-SPIN CORRELATION ENERGY"] = eccsd_ss;
-            Process::environment.globals["LCCSD TOTAL ENERGY"] = eccsd + escf;
-            Process::environment.globals["CEPA(0) CORRELATION ENERGY"] = eccsd;
-            Process::environment.globals["CEPA(0) OPPOSITE-SPIN CORRELATION ENERGY"] = eccsd_os;
-            Process::environment.globals["CEPA(0) SAME-SPIN CORRELATION ENERGY"] = eccsd_ss;
-            Process::environment.globals["CEPA(0) TOTAL ENERGY"] = eccsd + escf;
+            set_scalar_variable("LCCSD SINGLES ENERGY", 0.0);  // fnocc RHF only
+            set_scalar_variable("LCCSD DOUBLES ENERGY", eccsd_os + eccsd_ss);
+            set_scalar_variable("LCCSD CORRELATION ENERGY", eccsd);
+            set_scalar_variable("LCCSD OPPOSITE-SPIN CORRELATION ENERGY", eccsd_os);
+            set_scalar_variable("LCCSD SAME-SPIN CORRELATION ENERGY", eccsd_ss);
+            set_scalar_variable("LCCSD TOTAL ENERGY", eccsd + escf);
+            set_scalar_variable("CEPA(0) SINGLES ENERGY", 0.0);  // fnocc RHF only
+            set_scalar_variable("CEPA(0) DOUBLES ENERGY", eccsd_os + eccsd_ss);
+            set_scalar_variable("CEPA(0) CORRELATION ENERGY", eccsd);
+            set_scalar_variable("CEPA(0) OPPOSITE-SPIN CORRELATION ENERGY", eccsd_os);
+            set_scalar_variable("CEPA(0) SAME-SPIN CORRELATION ENERGY", eccsd_ss);
+            set_scalar_variable("CEPA(0) TOTAL ENERGY", eccsd + escf);
         }
     }
     if (cepa_level == 1) {
-        Process::environment.globals["CEPA(1) CORRELATION ENERGY"] = eccsd;
-        Process::environment.globals["CEPA(1) OPPOSITE-SPIN CORRELATION ENERGY"] = eccsd_os;
-        Process::environment.globals["CEPA(1) SAME-SPIN CORRELATION ENERGY"] = eccsd_ss;
-        Process::environment.globals["CEPA(1) TOTAL ENERGY"] = eccsd + escf;
+        set_scalar_variable("CEPA(1) CORRELATION ENERGY", eccsd);
+        set_scalar_variable("CEPA(1) OPPOSITE-SPIN CORRELATION ENERGY", eccsd_os);
+        set_scalar_variable("CEPA(1) SAME-SPIN CORRELATION ENERGY", eccsd_ss);
+        set_scalar_variable("CEPA(1) TOTAL ENERGY", eccsd + escf);
     }
     if (cepa_level == 2) {
-        Process::environment.globals["CEPA(2) CORRELATION ENERGY"] = eccsd;
-        Process::environment.globals["CEPA(2) OPPOSITE-SPIN CORRELATION ENERGY"] = eccsd_os;
-        Process::environment.globals["CEPA(2) SAME-SPIN CORRELATION ENERGY"] = eccsd_ss;
-        Process::environment.globals["CEPA(2) TOTAL ENERGY"] = eccsd + escf;
+        set_scalar_variable("CEPA(2) CORRELATION ENERGY", eccsd);
+        set_scalar_variable("CEPA(2) OPPOSITE-SPIN CORRELATION ENERGY", eccsd_os);
+        set_scalar_variable("CEPA(2) SAME-SPIN CORRELATION ENERGY", eccsd_ss);
+        set_scalar_variable("CEPA(2) TOTAL ENERGY", eccsd + escf);
     }
     if (cepa_level == 3) {
-        Process::environment.globals["CEPA(3) CORRELATION ENERGY"] = eccsd;
-        Process::environment.globals["CEPA(3) OPPOSITE-SPIN CORRELATION ENERGY"] = eccsd_os;
-        Process::environment.globals["CEPA(3) SAME-SPIN CORRELATION ENERGY"] = eccsd_ss;
-        Process::environment.globals["CEPA(3) TOTAL ENERGY"] = eccsd + escf;
+        set_scalar_variable("CEPA(3) CORRELATION ENERGY", eccsd);
+        set_scalar_variable("CEPA(3) OPPOSITE-SPIN CORRELATION ENERGY", eccsd_os);
+        set_scalar_variable("CEPA(3) SAME-SPIN CORRELATION ENERGY", eccsd_ss);
+        set_scalar_variable("CEPA(3) TOTAL ENERGY", eccsd + escf);
     }
     if (cepa_level == -1) {
-        Process::environment.globals["CISD CORRELATION ENERGY"] = eccsd;
-        Process::environment.globals["CISD OPPOSITE-SPIN CORRELATION ENERGY"] = eccsd_os;
-        Process::environment.globals["CISD SAME-SPIN CORRELATION ENERGY"] = eccsd_ss;
-        Process::environment.globals["CISD TOTAL ENERGY"] = eccsd + escf;
+        set_scalar_variable("CISD CORRELATION ENERGY", eccsd);
+        set_scalar_variable("CISD OPPOSITE-SPIN CORRELATION ENERGY", eccsd_os);
+        set_scalar_variable("CISD SAME-SPIN CORRELATION ENERGY", eccsd_ss);
+        set_scalar_variable("CISD TOTAL ENERGY", eccsd + escf);
     }
     if (cepa_level == -2) {
-        Process::environment.globals["ACPF CORRELATION ENERGY"] = eccsd;
-        Process::environment.globals["ACPF OPPOSITE-SPIN CORRELATION ENERGY"] = eccsd_os;
-        Process::environment.globals["ACPF SAME-SPIN CORRELATION ENERGY"] = eccsd_ss;
-        Process::environment.globals["ACPF TOTAL ENERGY"] = eccsd + escf;
+        set_scalar_variable("ACPF CORRELATION ENERGY", eccsd);
+        set_scalar_variable("ACPF OPPOSITE-SPIN CORRELATION ENERGY", eccsd_os);
+        set_scalar_variable("ACPF SAME-SPIN CORRELATION ENERGY", eccsd_ss);
+        set_scalar_variable("ACPF TOTAL ENERGY", eccsd + escf);
     }
     if (cepa_level == -3) {
-        Process::environment.globals["AQCC CORRELATION ENERGY"] = eccsd;
-        Process::environment.globals["AQCC OPPOSITE-SPIN CORRELATION ENERGY"] = eccsd_os;
-        Process::environment.globals["AQCC SAME-SPIN CORRELATION ENERGY"] = eccsd_ss;
-        Process::environment.globals["AQCC TOTAL ENERGY"] = eccsd + escf;
+        set_scalar_variable("AQCC CORRELATION ENERGY", eccsd);
+        set_scalar_variable("AQCC OPPOSITE-SPIN CORRELATION ENERGY", eccsd_os);
+        set_scalar_variable("AQCC SAME-SPIN CORRELATION ENERGY", eccsd_ss);
+        set_scalar_variable("AQCC TOTAL ENERGY", eccsd + escf);
     }
-    Process::environment.globals["CURRENT ENERGY"] = eccsd + escf;
-    Process::environment.globals["CURRENT CORRELATION ENERGY"] = eccsd;
+    set_scalar_variable("CURRENT ENERGY", eccsd + escf);
+    set_scalar_variable("CURRENT CORRELATION ENERGY", eccsd);
 
     // build opdm in case we want properties.
     if (cepa_level <= 0) {
@@ -384,9 +397,9 @@ PsiReturnType CoupledPair::CEPAIterations() {
 
     // delta mp2 correction for fno computations:
     if (options_.get_bool("NAT_ORBS")) {
-        double delta_emp2 = Process::environment.globals["MP2 CORRELATION ENERGY"] - emp2;
-        double delta_emp2_os = Process::environment.globals["MP2 OPPOSITE-SPIN CORRELATION ENERGY"] - emp2_os;
-        double delta_emp2_ss = Process::environment.globals["MP2 SAME-SPIN CORRELATION ENERGY"] - emp2_ss;
+        double delta_emp2 = scalar_variable("MP2 CORRELATION ENERGY") - emp2;
+        double delta_emp2_os = scalar_variable("MP2 OPPOSITE-SPIN CORRELATION ENERGY") - emp2_os;
+        double delta_emp2_ss = scalar_variable("MP2 SAME-SPIN CORRELATION ENERGY") - emp2_ss;
 
         emp2 += delta_emp2;
         emp2_os += delta_emp2_os;

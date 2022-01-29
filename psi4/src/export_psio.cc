@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -35,6 +35,9 @@ namespace py = pybind11;
 using namespace pybind11::literals;
 
 void export_psio(py::module &m) {
+
+    py::class_<psio_entry, std::shared_ptr<psio_entry>>(m, "psio_entry", "docstring");
+
     py::class_<PSIO, std::shared_ptr<PSIO> >(m, "IO", "docstring")
         .def("state", &PSIO::state, "Return 1 if PSIO library is activated")
         .def("open", &PSIO::open,

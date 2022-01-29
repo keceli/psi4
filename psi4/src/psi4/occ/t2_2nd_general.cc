@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -38,7 +38,7 @@ namespace psi {
 namespace occwave {
 
 void OCCWave::t2_2nd_general() {
-    // outfile->Printf("\n t2_2nd_general is starting... \n");
+    double omp2p5_factor = (wfn_type_ == "OMP2.5" ? 0.5 : 1);
 
     //===========================================================================================
     //========================= RHF =============================================================
@@ -194,68 +194,6 @@ void OCCWave::t2_2nd_general() {
         if (print_ > 1) global_dpd_->buf4_print(&Tnew, "outfile", 1);
         global_dpd_->buf4_close(&Tnew);
 
-        // Make arrangements for MP2.5
-        if (wfn_type_ == "OMP2.5") {
-            global_dpd_->buf4_init(&T, PSIF_OCC_DPD, 0, ID("[O,O]"), ID("[V,V]"), ID("[O,O]"), ID("[V,V]"), 0,
-                                   "T2_2 <OO|VV>");
-            global_dpd_->buf4_scm(&T, 0.5);
-            global_dpd_->buf4_close(&T);
-        }
-
-        // Build T2 = T2(1) + T2(2)
-        global_dpd_->buf4_init(&T, PSIF_OCC_DPD, 0, ID("[O,O]"), ID("[V,V]"), ID("[O,O]"), ID("[V,V]"), 0,
-                               "T2_1 <OO|VV>");
-        global_dpd_->buf4_copy(&T, PSIF_OCC_DPD, "T2 <OO|VV>");
-        global_dpd_->buf4_close(&T);
-        global_dpd_->buf4_init(&T, PSIF_OCC_DPD, 0, ID("[O,O]"), ID("[V,V]"), ID("[O,O]"), ID("[V,V]"), 0,
-                               "T2 <OO|VV>");
-        global_dpd_->buf4_init(&Tp, PSIF_OCC_DPD, 0, ID("[O,O]"), ID("[V,V]"), ID("[O,O]"), ID("[V,V]"), 0,
-                               "T2_2 <OO|VV>");
-        global_dpd_->buf4_axpy(&Tp, &T, 1.0);  // 1.0*Tp + T -> T
-        global_dpd_->buf4_close(&T);
-        global_dpd_->buf4_close(&Tp);
-
-        // Build Tau(ij,ab) = 2*T(ij,ab) - T(ji,ab)
-        // Build TAA(ij,ab) = T(ij,ab) - T(ji,ab)
-        global_dpd_->buf4_init(&T, PSIF_OCC_DPD, 0, ID("[O,O]"), ID("[V,V]"), ID("[O,O]"), ID("[V,V]"), 0,
-                               "T2_2 <OO|VV>");
-        global_dpd_->buf4_copy(&T, PSIF_OCC_DPD, "Tau_2 <OO|VV>");
-        global_dpd_->buf4_copy(&T, PSIF_OCC_DPD, "T2_2AA <OO|VV>");
-        global_dpd_->buf4_sort(&T, PSIF_OCC_DPD, qprs, ID("[O,O]"), ID("[V,V]"), "T2_2jiab <OO|VV>");
-        global_dpd_->buf4_close(&T);
-        global_dpd_->buf4_init(&Tau, PSIF_OCC_DPD, 0, ID("[O,O]"), ID("[V,V]"), ID("[O,O]"), ID("[V,V]"), 0,
-                               "Tau_2 <OO|VV>");
-        global_dpd_->buf4_init(&Tp, PSIF_OCC_DPD, 0, ID("[O,O]"), ID("[V,V]"), ID("[O,O]"), ID("[V,V]"), 0,
-                               "T2_2AA <OO|VV>");
-        global_dpd_->buf4_init(&Ttemp, PSIF_OCC_DPD, 0, ID("[O,O]"), ID("[V,V]"), ID("[O,O]"), ID("[V,V]"), 0,
-                               "T2_2jiab <OO|VV>");
-        global_dpd_->buf4_scm(&Tau, 2.0);
-        global_dpd_->buf4_axpy(&Ttemp, &Tau, -1.0);  // -1.0*Ttemp + Tau -> Tau
-        global_dpd_->buf4_axpy(&Ttemp, &Tp, -1.0);   // -1.0*Ttemp + Tp -> Tp
-        global_dpd_->buf4_close(&Ttemp);
-        global_dpd_->buf4_close(&Tp);
-        global_dpd_->buf4_close(&Tau);
-
-        // Build Tau(ij,ab) = 2*T(ij,ab) - T(ji,ab)
-        // Build TAA(ij,ab) = T(ij,ab) - T(ji,ab)
-        global_dpd_->buf4_init(&T, PSIF_OCC_DPD, 0, ID("[O,O]"), ID("[V,V]"), ID("[O,O]"), ID("[V,V]"), 0,
-                               "T2 <OO|VV>");
-        global_dpd_->buf4_copy(&T, PSIF_OCC_DPD, "Tau <OO|VV>");
-        global_dpd_->buf4_copy(&T, PSIF_OCC_DPD, "T2AA <OO|VV>");
-        global_dpd_->buf4_sort(&T, PSIF_OCC_DPD, qprs, ID("[O,O]"), ID("[V,V]"), "T2jiab <OO|VV>");
-        global_dpd_->buf4_close(&T);
-        global_dpd_->buf4_init(&Tau, PSIF_OCC_DPD, 0, ID("[O,O]"), ID("[V,V]"), ID("[O,O]"), ID("[V,V]"), 0,
-                               "Tau <OO|VV>");
-        global_dpd_->buf4_init(&Tp, PSIF_OCC_DPD, 0, ID("[O,O]"), ID("[V,V]"), ID("[O,O]"), ID("[V,V]"), 0,
-                               "T2AA <OO|VV>");
-        global_dpd_->buf4_init(&Ttemp, PSIF_OCC_DPD, 0, ID("[O,O]"), ID("[V,V]"), ID("[O,O]"), ID("[V,V]"), 0,
-                               "T2jiab <OO|VV>");
-        global_dpd_->buf4_scm(&Tau, 2.0);
-        global_dpd_->buf4_axpy(&Ttemp, &Tau, -1.0);  // -1.0*Ttemp + Tau -> Tau
-        global_dpd_->buf4_axpy(&Ttemp, &Tp, -1.0);   // -1.0*Ttemp + Tp -> Tp
-        global_dpd_->buf4_close(&Ttemp);
-        global_dpd_->buf4_close(&Tp);
-        global_dpd_->buf4_close(&Tau);
 
         psio_->close(PSIF_LIBTRANS_DPD, 1);
         psio_->close(PSIF_OCC_DPD, 1);
@@ -778,14 +716,6 @@ void OCCWave::t2_2nd_general() {
         if (print_ > 1) global_dpd_->buf4_print(&Tnew, "outfile", 1);
         global_dpd_->buf4_close(&Tnew);
 
-        // Make arrangements for MP2.5
-        if (wfn_type_ == "OMP2.5") {
-            global_dpd_->buf4_init(&T, PSIF_OCC_DPD, 0, ID("[O,O]"), ID("[V,V]"), ID("[O,O]"), ID("[V,V]"), 0,
-                                   "T2_2 <OO|VV>");
-            global_dpd_->buf4_scm(&T, 0.5);
-            global_dpd_->buf4_close(&T);
-        }
-
         // Beta-Beta spin case
         global_dpd_->buf4_init(&Tnew, PSIF_OCC_DPD, 0, ID("[o,o]"), ID("[v,v]"), ID("[o,o]"), ID("[v,v]"), 0,
                                "T2_2new <oo|vv>");
@@ -808,14 +738,6 @@ void OCCWave::t2_2nd_general() {
         global_dpd_->buf4_copy(&Tnew, PSIF_OCC_DPD, "T2_2 <oo|vv>");
         if (print_ > 1) global_dpd_->buf4_print(&Tnew, "outfile", 1);
         global_dpd_->buf4_close(&Tnew);
-
-        // Make arrangements for MP2.5
-        if (wfn_type_ == "OMP2.5") {
-            global_dpd_->buf4_init(&T, PSIF_OCC_DPD, 0, ID("[o,o]"), ID("[v,v]"), ID("[o,o]"), ID("[v,v]"), 0,
-                                   "T2_2 <oo|vv>");
-            global_dpd_->buf4_scm(&T, 0.5);
-            global_dpd_->buf4_close(&T);
-        }
 
         // Alpha-Beta spin case
         global_dpd_->buf4_init(&Tnew, PSIF_OCC_DPD, 0, ID("[O,o]"), ID("[V,v]"), ID("[O,o]"), ID("[V,v]"), 0,
@@ -840,13 +762,127 @@ void OCCWave::t2_2nd_general() {
         if (print_ > 1) global_dpd_->buf4_print(&Tnew, "outfile", 1);
         global_dpd_->buf4_close(&Tnew);
 
-        // Make arrangements for MP2.5
-        if (wfn_type_ == "OMP2.5") {
-            global_dpd_->buf4_init(&T, PSIF_OCC_DPD, 0, ID("[O,o]"), ID("[V,v]"), ID("[O,o]"), ID("[V,v]"), 0,
-                                   "T2_2 <Oo|Vv>");
-            global_dpd_->buf4_scm(&T, 0.5);
-            global_dpd_->buf4_close(&T);
-        }
+
+        // close files
+        psio_->close(PSIF_LIBTRANS_DPD, 1);
+        psio_->close(PSIF_OCC_DPD, 1);
+
+    }  // end if (reference_ == "UNRESTRICTED")
+       // outfile->Printf("\n t2_2nd_general done. \n");
+
+}  // end t2_2nd_general
+
+// For iterative MP methods, construct post-diis quantities.
+// These are the sum of amplitudes and resorted amplitudes.
+// At present, only OMP2.5 and OMP3 use this method.
+void OCCWave::iterative_mp_postdiis_amplitudes() {
+    double omp2p5_factor = (wfn_type_ == "OMP2.5" ? 0.5 : 1);
+    psio_open(PSIF_OCC_DPD, PSIO_OPEN_OLD);
+
+    if (reference_ == "RESTRICTED") {
+        dpdbuf4 T, Tau, Tp, Ttemp;
+        /********************************************************************************************/
+        /******************************* Chemist T2(1) Amplitudes ***********************************/
+        /********************************************************************************************/
+        // T_IJ^AB => T'(IA,JB), T"(JA,IB)
+        global_dpd_->buf4_init(&T, PSIF_OCC_DPD, 0, ID("[O,O]"), ID("[V,V]"), ID("[O,O]"), ID("[V,V]"), 0,
+                               "T2_1 <OO|VV>");
+        global_dpd_->buf4_sort(&T, PSIF_OCC_DPD, prqs, ID("[O,V]"), ID("[O,V]"), "T2_1 (OV|OV)");
+        global_dpd_->buf4_sort(&T, PSIF_OCC_DPD, qrps, ID("[O,V]"), ID("[O,V]"), "T2_1pp (OV|OV)");
+        global_dpd_->buf4_close(&T);
+
+        // Tau(IJ,AB) => Tau'(IA,JB), Tau"(JA,IB)
+        global_dpd_->buf4_init(&T, PSIF_OCC_DPD, 0, ID("[O,O]"), ID("[V,V]"), ID("[O,O]"), ID("[V,V]"), 0,
+                               "Tau_1 <OO|VV>");
+        global_dpd_->buf4_sort(&T, PSIF_OCC_DPD, prqs, ID("[O,V]"), ID("[O,V]"), "Tau_1 (OV|OV)");
+        global_dpd_->buf4_sort(&T, PSIF_OCC_DPD, qrps, ID("[O,V]"), ID("[O,V]"), "Tau_1pp (OV|OV)");
+        global_dpd_->buf4_close(&T);
+
+        /********************************************************************************************/
+        /************************** Sum up 1st & 2nd order amplitudes *******************************/
+        /********************************************************************************************/
+        global_dpd_->buf4_init(&T, PSIF_OCC_DPD, 0, ID("[O,O]"), ID("[V,V]"), ID("[O,O]"), ID("[V,V]"), 0,
+                               "T2_1 <OO|VV>");
+        global_dpd_->buf4_copy(&T, PSIF_OCC_DPD, "T2 <OO|VV>");
+        global_dpd_->buf4_close(&T);
+        global_dpd_->buf4_init(&T, PSIF_OCC_DPD, 0, ID("[O,O]"), ID("[V,V]"), ID("[O,O]"), ID("[V,V]"), 0,
+                               "T2 <OO|VV>");
+        global_dpd_->buf4_init(&Tp, PSIF_OCC_DPD, 0, ID("[O,O]"), ID("[V,V]"), ID("[O,O]"), ID("[V,V]"), 0,
+                               "T2_2 <OO|VV>");
+        global_dpd_->buf4_axpy(&Tp, &T, omp2p5_factor);  // 1.0*Tp + T -> T
+        global_dpd_->buf4_close(&T);
+        global_dpd_->buf4_close(&Tp);
+
+        // Build Tau(ij,ab) = 2*T(ij,ab) - T(ji,ab)
+        // Build TAA(ij,ab) = T(ij,ab) - T(ji,ab)
+        global_dpd_->buf4_init(&T, PSIF_OCC_DPD, 0, ID("[O,O]"), ID("[V,V]"), ID("[O,O]"), ID("[V,V]"), 0,
+                               "T2_2 <OO|VV>");
+        global_dpd_->buf4_copy(&T, PSIF_OCC_DPD, "Tau_2 <OO|VV>");
+        global_dpd_->buf4_copy(&T, PSIF_OCC_DPD, "T2_2AA <OO|VV>");
+        global_dpd_->buf4_sort(&T, PSIF_OCC_DPD, qprs, ID("[O,O]"), ID("[V,V]"), "T2_2jiab <OO|VV>");
+        global_dpd_->buf4_close(&T);
+        global_dpd_->buf4_init(&Tau, PSIF_OCC_DPD, 0, ID("[O,O]"), ID("[V,V]"), ID("[O,O]"), ID("[V,V]"), 0,
+                               "Tau_2 <OO|VV>");
+        global_dpd_->buf4_init(&Tp, PSIF_OCC_DPD, 0, ID("[O,O]"), ID("[V,V]"), ID("[O,O]"), ID("[V,V]"), 0,
+                               "T2_2AA <OO|VV>");
+        global_dpd_->buf4_init(&Ttemp, PSIF_OCC_DPD, 0, ID("[O,O]"), ID("[V,V]"), ID("[O,O]"), ID("[V,V]"), 0,
+                               "T2_2jiab <OO|VV>");
+        global_dpd_->buf4_scm(&Tau, 2.0);
+        global_dpd_->buf4_axpy(&Ttemp, &Tau, -1.0);  // -1.0*Ttemp + Tau -> Tau
+        global_dpd_->buf4_axpy(&Ttemp, &Tp, -1.0);   // -1.0*Ttemp + Tp -> Tp
+        global_dpd_->buf4_close(&Ttemp);
+        global_dpd_->buf4_close(&Tp);
+        global_dpd_->buf4_close(&Tau);
+
+        // Build Tau(ij,ab) = 2*T(ij,ab) - T(ji,ab)
+        // Build TAA(ij,ab) = T(ij,ab) - T(ji,ab)
+        global_dpd_->buf4_init(&T, PSIF_OCC_DPD, 0, ID("[O,O]"), ID("[V,V]"), ID("[O,O]"), ID("[V,V]"), 0,
+                               "T2 <OO|VV>");
+        global_dpd_->buf4_copy(&T, PSIF_OCC_DPD, "Tau <OO|VV>");
+        global_dpd_->buf4_copy(&T, PSIF_OCC_DPD, "T2AA <OO|VV>");
+        global_dpd_->buf4_sort(&T, PSIF_OCC_DPD, qprs, ID("[O,O]"), ID("[V,V]"), "T2jiab <OO|VV>");
+        global_dpd_->buf4_close(&T);
+        global_dpd_->buf4_init(&Tau, PSIF_OCC_DPD, 0, ID("[O,O]"), ID("[V,V]"), ID("[O,O]"), ID("[V,V]"), 0,
+                               "Tau <OO|VV>");
+        global_dpd_->buf4_init(&Tp, PSIF_OCC_DPD, 0, ID("[O,O]"), ID("[V,V]"), ID("[O,O]"), ID("[V,V]"), 0,
+                               "T2AA <OO|VV>");
+        global_dpd_->buf4_init(&Ttemp, PSIF_OCC_DPD, 0, ID("[O,O]"), ID("[V,V]"), ID("[O,O]"), ID("[V,V]"), 0,
+                               "T2jiab <OO|VV>");
+        global_dpd_->buf4_scm(&Tau, 2.0);
+        global_dpd_->buf4_axpy(&Ttemp, &Tau, -1.0);  // -1.0*Ttemp + Tau -> Tau
+        global_dpd_->buf4_axpy(&Ttemp, &Tp, -1.0);   // -1.0*Ttemp + Tp -> Tp
+        global_dpd_->buf4_close(&Ttemp);
+        global_dpd_->buf4_close(&Tp);
+        global_dpd_->buf4_close(&Tau);
+    } else {
+        dpdbuf4 T, Tp;
+        /********************************************************************************************/
+        /******************************* Chemist T2(1) Amplitudes ***********************************/
+        /********************************************************************************************/
+        // T_IJ^AB => T(IA,JB)
+        global_dpd_->buf4_init(&T, PSIF_OCC_DPD, 0, ID("[O,O]"), ID("[V,V]"), ID("[O,O]"), ID("[V,V]"), 0,
+                               "T2_1 <OO|VV>");
+        global_dpd_->buf4_sort(&T, PSIF_OCC_DPD, prqs, ID("[O,V]"), ID("[O,V]"), "T2_1 (OV|OV)");
+        global_dpd_->buf4_close(&T);
+
+        // T_ij^ab => T(ia,jb)
+        global_dpd_->buf4_init(&T, PSIF_OCC_DPD, 0, ID("[o,o]"), ID("[v,v]"), ID("[o,o]"), ID("[v,v]"), 0,
+                               "T2_1 <oo|vv>");
+        global_dpd_->buf4_sort(&T, PSIF_OCC_DPD, prqs, ID("[o,v]"), ID("[o,v]"), "T2_1 (ov|ov)");
+        global_dpd_->buf4_close(&T);
+
+        // T_Ij^Ab => T(IA,jb), T(jA,Ib)
+        global_dpd_->buf4_init(&T, PSIF_OCC_DPD, 0, ID("[O,o]"), ID("[V,v]"), ID("[O,o]"), ID("[V,v]"), 0,
+                               "T2_1 <Oo|Vv>");
+        global_dpd_->buf4_sort(&T, PSIF_OCC_DPD, prqs, ID("[O,V]"), ID("[o,v]"), "T2_1 (OV|ov)");
+        global_dpd_->buf4_sort(&T, PSIF_OCC_DPD, qrps, ID("[o,V]"), ID("[O,v]"), "T2_1 (oV|Ov)");
+        global_dpd_->buf4_close(&T);
+
+        // T(IA,jb) => T(jb,IA)
+        global_dpd_->buf4_init(&T, PSIF_OCC_DPD, 0, ID("[O,V]"), ID("[o,v]"), ID("[O,V]"), ID("[o,v]"), 0,
+                               "T2_1 (OV|ov)");
+        global_dpd_->buf4_sort(&T, PSIF_OCC_DPD, rspq, ID("[o,v]"), ID("[O,V]"), "T2_1 (ov|OV)");
+        global_dpd_->buf4_close(&T);
 
         /********************************************************************************************/
         /************************** Sum up 1st & 2nd order amplitudes *******************************/
@@ -861,7 +897,7 @@ void OCCWave::t2_2nd_general() {
                                "T2 <OO|VV>");
         global_dpd_->buf4_init(&Tp, PSIF_OCC_DPD, 0, ID("[O,O]"), ID("[V,V]"), ID("[O,O]"), ID("[V,V]"), 0,
                                "T2_2 <OO|VV>");
-        global_dpd_->buf4_axpy(&Tp, &T, 1.0);  // 1.0*Tp + T -> T
+        global_dpd_->buf4_axpy(&Tp, &T, omp2p5_factor);  // 1.0*Tp + T -> T
         global_dpd_->buf4_close(&T);
         global_dpd_->buf4_close(&Tp);
 
@@ -874,7 +910,7 @@ void OCCWave::t2_2nd_general() {
                                "T2 <oo|vv>");
         global_dpd_->buf4_init(&Tp, PSIF_OCC_DPD, 0, ID("[o,o]"), ID("[v,v]"), ID("[o,o]"), ID("[v,v]"), 0,
                                "T2_2 <oo|vv>");
-        global_dpd_->buf4_axpy(&Tp, &T, 1.0);  // 1.0*Tp + T -> T
+        global_dpd_->buf4_axpy(&Tp, &T, omp2p5_factor);  // 1.0*Tp + T -> T
         global_dpd_->buf4_close(&T);
         global_dpd_->buf4_close(&Tp);
 
@@ -887,38 +923,11 @@ void OCCWave::t2_2nd_general() {
                                "T2 <Oo|Vv>");
         global_dpd_->buf4_init(&Tp, PSIF_OCC_DPD, 0, ID("[O,o]"), ID("[V,v]"), ID("[O,o]"), ID("[V,v]"), 0,
                                "T2_2 <Oo|Vv>");
-        global_dpd_->buf4_axpy(&Tp, &T, 1.0);  // 1.0*Tp + T -> T
+        global_dpd_->buf4_axpy(&Tp, &T, omp2p5_factor);  // 1.0*Tp + T -> T
         global_dpd_->buf4_close(&T);
         global_dpd_->buf4_close(&Tp);
-
-        /*
-        // Build Lambda amplitudes
-        // T_IJ^AB => L_AB^IJ
-        dpd_buf4_init(&T, PSIF_OCC_DPD, 0, ID("[O,O]"), ID("[V,V]"),
-                      ID("[O,O]"), ID("[V,V]"), 0, "T2 <OO|VV>");
-        dpd_buf4_sort(&T, PSIF_OCC_DPD , rspq, ID("[V,V]"), ID("[O,O]"), "L2 <VV|OO>");
-        dpd_buf4_close(&T);
-
-        // T_ij^ab => L_ab^ij
-        dpd_buf4_init(&T, PSIF_OCC_DPD, 0, ID("[o,o]"), ID("[v,v]"),
-                      ID("[o,o]"), ID("[v,v]"), 0, "T2 <oo|vv>");
-        dpd_buf4_sort(&T, PSIF_OCC_DPD , rspq, ID("[v,v]"), ID("[o,o]"), "L2 <vv|oo>");
-        dpd_buf4_close(&T);
-
-        // T_Ij^Ab => L_Ab^Ij
-        dpd_buf4_init(&T, PSIF_OCC_DPD, 0, ID("[O,o]"), ID("[V,v]"),
-                      ID("[O,o]"), ID("[V,v]"), 0, "T2 <Oo|Vv>");
-        dpd_buf4_sort(&T, PSIF_OCC_DPD , rspq, ID("[V,v]"), ID("[O,o]"), "L2 <Vv|Oo>");
-        dpd_buf4_close(&T);
-        */
-
-        // close files
-        psio_->close(PSIF_LIBTRANS_DPD, 1);
-        psio_->close(PSIF_OCC_DPD, 1);
-
-    }  // end if (reference_ == "UNRESTRICTED")
-       // outfile->Printf("\n t2_2nd_general done. \n");
-
-}  // end t2_2nd_general
+    }
+    psio_->close(PSIF_OCC_DPD, 1);
+}
 }
 }  // End Namespaces

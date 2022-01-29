@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -41,6 +41,7 @@
 #include <omp.h>
 #endif
 
+#include <memory>
 #include "psi4/psi4-dec.h"
 #include "psi4/liboptions/liboptions.h"
 #include "psi4/libfock/jk.h"
@@ -50,7 +51,6 @@
 #include "psi4/libmints/matrix.h"
 #include "psi4/libmints/basisset.h"
 #include "psi4/libmints/twobody.h"
-#include "psi4/libmints/sieve.h"
 #include "psi4/libpsi4util/PsiOutStream.h"
 #include "psi4/libqt/qt.h"
 #include "psi4/libpsio/psio.hpp"
@@ -141,7 +141,6 @@ void DFHelper::initialize() {
     if (debug_) {
         outfile->Printf("Entering DFHelper::initialize\n");
     }
-
     timer_on("DFH: initialize()");
 
     // have the algorithm specified before init
@@ -167,6 +166,12 @@ void DFHelper::initialize() {
     // if metric power is not zero, prepare it
     if (!(std::fabs(mpower_ - 0.0) < 1e-13)) (hold_met_ ? prepare_metric_core() : prepare_metric());
 
+    // if metric power for omega integrals is not zero, prepare its metric
+    if (do_wK_) {
+        if (!(std::fabs(wmpower_ - 0.0) < 1e-13) && (std::fabs(mpower_ - 0.0) < 1e-13))
+            (hold_met_ ? prepare_metric_core() : prepare_metric());
+    }
+
     // prepare sparsity masks
     prepare_sparsity();
 
@@ -175,25 +180,25 @@ void DFHelper::initialize() {
     if (print_lvl_ > 0) {
         outfile->Printf("  DFHelper Memory: AOs need %.3f GiB; user supplied %.3f GiB. ",
                         (required_core_size_ * 8 / (1024 * 1024 * 1024.0)), (memory_ * 8 / (1024 * 1024 * 1024.0)));
-        outfile->Printf("%s in-core AOs.\n\n", (memory_ < required_core_size_) ? "Turning off" : "Using");
+        outfile->Printf("%s in-core AOs.\n\n", AO_core_ ? "Using" : "Turning off");
     }
 
     // prepare AOs for STORE method
     if (AO_core_) {
-        prepare_AO_core();
         if (do_wK_) {
-            std::stringstream error;
-            error << "DFHelper: not equipped to do wK";
-            throw PSIEXCEPTION(error.str().c_str());
-            // TODO prepare_AO_wK_core();
+            prepare_AO_wK_core();
+        } else {  // It is possible to reformulate the expression for the
+            //   coulomb matrix to save memory in case do_wK_ is
+            //   is true, but do_K_ is false. This code isn't written
+            prepare_AO_core();
         }
     } else if (!direct_ && !direct_iaQ_) {
         prepare_AO();
         if (do_wK_) {
             std::stringstream error;
-            error << "DFHelper: not equipped to do wK";
+            error << "DFHelper: not equipped to do wK out of core. \nPlease supply more memory or remove scf_type Mem_DF from the imput file";
             throw PSIEXCEPTION(error.str().c_str());
-            // TODO prepare_AO_wK();
+            //prepare_AO_wK();
         }
     }
 
@@ -212,8 +217,9 @@ void DFHelper::AO_core() {
         // if do_wK added to code, the following will need to be changed to match
         required_core_size_ = naux_ * nbf_ * nbf_;
     } else {
-        // total size of sparse AOs
-        required_core_size_ = (do_wK_ ? 3 * big_skips_[nbf_] : big_skips_[nbf_]);
+        // total size of sparse AOs.
+        // yes, a nested ternary operator
+        required_core_size_ = (do_wK_ ? ( wcombine_ ? 2 * big_skips_[nbf_] : 3 * big_skips_[nbf_] ) : big_skips_[nbf_]);
     }
 
     // Auxiliary metric
@@ -226,6 +232,7 @@ void DFHelper::AO_core() {
     required_core_size_ += 3 * nbf_ * nbf_ * Qshell_max_;
 
     // a fraction of memory to use, do we want it as an option?
+    AO_core_ = true;
     if (memory_ < required_core_size_) AO_core_ = false;
 }
 void DFHelper::print_header() {
@@ -238,7 +245,7 @@ void DFHelper::print_header() {
     outfile->Printf("    Schwarz Cutoff:          %11.0E\n", cutoff_);
     outfile->Printf("    Mask sparsity (%%):       %11.0f\n", 100. * ao_sparsity());
     outfile->Printf("    DFH Avail. Memory [GiB]: %11.3f\n", (memory_ * 8L) / ((double)(1024L * 1024L * 1024L)));
-    outfile->Printf("    OpenMP threads:          %11d\n", nthreads_);
+    outfile->Printf("    OpenMP threads:          %11zu\n", nthreads_);
     outfile->Printf("    Algorithm:               %11s\n", method_.c_str());
     outfile->Printf("    AO Core:                 %11s\n", (AO_core_ ? "True" : "False"));
     outfile->Printf("    MO Core:                 %11s\n", (MO_core_ ? "True" : "False"));
@@ -268,16 +275,15 @@ void DFHelper::prepare_sparsity() {
     size_t nthreads = (nthreads_ == 1 ? 1 : 2);  // for now
     auto rifactory = std::make_shared<IntegralFactory>(primary_, primary_, primary_, primary_);
     std::vector<std::shared_ptr<TwoBodyAOInt>> eri(nthreads);
-    std::vector<const double*> buffer(nthreads);
 
+    eri[0] = std::shared_ptr<TwoBodyAOInt>(rifactory->eri());
 #pragma omp parallel num_threads(nthreads) if (nbf_ > 1000)
     {
         int rank = 0;
 #ifdef _OPENMP
         rank = omp_get_thread_num();
 #endif
-        eri[rank] = std::shared_ptr<TwoBodyAOInt>(rifactory->eri());
-        buffer[rank] = eri[rank]->buffer();
+        if (rank) eri[rank] = std::shared_ptr<TwoBodyAOInt>(eri.front()->clone());
     }
 
     double max_val = 0.0;
@@ -287,11 +293,12 @@ void DFHelper::prepare_sparsity() {
 #ifdef _OPENMP
         rank = omp_get_thread_num();
 #endif
+        const auto& buffers = eri[rank]->buffers();
         size_t nummu = primary_->shell(MU).nfunction();
         for (size_t NU = 0; NU <= MU; ++NU) {
             size_t numnu = primary_->shell(NU).nfunction();
             eri[rank]->compute_shell(MU, NU, MU, NU);
-
+            const auto *buffer = buffers[0];
             // Loop over basis functions inside shell pair
             for (size_t mu = 0; mu < nummu; ++mu) {
                 size_t omu = primary_->shell(MU).function_index() + mu;
@@ -301,7 +308,7 @@ void DFHelper::prepare_sparsity() {
                     // Find shell and function maximums
                     if (omu >= onu) {
                         size_t index = mu * (numnu * nummu * numnu + numnu) + nu * (nummu * numnu + 1);
-                        double val = fabs(buffer[rank][index]);
+                        double val = fabs(buffer[index]);
                         max_val = std::max(val, max_val);
                         if (shell_max_vals[MU * pshells_ + NU] <= val) {
                             shell_max_vals[MU * pshells_ + NU] = val;
@@ -380,13 +387,14 @@ void DFHelper::prepare_AO() {
     std::shared_ptr<BasisSet> zero = BasisSet::zero_ao_basis_set();
     auto rifactory = std::make_shared<IntegralFactory>(aux_, zero, primary_, primary_);
     std::vector<std::shared_ptr<TwoBodyAOInt>> eri(nthreads_);
+    eri[0] = std::shared_ptr<TwoBodyAOInt>(rifactory->eri());
 #pragma omp parallel num_threads(nthreads_)
     {
         int rank = 0;
 #ifdef _OPENMP
         rank = omp_get_thread_num();
 #endif
-        eri[rank] = std::shared_ptr<TwoBodyAOInt>(rifactory->eri());
+        eri[rank] = std::shared_ptr<TwoBodyAOInt>(eri.front()->clone());
     }
 
     // gather blocking info
@@ -450,19 +458,38 @@ void DFHelper::prepare_AO() {
         count += size;
     }
 }
-
-void DFHelper::prepare_AO_core() {
-    // get each thread an eri object
+void DFHelper::prepare_AO_wK() {
+    // prepare eris
     std::shared_ptr<BasisSet> zero = BasisSet::zero_ao_basis_set();
     auto rifactory = std::make_shared<IntegralFactory>(aux_, zero, primary_, primary_);
     std::vector<std::shared_ptr<TwoBodyAOInt>> eri(nthreads_);
+    eri[0] = std::shared_ptr<TwoBodyAOInt>(rifactory->eri());
 #pragma omp parallel num_threads(nthreads_)
     {
         int rank = 0;
 #ifdef _OPENMP
         rank = omp_get_thread_num();
 #endif
-        eri[rank] = std::shared_ptr<TwoBodyAOInt>(rifactory->eri());
+        eri[rank] = std::shared_ptr<TwoBodyAOInt>(eri.front()->clone());
+    }
+
+    // gather blocking info
+    std::vector<std::pair<size_t, size_t>> psteps;
+    std::pair<size_t, size_t> plargest = pshell_blocks_for_AO_build(memory_, 0, psteps);
+}
+void DFHelper::prepare_AO_core() {
+    // get each thread an eri object
+    std::shared_ptr<BasisSet> zero = BasisSet::zero_ao_basis_set();
+    auto rifactory = std::make_shared<IntegralFactory>(aux_, zero, primary_, primary_);
+    std::vector<std::shared_ptr<TwoBodyAOInt>> eri(nthreads_);
+    eri[0] = std::shared_ptr<TwoBodyAOInt>(rifactory->eri());
+#pragma omp parallel num_threads(nthreads_)
+    {
+        int rank = 0;
+#ifdef _OPENMP
+        rank = omp_get_thread_num();
+#endif
+        if(rank) eri[rank] = std::shared_ptr<TwoBodyAOInt>(eri.front()->clone());
     }
 
     // determine blocking
@@ -475,6 +502,8 @@ void DFHelper::prepare_AO_core() {
     } else {
         Ppq_ = std::unique_ptr<double[]>(new double[big_skips_[nbf_]]);
     }
+
+    double* ppq = Ppq_.get();
 
     // outfile->Printf("\n    ==> Begin AO Blocked Construction <==\n\n");
     if (direct_iaQ_ || direct_) {
@@ -514,13 +543,121 @@ void DFHelper::prepare_AO_core() {
 
             // contract metric
             timer_on("DFH: AO-Met. Contraction");
-            contract_metric_AO_core_symm(Mp, metp, begin, end);
+            contract_metric_AO_core_symm(Mp, ppq, metp, begin, end);
             timer_off("DFH: AO-Met. Contraction");
         }
         // no more need for metrics
         if (hold_met_) metrics_.clear();
     }
     // outfile->Printf("\n    ==> End AO Blocked Construction <==");
+}
+void DFHelper::prepare_AO_wK_core() {
+    // get each thread an eri object
+    std::shared_ptr<BasisSet> zero = BasisSet::zero_ao_basis_set();
+    auto rifactory = std::make_shared<IntegralFactory>(aux_, zero, primary_, primary_);
+    std::vector<std::shared_ptr<TwoBodyAOInt>> eri(nthreads_);
+    std::vector<std::shared_ptr<TwoBodyAOInt>> weri(nthreads_);
+
+    eri[0] = std::shared_ptr<TwoBodyAOInt>(rifactory->eri());
+    weri[0] = std::shared_ptr<TwoBodyAOInt>(rifactory->erf_eri(omega_));
+#pragma omp parallel num_threads(nthreads_)
+    {
+        int rank = 0;
+#ifdef _OPENMP
+        rank = omp_get_thread_num();
+#endif
+        if (rank) {
+            eri[rank] = std::shared_ptr<TwoBodyAOInt>(eri.front()->clone());
+            weri[rank] = std::shared_ptr<TwoBodyAOInt>(weri.front()->clone());
+        }
+    }
+
+    // use blocking as for prepare_AO_core
+    std::vector<std::pair<size_t, size_t>> psteps;
+    std::pair<size_t, size_t> plargest = pshell_blocks_for_AO_build(memory_, 1, psteps);
+
+    wPpq_ = std::make_unique<double[]>(big_skips_[nbf_]);
+    m1Ppq_ = std::make_unique<double[]>(big_skips_[nbf_]);
+
+    if (!wcombine_) Ppq_ = std::make_unique<double[]>(big_skips_[nbf_]);
+
+
+    double* wppq = wPpq_.get();
+    double* ppq = nullptr;
+
+    if (!wcombine_) ppq = Ppq_.get();
+
+    double* m1ppq = m1Ppq_.get();
+
+    std::unique_ptr<double[]> Qpq(new double[std::get<0>(plargest)]);
+    std::unique_ptr<double[]> Qpq2(new double[std::get<0>(plargest)]);
+    double* M1p = Qpq.get();
+    double* M2p = Qpq2.get();
+    std::unique_ptr<double[]> metric1;
+    double* met1p = nullptr;
+    std::unique_ptr<double[]> metric;
+    double* metp = nullptr;
+
+    if (!hold_met_) {
+        metric1 = std::make_unique<double[]>(naux_ * naux_);
+        met1p = metric1.get();
+        std::string filename = return_metfile(wmpower_);
+        get_tensor_(std::get<0>(files_[filename]), met1p, 0, naux_ - 1, 0, naux_ - 1);
+        metric = std::make_unique<double[]>(naux_ * naux_);
+        metp = metric.get();
+        filename = return_metfile(mpower_);
+        get_tensor_(std::get<0>(files_[filename]), metp, 0, naux_ - 1, 0, naux_ - 1);
+    } else {
+        met1p = metric_prep_core(wmpower_);
+        metp = metric_prep_core(mpower_);
+    }
+
+    for (size_t i = 0; i < psteps.size(); i++) {
+        size_t start = std::get<0>(psteps[i]);
+        size_t stop = std::get<1>(psteps[i]);
+        size_t begin = pshell_aggs_[start];
+        size_t end = pshell_aggs_[stop + 1] - 1;
+
+        if ( wcombine_ ) {
+            // computes (Q|mn) and (Q|w|mn)
+            timer_on("DFH: AO Construction");
+            compute_sparse_pQq_blocking_p_symm_abw(start,stop, M1p, M2p, eri, weri);
+            timer_off("DFH: AO Construction");
+            // computes  [J^{-1.0}](Q|mn)
+            timer_on("DFH: AO-Met. Contraction");
+            contract_metric_AO_core_symm(M1p, m1ppq, met1p, begin, end);
+            timer_off("DFH: AO-Met. Contraction");
+
+            copy_upper_lower_wAO_core_symm(M2p, wppq, begin, end);
+        } else {
+
+            timer_on("DFH: AO Construction");
+            compute_sparse_pQq_blocking_p_symm(start, stop, M1p, eri);
+            timer_off("DFH: AO Construction");
+
+            // contract full metric inverse computes  [J^{-1.0}](Q|mn)
+            timer_on("DFH: AO-Met. Contraction");
+            contract_metric_AO_core_symm(M1p, m1ppq, met1p, begin, end);
+            timer_off("DFH: AO-Met. Contraction");
+    
+            // contract half metric inverse
+            timer_on("DFH: AO-Met. Contraction");
+            contract_metric_AO_core_symm(M1p, ppq, metp, begin, end);
+            timer_off("DFH: AO-Met. Contraction");
+    
+            // compute (A|w|mn)
+            timer_on("DFH: wAO Construction");
+            compute_sparse_pQq_blocking_p_symm(start, stop, M1p, weri);
+            timer_off("DFH: wAO Construction");
+    
+            timer_on("DFH: wAO Copy");
+            copy_upper_lower_wAO_core_symm(M1p, wppq, begin, end);
+            timer_off("DFH: wAO Copy");
+
+        }
+    }
+    // no more need for metrics
+    if (hold_met_) metrics_.clear();
 }
 std::pair<size_t, size_t> DFHelper::pshell_blocks_for_AO_build(const size_t mem, size_t symm,
                                                                std::vector<std::pair<size_t, size_t>>& b) {
@@ -538,12 +675,23 @@ std::pair<size_t, size_t> DFHelper::pshell_blocks_for_AO_build(const size_t mem,
             // get current cost of this block of AOs and add it to the total
             // the second buffer is accounted for with full AO_core
             current = symm_big_skips_[end + 1] - symm_big_skips_[begin];
+            if (do_wK_) {
+                if (wcombine_) {
+                    current *= 2; 
+                }
+                else {
+                    current *= 3;
+                } 
+            }
             total += current;
         } else {
             // on-disk
             // get current cost of this block of AOs and add it to the total
             // count current twice, for both pre and post contracted buffers
             current = big_skips_[end + 1] - big_skips_[begin];
+            if (do_wK_) {
+                current *= 3;
+            }
             total += 2 * current;
         }
 
@@ -576,7 +724,6 @@ std::pair<size_t, size_t> DFHelper::pshell_blocks_for_AO_build(const size_t mem,
     // returns pair(largest buffer size, largest block size)
     return std::make_pair(largest, block_size);
 }
-
 std::pair<size_t, size_t> DFHelper::Qshell_blocks_for_transform(const size_t mem, size_t wtmp, size_t wfinal,
                                                                 std::vector<std::pair<size_t, size_t>>& b) {
     size_t extra = (hold_met_ ? naux_ * naux_ : 0);
@@ -963,6 +1110,7 @@ void DFHelper::compute_dense_Qpq_blocking_Q(const size_t start, const size_t sto
                 size_t PHI = aux_->shell(Pshell).function_index();
                 size_t numP = aux_->shell(Pshell).nfunction();
                 eri[rank]->compute_shell(Pshell, 0, MU, NU);
+                buffer[rank] = eri[rank]->buffer();
                 for (size_t mu = 0; mu < nummu; mu++) {
                     size_t omu = primary_->shell(MU).function_index() + mu;
                     for (size_t nu = 0; nu < numnu; nu++) {
@@ -1018,6 +1166,7 @@ void DFHelper::compute_sparse_pQq_blocking_Q(const size_t start, const size_t st
                 size_t PHI = aux_->shell(Pshell).function_index();
                 size_t numP = aux_->shell(Pshell).nfunction();
                 eri[rank]->compute_shell(Pshell, 0, MU, NU);
+                buffer[rank] = eri[rank]->buffer();
                 for (size_t mu = 0; mu < nummu; mu++) {
                     size_t omu = primary_->shell(MU).function_index() + mu;
                     for (size_t nu = 0; nu < numnu; nu++) {
@@ -1075,6 +1224,7 @@ void DFHelper::compute_sparse_pQq_blocking_p(const size_t start, const size_t st
                 size_t PHI = aux_->shell(Pshell).function_index();
                 size_t numP = aux_->shell(Pshell).nfunction();
                 eri[rank]->compute_shell(Pshell, 0, MU, NU);
+                buffer[rank] = eri[rank]->buffer();
                 for (size_t mu = 0; mu < nummu; mu++) {
                     size_t omu = primary_->shell(MU).function_index() + mu;
                     for (size_t nu = 0; nu < numnu; nu++) {
@@ -1113,7 +1263,6 @@ void DFHelper::compute_sparse_pQq_blocking_p_symm(const size_t start, const size
 #ifdef _OPENMP
         rank = omp_get_thread_num();
 #endif
-        buffer[rank] = eri[rank]->buffer();
     }
 
 // Block over p in pQq 3-index integrals
@@ -1135,6 +1284,7 @@ void DFHelper::compute_sparse_pQq_blocking_p_symm(const size_t start, const size
                 size_t PHI = aux_->shell(Pshell).function_index();
                 size_t numP = aux_->shell(Pshell).nfunction();
                 eri[rank]->compute_shell(Pshell, 0, MU, NU);
+                buffer[rank] = eri[rank]->buffer();
 
                 for (size_t mu = 0; mu < nummu; mu++) {
                     size_t omu = primary_->shell(MU).function_index() + mu;
@@ -1155,7 +1305,78 @@ void DFHelper::compute_sparse_pQq_blocking_p_symm(const size_t start, const size
                 }
             }
         }
+    } // ends MU loop
+}
+
+void DFHelper::compute_sparse_pQq_blocking_p_symm_abw(const size_t start, const size_t stop, double* just_Mp, double* param_Mp,
+                                                  std::vector<std::shared_ptr<TwoBodyAOInt>> eri,
+                                                  std::vector<std::shared_ptr<TwoBodyAOInt>> weri
+) {
+    size_t begin = pshell_aggs_[start];
+    size_t end = pshell_aggs_[stop + 1] - 1;
+    size_t block_size = end - begin + 1;
+    size_t startind = symm_big_skips_[begin];
+    //    outfile->Printf("      MU shell: (%zu, %zu)", start, stop);
+    //    outfile->Printf(", nbf_ index: (%zu, %zu), size: %zu\n", begin, end, block_size);
+
+    // prepare eri buffers
+    size_t nthread = nthreads_;
+    if (eri.size() != nthreads_) nthread = eri.size();
+
+    std::vector<const double*> buffer(nthread);
+    std::vector<const double*> wbuffer(nthread);
+#pragma omp parallel num_threads(nthread)
+    {
+        int rank = 0;
+#ifdef _OPENMP
+        rank = omp_get_thread_num();
+#endif
     }
+
+
+#pragma omp parallel for schedule(guided) num_threads(nthread)
+    for (size_t MU = start; MU <= stop; MU++) {
+        int rank = 0;
+#ifdef _OPENMP
+        rank = omp_get_thread_num();
+#endif
+        size_t nummu = primary_->shell(MU).nfunction();
+        for (size_t NU = MU; NU < pshells_; NU++) {
+            size_t numnu = primary_->shell(NU).nfunction();
+            if (!schwarz_shell_mask_[MU * pshells_ + NU]) {
+                continue;
+            }
+
+            // Loop over Auxiliary index
+            for (size_t Pshell = 0; Pshell < Qshells_; Pshell++) {
+                size_t PHI = aux_->shell(Pshell).function_index();
+                size_t numP = aux_->shell(Pshell).nfunction();
+                eri[rank]->compute_shell(Pshell, 0, MU, NU);
+                weri[rank]->compute_shell(Pshell, 0, MU, NU);
+                buffer[rank] = eri[rank]->buffers()[0];
+                wbuffer[rank] = weri[rank]->buffers()[0];
+
+                for (size_t mu = 0; mu < nummu; mu++) {
+                    size_t omu = primary_->shell(MU).function_index() + mu;
+                    for (size_t nu = 0; nu < numnu; nu++) {
+                        size_t onu = primary_->shell(NU).function_index() + nu;
+
+                        // Remove sieved integrals or lower triangular
+                        if (!schwarz_fun_mask_[omu * nbf_ + onu] || omu > onu) {
+                            continue;
+                        }
+
+                        for (size_t P = 0; P < numP; P++) {
+                            size_t jump = schwarz_fun_mask_[omu * nbf_ + onu] - schwarz_fun_mask_[omu * nbf_ + omu];
+                            size_t ind1 = symm_big_skips_[omu] - startind + (PHI + P) * symm_small_skips_[omu] + jump;
+                            just_Mp[ind1] = buffer[rank][P * nummu * numnu + mu * numnu + nu];
+                            param_Mp[ind1] = omega_alpha_ * buffer[rank][P * nummu * numnu + mu * numnu + nu] + omega_beta_ * wbuffer[rank][P * nummu * numnu + mu * numnu + nu];
+                        }
+                    }
+                }
+            }
+        }
+    } // ends MU loop
 }
 void DFHelper::grab_AO(const size_t start, const size_t stop, double* Mp) {
     size_t begin = Qshell_aggs_[start];
@@ -1178,25 +1399,26 @@ void DFHelper::prepare_metric_core() {
     metrics_[1.0] = Jinv->get_metric();
     timer_off("DFH: metric construction");
 }
-double* DFHelper::metric_prep_core(double pow) {
+double* DFHelper::metric_prep_core(double m_pow) {
     bool on = false;
     double power;
     for (auto& kv : metrics_) {
-        if (!(std::fabs(pow - kv.first) > 1e-13)) {
+        if (!(std::fabs(m_pow - kv.first) > 1e-13)) {
             on = true;
             power = kv.first;
             break;
         }
     }
     if (!on) {
-        power = pow;
-        timer_on("DFH: metric power");
+        power = m_pow;
         SharedMatrix J = metrics_[1.0];
-        J->power(power, condition_);
+        if ( fabs(m_pow - 1.0) < 1e-13 ) {
+            return J->pointer()[0];
+        } else {
+            J->power(power, condition_);
+        }
         metrics_[power] = J;
-        timer_off("DFH: metric power");
     }
-
     return metrics_[power]->pointer()[0];
 }
 void DFHelper::prepare_metric() {
@@ -1212,28 +1434,27 @@ void DFHelper::prepare_metric() {
     filename.append(std::to_string(1.0));
     filename_maker(filename, naux_, naux_, 1);
     metric_keys_.push_back(std::make_pair(1.0, filename));
-
     // store
     std::string putf = std::get<0>(files_[filename]);
     put_tensor(putf, Mp, 0, naux_ - 1, 0, naux_ - 1, "wb");
 }
-std::string DFHelper::return_metfile(double pow) {
+std::string DFHelper::return_metfile(double m_pow) {
     bool on = 0;
     std::string key;
     for (size_t i = 0; i < metric_keys_.size() && !on; i++) {
-        double pos = std::get<0>(metric_keys_[i]);
-        if (std::fabs(pos - pow) < 1e-12) {
+        double power = std::get<0>(metric_keys_[i]);
+        if (std::fabs(power - m_pow) < 1e-12) {
             key = std::get<1>(metric_keys_[i]);
             on = 1;
         }
     }
 
-    if (!on) key = compute_metric(pow);
+    if (!on) key = compute_metric(m_pow);
     return key;
 }
-std::string DFHelper::compute_metric(double pow) {
+std::string DFHelper::compute_metric(double m_pow) {
     // ensure J
-    if (std::fabs(pow - 1.0) < 1e-13)
+    if (std::fabs(m_pow - 1.0) < 1e-13)
         prepare_metric();
     else {
         // get metric
@@ -1243,22 +1464,41 @@ std::string DFHelper::compute_metric(double pow) {
 
         // get and compute
         get_tensor_(std::get<0>(files_[filename]), metp, 0, naux_ - 1, 0, naux_ - 1);
-        metric->power(pow, condition_);
+        metric->power(m_pow, condition_);
 
         // make new file
         std::string name = "metric";
         name.append(".");
-        name.append(std::to_string(pow));
+        name.append(std::to_string(m_pow));
         filename_maker(name, naux_, naux_, 1);
-        metric_keys_.push_back(std::make_pair(pow, name));
+        metric_keys_.push_back(std::make_pair(m_pow, name));
 
         // store
         std::string putf = std::get<0>(files_[name]);
         put_tensor(putf, metp, 0, naux_ - 1, 0, naux_ - 1, "wb");
     }
-    return return_metfile(pow);
+    return return_metfile(m_pow);
 }
+double* DFHelper::metric_inverse_prep_core() {
+    bool on = false;
+    double power;
+    for (auto& kv : metrics_) {
+        if ((std::fabs(-1.0 - kv.first) < 1e-13)) {
+            on = true;
+            power = kv.first;
+            break;
+        }
+    }
+    if (!on) {
+        power = -1.0;
+        timer_on("DFH: metric power");
+        SharedMatrix J = metrics_[1.0];
+        J->invert();
+        timer_off("DFH: metric power");
+    }
 
+    return metrics_[power]->pointer()[0];
+}
 void DFHelper::metric_contraction_blocking(std::vector<std::pair<size_t, size_t>>& steps, size_t blocking_index,
                                            size_t block_sizes, size_t total_mem, size_t memory_factor,
                                            size_t memory_bump) {
@@ -1374,7 +1614,7 @@ void DFHelper::contract_metric_AO_core(double* Qpq, double* metp) {
     }
 }
 
-void DFHelper::contract_metric_AO_core_symm(double* Qpq, double* metp, size_t begin, size_t end) {
+void DFHelper::contract_metric_AO_core_symm(double* Qpq, double* Ppq, double* metp, size_t begin, size_t end) {
     // loop and contract
     size_t startind = symm_big_skips_[begin];
 #pragma omp parallel for num_threads(nthreads_) schedule(guided)
@@ -1384,11 +1624,9 @@ void DFHelper::contract_metric_AO_core_symm(double* Qpq, double* metp, size_t be
         size_t jump = symm_ignored_columns_[j];
         size_t skip1 = big_skips_[j];
         size_t skip2 = symm_big_skips_[j] - startind;
-        C_DGEMM('N', 'N', naux_, mi, naux_, 1.0, metp, naux_, &Qpq[skip2], mi, 0.0, &Ppq_[skip1 + jump], si);
+        C_DGEMM('N', 'N', naux_, mi, naux_, 1.0, metp, naux_, &Qpq[skip2], mi, 0.0, &Ppq[skip1 + jump], si);
     }
-
-    // copy upper-to-lower
-    double* Ppq = Ppq_.get();
+// copy upper-to-lower
 #pragma omp parallel for num_threads(nthreads_) schedule(static)
     for (size_t omu = begin; omu <= end; omu++) {
         for (size_t Q = 0; Q < naux_; Q++) {
@@ -1402,6 +1640,34 @@ void DFHelper::contract_metric_AO_core_symm(double* Qpq, double* metp, size_t be
         }
     }
 }
+void DFHelper::copy_upper_lower_wAO_core_symm(double* Qpq, double* Ppq, size_t begin, size_t end) {
+    // copy out of symm
+    size_t startind = symm_big_skips_[begin];
+    for (size_t j = begin; j <= end; j++) {
+        size_t mi = symm_small_skips_[j];
+        size_t si = small_skips_[j];
+        size_t jump = symm_ignored_columns_[j];
+        size_t skip1 = big_skips_[j];
+        size_t skip2 = symm_big_skips_[j] - startind;
+        for (size_t j2 = 0; j2 < naux_; j2++) {
+            C_DCOPY(mi, &Qpq[skip2 + mi * j2], 1, &Ppq[skip1 + jump + si * j2], 1);
+        }
+    }
+// copy upper-to-lower
+#pragma omp parallel for num_threads(nthreads_) schedule(static)
+    for (size_t omu = begin; omu <= end; omu++) {
+        for (size_t Q = 0; Q < naux_; Q++) {
+            for (size_t onu = omu + 1; onu < nbf_; onu++) {
+                if (schwarz_fun_mask_[omu * nbf_ + onu]) {
+                    size_t ind1 = big_skips_[onu] + Q * small_skips_[onu] + schwarz_fun_mask_[onu * nbf_ + omu] - 1;
+                    size_t ind2 = big_skips_[omu] + Q * small_skips_[omu] + schwarz_fun_mask_[omu * nbf_ + onu] - 1;
+                    Ppq[ind1] = Ppq[ind2];
+                }
+            }
+        }
+    }
+}
+
 void DFHelper::add_space(std::string key, SharedMatrix M) {
     size_t a0 = M->rowspi()[0];
     size_t a1 = M->colspi()[0];
@@ -1460,6 +1726,13 @@ void DFHelper::clear_spaces() {
     // no ordering
     ordered_ = false;
     transformed_ = false;
+}
+
+void DFHelper::clear_transformations() {
+    // clears transformations
+
+    transf_.clear();
+    transf_core_.clear();
 }
 
 void DFHelper::clear_all() {
@@ -1576,6 +1849,7 @@ void DFHelper::transform() {
     std::shared_ptr<BasisSet> zero = BasisSet::zero_ao_basis_set();
     auto rifactory = std::make_shared<IntegralFactory>(aux_, zero, primary_, primary_);
     std::vector<std::shared_ptr<TwoBodyAOInt>> eri(nthread);
+    eri[0] = std::shared_ptr<TwoBodyAOInt>(rifactory->eri());
 #pragma omp parallel num_threads(nthreads_)
     {
         int rank = 0;
@@ -1584,7 +1858,7 @@ void DFHelper::transform() {
 #endif
         std::vector<double> Cp(nbf_ * wtmp);
         C_buffers[rank] = Cp;
-        eri[rank] = std::shared_ptr<TwoBodyAOInt>(rifactory->eri());
+        if (rank) eri[rank] = std::shared_ptr<TwoBodyAOInt>(eri.front()->clone());
     }
 
     // allocate in-core transformed integrals if necessary
@@ -2692,21 +2966,29 @@ std::tuple<size_t, size_t, size_t> DFHelper::get_tensor_shape(std::string name) 
     return sizes_[std::get<1>(files_[name])];
 }
 void DFHelper::build_JK(std::vector<SharedMatrix> Cleft, std::vector<SharedMatrix> Cright, std::vector<SharedMatrix> D,
-                        std::vector<SharedMatrix> J, std::vector<SharedMatrix> K, size_t max_nocc, bool do_J, bool do_K,
-                        bool do_wK, bool lr_symmetric) {
+                        std::vector<SharedMatrix> J, std::vector<SharedMatrix> K, std::vector<SharedMatrix> wK,
+                        size_t max_nocc, bool do_J, bool do_K, bool do_wK, bool lr_symmetric) {
     if (debug_) {
         outfile->Printf("Entering DFHelper::build_JK\n");
     }
+    bool store_k = do_K;
+    if ( do_wK && wcombine_ ) { do_K = false; } 
 
+    // This was an if-else statement. Presumably, we could manage J construction
+    //   to more effectively manage memory, so I think that was what was going on.
     if (do_J || do_K) {
         timer_on("DFH: compute_JK()");
         compute_JK(Cleft, Cright, D, J, K, max_nocc, do_J, do_K, do_wK, lr_symmetric);
         timer_off("DFH: compute_JK()");
-    } else {
+    }
+
+    if (do_wK_) {
         timer_on("DFH: compute_wK()");
-        ;  // TODO compute_wK(Cleft, Cright, D, J, K, max_nocc, do_J, do_K, do_wK);
+        compute_wK(Cleft, Cright, wK, max_nocc, do_J, do_K, do_wK);
         timer_off("DFH: compute_wK()");
     }
+
+    if (store_k) { do_K = true;}
 
     if (debug_) {
         outfile->Printf("Exiting DFHelper::build_JK\n");
@@ -2756,7 +3038,9 @@ void DFHelper::compute_JK(std::vector<SharedMatrix> Cleft, std::vector<SharedMat
     // allocate first Ktmp
     size_t Ktmp_size = (!max_nocc ? totsb * 1 : totsb * max_nocc);
     Ktmp_size = std::max(Ktmp_size * nbf_, nthreads_ * naux_);  // max necessary
-    T1 = std::unique_ptr<double[]>(new double[Ktmp_size]);
+    Ktmp_size = std::max(Ktmp_size, nbf_ * nbf_); 
+    Ktmp_size = std::max(Ktmp_size, nthreads_ * naux_);
+    T1 = std::make_unique<double[]>(Ktmp_size);
     double* T1p = T1.get();
 
     // if lr_symmetric, we can be more clever with mem usage. T2 is used for both the
@@ -2767,15 +3051,24 @@ void DFHelper::compute_JK(std::vector<SharedMatrix> Cleft, std::vector<SharedMat
         Ktmp_size = std::max(nbf_ * nbf_, Ktmp_size);  // max necessary
     }
 
-    T2 = std::unique_ptr<double[]>(new double[Ktmp_size]);
+    // necessary for wcombine case for small molecules
+    Ktmp_size = std::max(Ktmp_size, nbf_ * nbf_); 
+    Ktmp_size = std::max(Ktmp_size, nthreads_ * naux_);
+
+    T2 = std::make_unique<double[]>(Ktmp_size);
     double* T2p = T2.get();
 
     double* Mp;
     if (!AO_core_) {
-        M = std::unique_ptr<double[]>(new double[tots]);
+        M = std::make_unique<double[]>(tots);
         Mp = M.get();
     } else
-        Mp = Ppq_.get();
+        if (!wcombine_) {Mp = Ppq_.get();}
+
+    double* M1p;
+    if (wcombine_) {
+        M1p = m1Ppq_.get();
+    }
 
     // transform in steps (blocks of Q)
     for (size_t j = 0, bcount = 0; j < Qsteps.size(); j++) {
@@ -2786,23 +3079,22 @@ void DFHelper::compute_JK(std::vector<SharedMatrix> Cleft, std::vector<SharedMat
         size_t end = Qshell_aggs_[stop + 1] - 1;
         size_t block_size = end - begin + 1;
 
-        // print step info
-        // outfile->Printf("      Qshell: (%zu, %zu)", start, stop);
-        // outfile->Printf(", PHI: (%zu, %zu), size: %zu\n", begin, end, block_size);
-
         // get AO chunk according to directive
         timer_on("DFH: Grabbing AOs");
         if (!AO_core_) {
             grab_AO(start, stop, Mp);
         }
         timer_off("DFH: Grabbing AOs");
-
         if (do_J) {
             timer_on("DFH: compute_J");
-            if (lr_symmetric) {
-                compute_J_symm(D, J, Mp, T1p, T2p, C_buffers, bcount, block_size);
+            if (wcombine_ && do_wK_) {
+                compute_J_combined(D, J, M1p, T1p, T2p, C_buffers, bcount, block_size);
             } else {
-                compute_J(D, J, Mp, T1p, T2p, C_buffers, bcount, block_size);
+                if (lr_symmetric) {
+                    compute_J_symm(D, J, Mp, T1p, T2p, C_buffers, bcount, block_size);
+                } else {
+                    compute_J(D, J, Mp, T1p, T2p, C_buffers, bcount, block_size);
+                }
             }
             timer_off("DFH: compute_J");
         }
@@ -2940,6 +3232,70 @@ void DFHelper::compute_J(std::vector<SharedMatrix> D, std::vector<SharedMatrix> 
         }
     }
 }
+void DFHelper::compute_J_combined(std::vector<SharedMatrix> D, std::vector<SharedMatrix> J, double* Mp, double* T1p, double* T2p, std::vector<std::vector<double>>& D_buffers, size_t bcount, size_t block_size) {
+//    double* coul_metp = metric_prep_core(1.0);
+    double* coul_metp;
+    std::unique_ptr<double[]> metric;
+
+
+    if (!hold_met_) {
+        metric = std::make_unique<double[]>(naux_ * naux_);
+        coul_metp = metric.get();
+        std::string filename = return_metfile(1.0);
+        get_tensor_(std::get<0>(files_[filename]), coul_metp, 0, naux_ - 1, 0, naux_ - 1);
+    } else
+        coul_metp = metric_prep_core(1.0);
+
+
+    for (size_t i = 0; i < J.size(); i++) {
+        double* Dp = D[i]->pointer()[0];
+        double* Jp = J[i]->pointer()[0];
+        memset(T1p, 0, naux_ *  nthreads_ * sizeof(double));
+        memset(T2p, 0, naux_ * sizeof(double));
+
+#pragma omp parallel for schedule(guided) num_threads(nthreads_)
+        for (size_t k = 0; k < nbf_; k++) {
+            size_t sp_size = small_skips_[k];
+            size_t jump = (AO_core_ ? big_skips_[k] + bcount * sp_size : (big_skips_[k] * block_size) / naux_ );
+            int rank = 0;
+#ifdef _OPENMP 
+            rank = omp_get_thread_num();
+#endif
+            for (size_t m = 0, sp_count = -1; m < nbf_; m++) {
+                if (schwarz_fun_mask_[k * nbf_ + m]) {
+                    sp_count++;
+                    D_buffers[rank][sp_count] = Dp[nbf_ * m + k];
+                }
+            }
+            C_DGEMV('N', block_size, sp_size, 1.0, &Mp[jump], sp_size, &D_buffers[rank][0], 1, 1.0, &T1p[rank * naux_], 1);
+        }
+        //reduce
+        for (size_t k = 1; k < nthreads_; k++) {
+            for (size_t l = 0; l < naux_; l++) { T1p[l] += T1p[ k * naux_ + l ]; }
+        }
+
+        //metric contraction
+        C_DGEMV('N', naux_, naux_, 1.0, coul_metp, naux_, T1p, 1, 0.0, T2p, 1);
+
+        memset(T1p, 0, nbf_ * nbf_ * sizeof(double));
+        // comute pruned J
+#pragma omp parallel for schedule(guided) num_threads(nthreads_)
+        for (size_t k = 0; k < nbf_; k++ ) {
+            size_t sp_size = small_skips_[k];
+            size_t jump = (AO_core_ ? big_skips_[k] + bcount * sp_size : (big_skips_[k] * block_size) / naux_ );
+            C_DGEMV('T', block_size, sp_size, 1.0, &Mp[jump], sp_size, T2p, 1, 0.0, &T1p[k*nbf_], 1);
+        }
+
+        for (size_t k = 0; k < nbf_; k++) {
+            for (size_t m = 0, count = -1; m < nbf_; m++) {
+                if (schwarz_fun_mask_[k * nbf_ + m]) {
+                    count++;
+                    Jp[k * nbf_ + m ] += T1p[k * nbf_ + count];
+                }
+            }
+        }
+    }
+}
 void DFHelper::compute_K(std::vector<SharedMatrix> Cleft, std::vector<SharedMatrix> Cright, std::vector<SharedMatrix> K,
                          double* T1p, double* T2p, double* Mp, size_t bcount, size_t block_size,
                          std::vector<std::vector<double>>& C_buffers, bool lr_symmetric) {
@@ -2966,6 +3322,67 @@ void DFHelper::compute_K(std::vector<SharedMatrix> Cleft, std::vector<SharedMatr
         // compute K
         C_DGEMM('N', 'T', nbf_, nbf_, nocc * block_size, 1.0, T1p, nocc * block_size, T2p, nocc * block_size, 1.0, Kp,
                 nbf_);
+    }
+}
+void DFHelper::compute_wK(std::vector<SharedMatrix> Cleft, std::vector<SharedMatrix> Cright,
+                          std::vector<SharedMatrix> wK, size_t max_nocc, bool do_J, bool do_K, bool do_wK) {
+    std::vector<std::pair<size_t, size_t>> Qsteps;
+    std::tuple<size_t, size_t> info = Qshell_blocks_for_JK_build(Qsteps, max_nocc, false);
+    size_t tots = std::get<0>(info);
+    size_t totsb = std::get<1>(info);
+
+    double* wMp = wPpq_.get();
+    double* M1p = m1Ppq_.get();
+    std::vector<std::vector<double>> C_buffers(nthreads_);
+// prepare C buffers
+#pragma omp parallel num_threads(nthreads_)
+    {
+        int rank = 0;
+#ifdef _OPENMP
+        rank = omp_get_thread_num();
+#endif
+        C_buffers[rank] = std::vector<double>(nbf_ * std::max(max_nocc, nbf_));
+    }
+
+    // declare bufs
+    std::unique_ptr<double[]> T1;  // Ktmp1
+    std::unique_ptr<double[]> T2;  // Ktmp2
+
+    // allocate first Ktmp
+    size_t Ktmp_size = (!max_nocc ? totsb * 1 : totsb * max_nocc);
+    Ktmp_size = std::max(Ktmp_size * nbf_, nthreads_ * naux_);  // max necessary
+    T1 = std::make_unique<double[]>(Ktmp_size);
+    double* T1p = T1.get();
+    T2 = std::make_unique<double[]>(Ktmp_size);
+    double* T2p = T2.get();
+
+    /* The rest of the file would usually be in compute_K */
+    /* */
+    for (size_t bind = 0, bcount = 0; bind < Qsteps.size(); bind++) {
+        size_t start = std::get<0>(Qsteps[bind]);
+        size_t stop = std::get<1>(Qsteps[bind]);
+        size_t begin = Qshell_aggs_[start];
+        size_t end = Qshell_aggs_[stop + 1] - 1;
+        size_t block_size = end - begin + 1;
+        for (size_t i = 0; i < wK.size(); i++) {
+            size_t nocc = Cleft[i]->colspi()[0];
+            if (!nocc) {
+                continue;
+            }
+            double* Clp = Cleft[i]->pointer()[0];
+            double* Crp = Cright[i]->pointer()[0];
+            double* wKp = wK[i]->pointer()[0];
+
+            // compute first tmp
+            first_transform_pQq(nocc, bcount, block_size, M1p, T1p, Clp, C_buffers);
+            // compute second tmp
+            first_transform_pQq(nocc, bcount, block_size, wMp, T2p, Crp, C_buffers);
+
+            // compute wK
+            C_DGEMM('N', 'T', nbf_, nbf_, nocc * block_size, 1.0, T2p, nocc * block_size, T1p, nocc * block_size, 1.0,
+                    wKp, nbf_);
+        }
+        bcount += block_size;
     }
 }
 

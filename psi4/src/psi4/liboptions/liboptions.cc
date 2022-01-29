@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -38,6 +38,7 @@
 #include "psi4/libpsi4util/libpsi4util.h"  // Needed for Ref counting, string splitting, and conversions
 #include "psi4/libpsi4util/PsiOutStream.h"
 #include "psi4/libpsi4util/process.h"
+#include "psi4/libpsi4util/libpsi4util.h"
 
 namespace psi {
 
@@ -52,7 +53,7 @@ void DataType::changed() { changed_ = true; }
 
 void DataType::dechanged() { changed_ = false; }
 
-void DataType::to_upper(std::string& str) const { std::transform(str.begin(), str.end(), str.begin(), ::toupper); }
+void DataType::to_upper(std::string& str) const { psi::to_upper(str); }
 
 void DataType::add_choices(std::string str) {
     printf("I am here!\n");
@@ -102,6 +103,8 @@ void DataType::assign(int) { throw DataTypeException("assign(int) failure"); }
 void DataType::assign(double) { throw DataTypeException("assign(double) failure"); }
 
 void DataType::assign(std::string) { throw DataTypeException("assign(std:string) failure"); }
+
+std::vector<std::string> DataType::choices() { throw DataTypeException("choices() failure"); }
 
 void DataType::reset() { throw DataTypeException("reset() failure"); }
 
@@ -382,6 +385,8 @@ void Data::assign(double d) { ptr_->assign(d); }
 
 void Data::assign(std::string s) { ptr_->assign(s); }
 
+std::vector<std::string> Data::choices() { return ptr_->choices(); }
+
 void Data::reset() { ptr_->reset(); }
 
 DataType* Data::get() const { return ptr_.get(); }
@@ -509,7 +514,7 @@ void Options::set_current_module(const std::string s) {
     all_local_options_.clear();
 }
 
-void Options::to_upper(std::string& str) const { std::transform(str.begin(), str.end(), str.begin(), ::toupper); }
+void Options::to_upper(std::string& str) const { psi::to_upper(str); }
 
 void Options::validate_options() {
     std::map<std::string, Data>::const_iterator iter = locals_[current_module_].begin();
@@ -595,11 +600,35 @@ void Options::set_double(const std::string& module, const std::string& key, doub
 void Options::set_str(const std::string& module, const std::string& key, std::string s) {
     locals_[module][key] = new StringDataType(s);
     locals_[module][key].changed();
+
+    // check if this option is defined in global. If yes, check choices
+    if (exists_in_global(key)) {
+        auto gl = get_global(key);
+        to_upper(s);
+        if (gl.choices().size() > 0) {
+            bool wrong_input = true;
+            for (size_t i = 0; i < gl.choices().size(); ++i)
+                if (s == gl.choices()[i]) wrong_input = false;
+            if (wrong_input) throw DataTypeException(s + " is not a valid choice");
+        }
+    }
 }
 
 void Options::set_str_i(const std::string& module, const std::string& key, std::string s) {
     locals_[module][key] = new IStringDataType(s);
     locals_[module][key].changed();
+
+    // check if this option is defined in global. If yes, check choices
+    if (exists_in_global(key)) {
+        auto gl = get_global(key);
+        to_upper(s);
+        if (gl.choices().size() > 0) {
+            bool wrong_input = true;
+            for (size_t i = 0; i < gl.choices().size(); ++i)
+                if (s == gl.choices()[i]) wrong_input = false;
+            if (wrong_input) throw DataTypeException(s + " is not a valid choice");
+        }
+    }
 }
 
 void Options::set_array(const std::string& module, const std::string& key) {

@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -29,8 +29,8 @@
 #ifndef occwave_h
 #define occwave_h
 
+#include "psi4/libmints/vector.h"
 #include "psi4/libmints/wavefunction.h"
-#include "psi4/libdiis/diismanager.h"
 #include "psi4/libdpd/dpd.h"
 #include "psi4/libpsi4util/PsiOutStream.h"
 
@@ -38,6 +38,7 @@
 
 namespace psi {
 
+class DIISManager;
 class IntegralTransform;
 
 namespace occwave {
@@ -52,10 +53,13 @@ class OCCWave : public Wavefunction {
     double compute_energy() override;
 
    protected:
+    enum class SpinType : char { Alpha = 'a', Beta = 'b' };
+
     // General
     void mem_release();
     void mograd();
-    void update_mo();
+    void compute_orbital_step();
+    void update_mo_spincase(SpinType);
     void ccl_energy();
     void nbo();
     void get_moinfo();
@@ -66,13 +70,12 @@ class OCCWave : public Wavefunction {
     void fock_beta();
     void idp();
     void idp2();
-    void diis(int dimvec, Array2d *vecs, Array2d *errvecs, Array1d *vec_new, Array1d *errvec_new);
     void kappa_msd();
     void kappa_orb_resp();
     void kappa_orb_resp_iter();
+    void compute_sigma_vector();
     void orb_resp_pcg_rhf();
     void orb_resp_pcg_uhf();
-    void dump_ints();
     void denominators_rhf();
     void denominators_uhf();
     void gfock();
@@ -91,6 +94,7 @@ class OCCWave : public Wavefunction {
     void coord_grad();
     void dump_pdms();
     void occ_iterations();
+    void response_pdms();
     void tei_sort_iabc();
     void ekt_ip();
     void ekt_ea();
@@ -101,29 +105,37 @@ class OCCWave : public Wavefunction {
     void oeprop();
     void s2_response();
     void s2_lagrangian();
+    void second_order_opdm();
+    void set_t2_amplitudes_mp2();
+    void mp2_energy(bool include_singles = false);
+    void oo_diis(DIISManager&);
+
+    // Processing functions - print output, save variables
+    void mp2_printing(bool scf = false, bool include_singles = false);
+    void mp2p5_printing(bool scf = false);
+    void mp3_printing(bool scf = false);
+    void mp2_postprocessing(bool include_singles = false);
+    void mp2p5_postprocessing();
+    void mp3_postprocessing();
 
     // OMP2
     void omp2_manager();
     void mp2_manager();
     void omp2_g_int();
     void omp2_response_pdms();
-    void omp2_t2_1st_sc();
-    void omp2_t2_1st_general();
     void omp2_tpdm_oovv();
-    void omp2_mp2_energy();
     void omp2_ip_poles();
     void omp2_ea_poles();
     void ep2_ip();
+    void iterate_t2o1_amplitudes(); // Used by all OMP methods, as all need T2(1)
+    void iterative_mp_postdiis_amplitudes(); // Used by OMP methods higher than OMP2
 
     // OMP3
     void omp3_manager();
     void mp3_manager();
     void omp3_response_pdms();
-    void omp3_t2_1st_sc();
-    void omp3_t2_1st_general();
     void omp3_tpdm_vvvv();
     void omp3_g_int();
-    void omp3_mp2_energy();
     void w_1st_order();
     void v_2nd_order();
     void t2_2nd_sc();
@@ -139,10 +151,9 @@ class OCCWave : public Wavefunction {
     void ocepa_manager();
     void cepa_manager();
     void cepa_iterations();
-    void ocepa_mp2_energy();
-    void ocepa_t2_1st_sc();
+    void cepa_diis(DIISManager&);
+    void cepa_chemist();
     void ocepa_tpdm_vvvv();
-    void ocepa_g_int();
     void ocepa_response_pdms();
     void t2_amps();
     void w_int();
@@ -158,8 +169,6 @@ class OCCWave : public Wavefunction {
     void t1_1st_gen();
 
     class IntegralTransform *ints;
-    DIISManager *t2DiisManager;
-    // class DIISManager t2DiisManager;
 
     int nmo;      // Number of MOs
     int nao;      // Number of AOs
@@ -194,8 +203,6 @@ class OCCWave : public Wavefunction {
     int idp_return;
     int idp_returnA;
     int idp_returnB;
-    int num_vecs;  // Number of vectors used in diis (diis order)
-    int nvar;      // nvar = num_vecs +1;
     int multp;
     int charge;
     int print_;
@@ -213,8 +220,8 @@ class OCCWave : public Wavefunction {
     int do_diis_;
     int itr_diis;
     int time4grad;         // If 0 it is not the time for grad, if 1 it is the time for grad
-    int cc_maxdiis_;       // MAX Number of vectors used in CC diis
-    int cc_mindiis_;       // MIN Number of vectors used in CC diis
+    int maxdiis_;          // MAX Number of vectors used in diis
+    int mindiis_;          // MIN Number of vectors used in diis
     int incore_iabc_;      // 1 means do incore, 0 means do out of core
     int incore_abcd_;      // 1 means do incore, 0 means do out of core
     int orbs_already_opt;  // 1 means true, 0 means false
@@ -254,10 +261,6 @@ class OCCWave : public Wavefunction {
     double Escsnmp2;
     double Escsnmp2BB;
     double Escsnmp2AA;
-    double Escsmimp2;
-    double Escsmimp2BB;
-    double Escsmimp2AA;
-    double Escsmimp2AB;
     double Escsmp2vdw;
     double Escsmp2vdwBB;
     double Escsmp2vdwAA;
@@ -290,18 +293,10 @@ class OCCWave : public Wavefunction {
     double rms_t2AB;
     double rms_t2BB;
     double rms_l2;
-    double mu_ls;
     double sc_ls;
-    double lshift_parameter;
     double cutoff;
     double os_scale;
     double ss_scale;
-    double sos_scale;
-    double sos_scale2;
-    double a_pcgA;
-    double a_pcgB;
-    double b_pcgA;
-    double b_pcgB;
     double rms_pcgA;
     double rms_pcgB;
     double rms_pcg;
@@ -328,12 +323,7 @@ class OCCWave : public Wavefunction {
     double Escsmp3AA;
     double Escsmp3AB;
     double Escsmp3;
-    double Esosmp3AB;
     double Esosmp3;
-    double Escsnmp3;
-    double Escsmimp3;
-    double Escsmp3vdw;
-    double Esospimp3;
 
     // OCEPA
     double Ecepa;
@@ -343,20 +333,6 @@ class OCCWave : public Wavefunction {
     double EcepaAB;
     double EcepaL;
     double EcepaL_old;
-    double EscscepaBB;
-    double EscscepaAA;
-    double EscscepaAB;
-    double Escscepa;
-    double EsoscepaAB;
-    double Esoscepa;
-    double Escsncepa;
-    double Escsmicepa;
-    double Escscepavdw;
-    double Esospicepa;
-    double cepa_os_scale_;
-    double cepa_ss_scale_;
-    double cepa_sos_scale_;
-    double sos_scale_ocepa;
 
     std::string wfn;
     std::string reference;
@@ -364,7 +340,6 @@ class OCCWave : public Wavefunction {
     std::string jobtype;
     std::string dertype;
     std::string basis;
-    std::string level_shift;
     std::string lineq;
     std::string orth_type;
     std::string natorb;
@@ -372,12 +347,9 @@ class OCCWave : public Wavefunction {
     std::string opt_method;
     std::string hess_type;
     std::string occ_orb_energy;
-    std::string do_scs;          // Spin-Component-Scaling
-    std::string do_sos;          // Spin-Opposite-Scaling
     std::string write_mo_coeff;  // Write CmoA to CmoA.psi and CmoB to CmoB.psi
     std::string read_mo_coeff;   // Read CmoA from CmoA.psi and CmoB from CmoB.psi
-    std::string scs_type_;
-    std::string sos_type_;
+    std::string spin_scale_type_;
     std::string pcg_beta_type_;
     std::string compute_mp3l;      // Do compute mp3l energy during iterations?
     std::string compute_cepal;     // Do compute cepal energy during iterations?
@@ -397,6 +369,7 @@ class OCCWave : public Wavefunction {
     std::string oeprop_;
     std::string comput_s2_;
 
+    // Several of these int*'s seem like they should be Dimension objects.
     int *mopi; /* number of all MOs per irrep */
     int *sopi; /* number of all SOs per irrep */
     int *occpi;
@@ -462,36 +435,26 @@ class OCCWave : public Wavefunction {
     Array1d *kappaA;
     Array1d *kappaB;
     Array1d *kappa;  // where kappa = kappaA + kappaB
-    Array1d *kappa_barA;
-    Array1d *kappa_barB;
     Array1d *kappa_newA;
     Array1d *kappa_newB;
     Array1d *r_pcgA;
     Array1d *r_pcgB;
-    Array1d *z_pcgA;
-    Array1d *z_pcgB;
-    Array1d *p_pcgA;
-    Array1d *p_pcgB;
+    Array1d *S_pcgA;
+    Array1d *S_pcgB;
+    Array1d *D_pcgA;
+    Array1d *D_pcgB;
     Array1d *sigma_pcgA;
     Array1d *sigma_pcgB;
     Array1d *Minv_pcgA;
     Array1d *Minv_pcgB;
     Array1d *r_pcg_newA;
     Array1d *r_pcg_newB;
-    Array1d *z_pcg_newA;
-    Array1d *z_pcg_newB;
-    Array1d *p_pcg_newA;
-    Array1d *p_pcg_newB;
     Array1d *dr_pcgA;
     Array1d *dr_pcgB;
     Array1d *zvectorA;
     Array1d *zvectorB;
     Array1d *zvector;  // where zvector = zvectorA + zvectorB
 
-    Array2d *vecsA;
-    Array2d *vecsB;
-    Array2d *errvecsA;
-    Array2d *errvecsB;
     Array2d *AorbAA;
     Array2d *AorbBB;
     Array2d *AorbAB;
@@ -505,8 +468,6 @@ class OCCWave : public Wavefunction {
 
     SharedMatrix Ca_new;  // New Alpha MO coeff.
     SharedMatrix Cb_new;  // New Beta MO coeff.
-    SharedMatrix Ca_ref;  // Ref Alpha MO coeff.
-    SharedMatrix Cb_ref;  // Ref Beta MO coeff.
     SharedMatrix Tso;
     SharedMatrix Vso;
     SharedMatrix Hso;
@@ -528,17 +489,15 @@ class OCCWave : public Wavefunction {
     SharedMatrix UorbrotB;
     SharedMatrix KorbA;
     SharedMatrix KorbB;
-    SharedMatrix KsqrA;
-    SharedMatrix KsqrB;
     SharedMatrix HG1;
     SharedMatrix HG1A;
     SharedMatrix HG1B;
-    SharedMatrix gamma1corr;
-    SharedMatrix gamma1corrA;
-    SharedMatrix gamma1corrB;
-    SharedMatrix g1symm;
-    SharedMatrix g1symmA;
-    SharedMatrix g1symmB;
+    SharedMatrix gamma1corr;   // Correlation contribution to 1PDM, for RHF
+    SharedMatrix gamma1corrA;  // Correlation contribution to alpha 1PDM, for UHF
+    SharedMatrix gamma1corrB;  // Correlation contribution to beta 1PDM, for UHF
+    SharedMatrix g1symm;       // 1PDM, for RHF
+    SharedMatrix g1symmA;      // Alpha 1PDM, for UHF
+    SharedMatrix g1symmB;      // Beta 1PDM, for UHF
     SharedMatrix G1tilde;
     SharedMatrix G1tildeA;
     SharedMatrix G1tildeB;
@@ -549,16 +508,27 @@ class OCCWave : public Wavefunction {
     SharedMatrix HCB;
     SharedMatrix FCA;
     SharedMatrix FCB;
-    SharedMatrix GooA;
-    SharedMatrix GooB;
-    SharedMatrix GvvA;
-    SharedMatrix GvvB;
+    SharedMatrix GooA;  // -1 * OO block of the correlation contribution to alpha 1PDM
+    SharedMatrix GooB;  // -1 * OO block of the correlation contribution to beta 1PDM
+    SharedMatrix GvvA;  // -1 * VV block of the correlation contribution to alpha 1PDM
+    SharedMatrix GvvB;  // -1 * VV block of the correlation contribution to beta 1PDM
     SharedMatrix ZmatA;
     SharedMatrix ZmatB;
     SharedMatrix t1A;
     SharedMatrix t1B;
     SharedMatrix t1newA;
     SharedMatrix t1newB;
+
+    // Variables with different spin types
+    std::map<SpinType, Dimension> idp_dimensions_;
+    std::map<SpinType, SharedVector> kappa_bar_;
+    std::map<SpinType, int *> idpirr_;
+    std::map<SpinType, int *> idprow_;
+    std::map<SpinType, int *> idpcol_;
+    std::map<SpinType, int *> occpi_;
+    std::map<SpinType, int> idp_count_;
+    std::map<SpinType, SharedMatrix> C_;
+    std::map<SpinType, SharedMatrix> C_ref_;
 };
 }
 }

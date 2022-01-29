@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -36,10 +36,8 @@
 #include "psi4/libmoinfo/libmoinfo.h"
 
 #include "blas.h"
-#include "debugging.h"
 #include "idmrpt2.h"
-
-extern FILE* outfile;
+#include "psimrcc_wfn.h"
 
 namespace psi {
 namespace psimrcc {
@@ -57,39 +55,37 @@ namespace psimrcc {
  * \f]
  */
 void IDMRPT2::build_Heff_uv() {
-    START_TIMER(1, "Building the Heff_uv Matrix Elements");
+    START_TIMER("Building the Heff_uv Matrix Elements");
 
     // Closed-shell
-    blas->solve("Hia[a][a]{c}  = fock[a][a]{c}");
-    blas->solve("Hia[a][a]{c} += t1_ov[a][v]{c} 2@2 fock[a][v]{c}");
-    blas->solve("Hia[a][a]{c} += - fock[o][a]{c} 1@1 t1_ov[o][a]{c}");
-    blas->solve("Hia[a][a]{c} += #12# t2_ovov[aa][ov]{c} 2@1 fock[ov]{c}");
-    blas->solve("Hia[a][a]{c} += #12# t2_ovOV[aa][OV]{c} 2@1 fock[ov]{c}");
-    blas->solve("Hia[a][a]{c} += #12# - <[aa]|[ov]> 2@1 t1[ov]{c}");
-    blas->solve("Hia[a][a]{c} += #21# 2 ([ov]|[aa]) 1@1 t1[ov]{c}");
-    blas->solve("Hia[a][a]{c} += 1/2 t2_oovv[a][ovv]{c} 2@2 <[a]:[ovv]>");
-    blas->solve("Hia[a][a]{c} +=     t2_oOvV[a][OvV]{c} 2@2 <[a]|[ovv]>");
-    blas->solve("Hia[a][a]{c} += -1/2 <[a]:[voo]> 2@2 t2_vvoo[a][voo]{c}");
-    blas->solve("Hia[a][a]{c} += - <[a]|[voo]> 2@2 t2_vVoO[a][VoO]{c}");
+    wfn_->blas()->solve("Hia[a][a]{c}  = fock[a][a]{c}");
+    wfn_->blas()->solve("Hia[a][a]{c} += t1_ov[a][v]{c} 2@2 fock[a][v]{c}");
+    wfn_->blas()->solve("Hia[a][a]{c} += - fock[o][a]{c} 1@1 t1_ov[o][a]{c}");
+    wfn_->blas()->solve("Hia[a][a]{c} += #12# t2_ovov[aa][ov]{c} 2@1 fock[ov]{c}");
+    wfn_->blas()->solve("Hia[a][a]{c} += #12# t2_ovOV[aa][OV]{c} 2@1 fock[ov]{c}");
+    wfn_->blas()->solve("Hia[a][a]{c} += #12# - <[aa]|[ov]> 2@1 t1[ov]{c}");
+    wfn_->blas()->solve("Hia[a][a]{c} += #21# 2 ([ov]|[aa]) 1@1 t1[ov]{c}");
+    wfn_->blas()->solve("Hia[a][a]{c} += 1/2 t2_oovv[a][ovv]{c} 2@2 <[a]:[ovv]>");
+    wfn_->blas()->solve("Hia[a][a]{c} +=     t2_oOvV[a][OvV]{c} 2@2 <[a]|[ovv]>");
+    wfn_->blas()->solve("Hia[a][a]{c} += -1/2 <[a]:[voo]> 2@2 t2_vvoo[a][voo]{c}");
+    wfn_->blas()->solve("Hia[a][a]{c} += - <[a]|[voo]> 2@2 t2_vVoO[a][VoO]{c}");
 
     // Open-shell
-    blas->solve("Hia[a][a]{o}  = fock[a][a]{o}");
-    blas->solve("Hia[a][a]{o} += t1_ov[a][v]{o} 2@2 fock[a][v]{o}");
-    blas->solve("Hia[a][a]{o} += - fock[o][a]{o} 1@1 t1_ov[o][a]{o}");
-    blas->solve("Hia[a][a]{o} += #12# t2_ovov[aa][ov]{o} 2@1 fock[ov]{o}");
-    blas->solve("Hia[a][a]{o} += #12# t2_ovOV[aa][OV]{o} 2@1 fock[OV]{o}");
+    wfn_->blas()->solve("Hia[a][a]{o}  = fock[a][a]{o}");
+    wfn_->blas()->solve("Hia[a][a]{o} += t1_ov[a][v]{o} 2@2 fock[a][v]{o}");
+    wfn_->blas()->solve("Hia[a][a]{o} += - fock[o][a]{o} 1@1 t1_ov[o][a]{o}");
+    wfn_->blas()->solve("Hia[a][a]{o} += #12# t2_ovov[aa][ov]{o} 2@1 fock[ov]{o}");
+    wfn_->blas()->solve("Hia[a][a]{o} += #12# t2_ovOV[aa][OV]{o} 2@1 fock[OV]{o}");
 
-    blas->solve("Hia[a][a]{o} += #12# - <[aa]|[ov]> 2@1 t1[ov]{o}");
-    blas->solve("Hia[a][a]{o} += #21#   ([ov]|[aa]) 1@1 t1[ov]{o}");
-    blas->solve("Hia[a][a]{o} += #21#   ([ov]|[aa]) 1@1 t1[OV]{o}");
-    blas->solve("Hia[a][a]{o} += 1/2 t2_oovv[a][ovv]{o} 2@2 <[a]:[ovv]>");
-    blas->solve("Hia[a][a]{o} +=     t2_oOvV[a][OvV]{o} 2@2 <[a]|[ovv]>");
-    blas->solve("Hia[a][a]{o} += -1/2 <[a]:[voo]> 2@2 t2_vvoo[a][voo]{o}");
-    blas->solve("Hia[a][a]{o} += - <[a]|[voo]> 2@2 t2_vVoO[a][VoO]{o}");
+    wfn_->blas()->solve("Hia[a][a]{o} += #12# - <[aa]|[ov]> 2@1 t1[ov]{o}");
+    wfn_->blas()->solve("Hia[a][a]{o} += #21#   ([ov]|[aa]) 1@1 t1[ov]{o}");
+    wfn_->blas()->solve("Hia[a][a]{o} += #21#   ([ov]|[aa]) 1@1 t1[OV]{o}");
+    wfn_->blas()->solve("Hia[a][a]{o} += 1/2 t2_oovv[a][ovv]{o} 2@2 <[a]:[ovv]>");
+    wfn_->blas()->solve("Hia[a][a]{o} +=     t2_oOvV[a][OvV]{o} 2@2 <[a]|[ovv]>");
+    wfn_->blas()->solve("Hia[a][a]{o} += -1/2 <[a]:[voo]> 2@2 t2_vvoo[a][voo]{o}");
+    wfn_->blas()->solve("Hia[a][a]{o} += - <[a]|[voo]> 2@2 t2_vVoO[a][VoO]{o}");
 
-    DEBUGGING(3, blas->print("Hia[a][a]{u}"););
-
-    END_TIMER(1);
+    END_TIMER("Building the Heff_uv Matrix Elements");
 }
 
 /**
@@ -105,28 +101,26 @@ void IDMRPT2::build_Heff_uv() {
  * \f]
  */
 void IDMRPT2::build_Heff_UV() {
-    START_TIMER(1, "Building the Heff_UV Matrix Elements");
+    START_TIMER("Building the Heff_UV Matrix Elements");
 
     // Closed-shell
-    blas->solve("HIA[A][A]{c} = Hia[a][a]{c}");
+    wfn_->blas()->solve("HIA[A][A]{c} = Hia[a][a]{c}");
 
     // Open-shell
-    blas->solve("HIA[A][A]{o} = fock[A][A]{o}");
-    blas->solve("HIA[A][A]{o} += t1_OV[A][V]{o} 2@2 fock[A][V]{o}");
-    blas->solve("HIA[A][A]{o} += - fock[O][A]{o} 1@1 t1_OV[O][A]{o}");
-    blas->solve("HIA[A][A]{o} += #12# t2_OVOV[AA][OV]{o} 2@1 fock[OV]{o}");
-    blas->solve("HIA[A][A]{o} += #12# t2_ovOV[ov][AA]{o} 1@1 fock[ov]{o}");
-    blas->solve("HIA[A][A]{o} += #12# - <[aa]|[ov]> 2@1 t1[OV]{o}");
-    blas->solve("HIA[A][A]{o} += #21#   ([ov]|[aa]) 1@1 t1[OV]{o}");
-    blas->solve("HIA[A][A]{o} += #21#   ([ov]|[aa]) 1@1 t1[ov]{o}");
-    blas->solve("HIA[A][A]{o} += 1/2 t2_OOVV[A][OVV]{o} 2@2 <[a]:[ovv]>");
-    blas->solve("HIA[A][A]{o} +=     t2_OoVv[A][oVv]{o} 2@2 <[a]|[ovv]>");
-    blas->solve("HIA[A][A]{o} += -1/2 <[a]:[voo]> 2@2 t2_VVOO[A][VOO]{o}");
-    blas->solve("HIA[A][A]{o} += - <[a]|[voo]> 2@2 t2_VvOo[A][vOo]{o}");
+    wfn_->blas()->solve("HIA[A][A]{o} = fock[A][A]{o}");
+    wfn_->blas()->solve("HIA[A][A]{o} += t1_OV[A][V]{o} 2@2 fock[A][V]{o}");
+    wfn_->blas()->solve("HIA[A][A]{o} += - fock[O][A]{o} 1@1 t1_OV[O][A]{o}");
+    wfn_->blas()->solve("HIA[A][A]{o} += #12# t2_OVOV[AA][OV]{o} 2@1 fock[OV]{o}");
+    wfn_->blas()->solve("HIA[A][A]{o} += #12# t2_ovOV[ov][AA]{o} 1@1 fock[ov]{o}");
+    wfn_->blas()->solve("HIA[A][A]{o} += #12# - <[aa]|[ov]> 2@1 t1[OV]{o}");
+    wfn_->blas()->solve("HIA[A][A]{o} += #21#   ([ov]|[aa]) 1@1 t1[OV]{o}");
+    wfn_->blas()->solve("HIA[A][A]{o} += #21#   ([ov]|[aa]) 1@1 t1[ov]{o}");
+    wfn_->blas()->solve("HIA[A][A]{o} += 1/2 t2_OOVV[A][OVV]{o} 2@2 <[a]:[ovv]>");
+    wfn_->blas()->solve("HIA[A][A]{o} +=     t2_OoVv[A][oVv]{o} 2@2 <[a]|[ovv]>");
+    wfn_->blas()->solve("HIA[A][A]{o} += -1/2 <[a]:[voo]> 2@2 t2_VVOO[A][VOO]{o}");
+    wfn_->blas()->solve("HIA[A][A]{o} += - <[a]|[voo]> 2@2 t2_VvOo[A][vOo]{o}");
 
-    DEBUGGING(3, blas->print("HIA[A][A]{u}"););
-
-    END_TIMER(1);
+    END_TIMER("Building the Heff_UV Matrix Elements");
 }
 
 }  // namespace psimrcc

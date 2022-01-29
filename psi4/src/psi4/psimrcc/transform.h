@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -31,6 +31,8 @@
 
 #include <map>
 
+#include "psimrcc_wfn.h"
+
 namespace psi {
 
 class IntegralTransform;
@@ -44,58 +46,41 @@ class CCIndex;
 */
 class CCTransform {
    public:
-    CCTransform();
+    CCTransform(std::shared_ptr<PSIMRCCWfn> wfn);
     ~CCTransform();
     void print();
     // Presorting
     void presort_integrals();
     void read_oei_from_transqt() { read_oei_mo_integrals(); }
-    void read_integrals_from_transqt() { read_mo_integrals(); }
     void read_integrals_mrpt2(IntegralTransform* ints);
     int read_tei_mo_integrals_block(int first_irrep);
-    void free_tei_mo_integrals_block(int first_irrep, int last_irrep);
     void free_memory();
+    void free_tei_mo_block(int first_irrep, int last_irrep);
     void transform_tei_integrals();
     double oei(int p, int q);
-    double tei(int p, int q, int r, int s);
     double tei_block(int p, int q, int r, int s);
     double tei_mrpt2(int p, int q, int r, int s);
 
    private:
-    double** s_so;
-    double** oei_mo;
-    double** oei_so;
-    double** tei_so;
-    double*** tei_half_transformed;
-    double** tei_mo;
+    std::vector<std::vector<double>> oei_mo;
+    std::vector<std::vector<double>> oei_so;
+    std::vector<std::vector<double>> tei_so;
+    std::vector<std::vector<std::vector<double>>> tei_half_transformed;
+    std::vector<std::vector<double>> tei_mo;
     CCIndex* oei_so_indexing;
     CCIndex* tei_so_indexing;
     CCIndex* tei_mo_indexing;
+    std::shared_ptr<PSIMRCCWfn> wfn_;
 
-    void read_mo_integrals();
-    void read_so_integrals();
     void read_oei_so_integrals();
     void read_oei_mo_integrals();
     void read_oei_mo_integrals_mrpt2();
-    void read_tei_so_integrals();
-    void read_tei_mo_integrals();
     void read_tei_mo_integrals_mrpt2(IntegralTransform* ints);
 
     void transform_oei_so_integrals();
-    void transform_tei_so_integrals();
 
     void allocate_oei_so();
     void allocate_oei_mo();
-    void free_oei_mo();
-    void free_oei_so();
-
-    void allocate_tei_so();
-    void allocate_tei_mo();
-    void allocate_tei_half_transformed();
-
-    void free_tei_mo();
-    void free_tei_so();
-    void free_tei_half_transformed();
 
     // Block
     int first_irrep_in_core;
@@ -107,8 +92,6 @@ class CCTransform {
 
     double fraction_of_memory_for_presorting;
 };
-
-extern CCTransform* trans;
 
 }  // namespace psimrcc
 }  // namespace psi

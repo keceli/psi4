@@ -1,5 +1,5 @@
 if(${ENABLE_libefp})
-    find_package(pylibefp 0.4 CONFIG QUIET)
+    find_package(pylibefp 0.6.1 CONFIG QUIET)
 
     if(${pylibefp_FOUND})
         get_property(_loc TARGET pylibefp::core PROPERTY LOCATION)
@@ -20,7 +20,7 @@ if(${ENABLE_libefp})
             DEPENDS lapack_external
                     libefp_external
                     pybind11_external
-            URL https://github.com/loriab/pylibefp/archive/v0.4.tar.gz
+            URL https://github.com/loriab/pylibefp/archive/v0.6.1.tar.gz
             UPDATE_COMMAND ""
             CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${STAGED_INSTALL_PREFIX}
                        -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
@@ -36,9 +36,9 @@ if(${ENABLE_libefp})
                        -DENABLE_XHOST=${ENABLE_XHOST}
                        -DENABLE_GENERIC=${ENABLE_GENERIC}
                        #-DLIBC_INTERJECT=${LIBC_INTERJECT}
-                       -DPYTHON_EXECUTABLE=${PYTHON_EXECUTABLE}
-                       -DPYTHON_INCLUDE_DIR=${PYTHON_INCLUDE_DIR}
-                       -DPYTHON_LIBRARY=${PYTHON_LIBRARY}
+                       -DPYTHON_EXECUTABLE=${Python_EXECUTABLE}
+                       -DPYTHON_INCLUDE_DIR=${Python_INCLUDE_DIRS}
+                       -DPYTHON_LIBRARY=${Python_LIBRARIES}
                        -DTargetLAPACK_DIR=${STAGED_INSTALL_PREFIX}/share/cmake/TargetLAPACK
                        -Dlibefp_DIR=${libefp_DIR}
                        -Dpybind11_DIR=${pybind11_DIR}

@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -39,8 +39,6 @@
 #include "psi4/libmints/factory.h"
 #include "psi4/libpsi4util/PsiOutStream.h"
 #include "psi4/libpsi4util/process.h"
-#include "psi4/libdiis/diismanager.h"
-#include "psi4/libdiis/diisentry.h"
 
 #include <cstdlib>
 #include <cstdio>
@@ -229,8 +227,7 @@ void CUHF::form_initial_F() {
 
 void CUHF::form_F() {
     // Form (rho_a + rho_b) / 2
-    Dp_->copy(Da_);
-    Dp_->add(Db_);
+    Dp_->copy(Dt_);
     Dp_->scale(-0.5);  // This is a hack to get the eigenvectors in the
                        // order that I want
     if (debug_) {
@@ -238,11 +235,11 @@ void CUHF::form_F() {
         Dp_->print();
     }
 
-    // Transfrom to an orthonormal basis, C_a is convenient
+    // Transfrom to the orthonormal basis
     Dp_->transform(S_);
-    Dp_->transform(Ca_);
+    Dp_->transform(X_);
     if (debug_) {
-        outfile->Printf("Charge Density Matrix (Alpha Basis):\n");
+        outfile->Printf("Charge Density Matrix (Orthonormal Basis):\n");
         Dp_->print();
     }
 
@@ -252,7 +249,7 @@ void CUHF::form_F() {
         outfile->Printf("CUHF Natural Orbital Occupations:\n");
         No_->print();
     }
-    Cno_->gemm(false, false, 1.0, Ca_, Cno_temp_, 0.0);
+    Cno_->gemm(false, false, 1.0, X_, Cno_temp_, 0.0);
 
     // Now we form the contributions to the Fock matrix from
     // the charge and spin densities
@@ -309,9 +306,27 @@ void CUHF::form_F() {
     }
 }
 
-void CUHF::form_C() {
-    diagonalize_F(Fa_, Ca_, epsilon_a_);
-    diagonalize_F(Fb_, Cb_, epsilon_b_);
+void CUHF::form_C(double shift) {
+    if (shift == 0.0) {
+        diagonalize_F(Fa_, Ca_, epsilon_a_);
+        diagonalize_F(Fb_, Cb_, epsilon_b_);
+    } else {
+        auto shifted_F = SharedMatrix(factory_->create_matrix("F"));
+
+        auto Cvir = Ca_subset("SO", "VIR");
+        auto SCvir = std::make_shared<Matrix>(nirrep_, S_->rowspi(), Cvir->colspi());
+        SCvir->gemm(false, false, 1.0, S_, Cvir, 0.0);
+        shifted_F->gemm(false, true, shift, SCvir, SCvir, 0.0);
+        shifted_F->add(Fa_);
+        diagonalize_F(shifted_F, Ca_, epsilon_a_);
+
+        Cvir = Cb_subset("SO", "VIR");
+        SCvir = std::make_shared<Matrix>(nirrep_, S_->rowspi(), Cvir->colspi());
+        SCvir->gemm(false, false, 1.0, S_, Cvir, 0.0);
+        shifted_F->gemm(false, true, shift, SCvir, SCvir, 0.0);
+        shifted_F->add(Fb_);
+        diagonalize_F(shifted_F, Cb_, epsilon_b_);
+    }
     find_occupation();
     if (debug_) {
         Ca_->print("outfile");
@@ -373,29 +388,7 @@ double CUHF::compute_E() {
     return Etotal;
 }
 
-double CUHF::compute_orbital_gradient(bool save_diis, int max_diis_vectors) {
-    SharedMatrix grad_a = form_FDSmSDF(Fa_, Da_);
-    SharedMatrix grad_b = form_FDSmSDF(Fb_, Db_);
-
-    if (save_diis) {
-        if (initialized_diis_manager_ == false) {
-            diis_manager_ = std::make_shared<DIISManager>(max_diis_vectors, "HF DIIS vector", DIISManager::LargestError,
-                                                          DIISManager::OnDisk);
-            diis_manager_->set_error_vector_size(2, DIISEntry::Matrix, grad_a.get(), DIISEntry::Matrix, grad_b.get());
-            diis_manager_->set_vector_size(2, DIISEntry::Matrix, Fa_.get(), DIISEntry::Matrix, Fb_.get());
-            initialized_diis_manager_ = true;
-        }
-
-        diis_manager_->add_entry(4, grad_a.get(), grad_b.get(), Fa_.get(), Fb_.get());
-    }
-
-    if (options_.get_bool("DIIS_RMS_ERROR"))
-        return std::sqrt(0.5 * (std::pow(grad_a->rms(), 2) + std::pow(grad_b->rms(), 2)));
-    else
-        return std::max(grad_a->absmax(), grad_b->absmax());
-}
-
-bool CUHF::diis() { return diis_manager_->extrapolate(2, Fa_.get(), Fb_.get()); }
+bool CUHF::diis() { return diis_manager_.attr("extrapolate")(Fa_.get(), Fb_.get()).cast<bool>(); }
 
 bool CUHF::stability_analysis() {
     throw PSIEXCEPTION("CUHF stability analysis has not been implemented yet.  Sorry :(");
@@ -424,12 +417,14 @@ std::shared_ptr<CUHF> CUHF::c1_deep_copy(std::shared_ptr<BasisSet> basis) {
     return hf_wfn;
 }
 
-void CUHF::compute_SAD_guess() {
+void CUHF::compute_SAD_guess(bool natorb) {
     // Form the SAD guess
-    HF::compute_SAD_guess();
-    // Form the total density used in energy evaluation
-    Dt_->copy(Da_);
-    Dt_->add(Db_);
+    HF::compute_SAD_guess(natorb);
+    if (!natorb) {
+        // Form the total density used in energy evaluation
+        Dt_->copy(Da_);
+        Dt_->add(Db_);
+    }
 }
 }  // namespace scf
 }  // namespace psi

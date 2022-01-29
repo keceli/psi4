@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -31,6 +31,8 @@
 
 #include "psi4/libmoinfo/libmoinfo.h"
 #include "psi4/libpsi4util/libpsi4util.h"
+#include "psi4/libmints/mintshelper.h"
+#include "psi4/libmints/matrix.h"
 
 #include "algebra_interface.h"
 #include "blas.h"
@@ -52,41 +54,25 @@
 
 namespace psi {
 namespace psimrcc {
-extern MOInfo* moinfo;
 
 /*!
     \fn CCTransform::read_oei_integrals()
  */
 void CCTransform::read_oei_so_integrals() {
+    int nso = wfn_->moinfo()->get_nso();
     // Read all the (frozen + non-frozen) OEI in Pitzer order
     allocate_oei_so();
 
-    int nso = moinfo->get_nso();
-
-    auto* H = new double[nso * (nso + 1) / 2];
-
     // Read the kinetic energy integrals
-    for (int k = 0; k < nso * (nso + 1) / 2; ++k) H[k] = 0.0;
-    iwl_rdone(PSIF_OEI, const_cast<char*>(PSIF_SO_T), H, nso * (nso + 1) / 2, 0, 0, "outfile");
+    auto T = wfn_->mintshelper()->so_kinetic()->clone();
+    auto V = wfn_->mintshelper()->so_potential()->clone();
+    T->add(V);
+
+    double** Tbmat = T->to_block_matrix();
 
     for (int i = 0; i < nso; i++)
-        for (int j = 0; j < nso; j++) oei_so[i][j] = H[INDEX(i, j)];
-
-    // Read the potential energy integrals
-    for (int k = 0; k < nso * (nso + 1) / 2; ++k) H[k] = 0.0;
-    iwl_rdone(PSIF_OEI, const_cast<char*>(PSIF_SO_V), H, nso * (nso + 1) / 2, 0, 0, "outfile");
-
-    for (int i = 0; i < nso; i++)
-        for (int j = 0; j < nso; j++) oei_so[i][j] += H[INDEX(i, j)];
-
-    // Read the overlap integrals
-    for (int k = 0; k < nso * (nso + 1) / 2; ++k) H[k] = 0.0;
-    iwl_rdone(PSIF_OEI, const_cast<char*>(PSIF_SO_S), H, nso * (nso + 1) / 2, 0, 0, "outfile");
-
-    for (int i = 0; i < nso; i++)
-        for (int j = 0; j < nso; j++) s_so[i][j] += H[INDEX(i, j)];
-
-    delete[] H;
+        for (int j = 0; j < nso; j++) oei_so[i][j] += Tbmat[i][j];
+    free_block(Tbmat);
 }
 
 }  // namespace psimrcc

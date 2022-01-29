@@ -3,7 +3,7 @@
 .. #
 .. # Psi4: an open-source quantum chemistry software package
 .. #
-.. # Copyright (c) 2007-2019 The Psi4 Developers.
+.. # Copyright (c) 2007-2022 The Psi4 Developers.
 .. #
 .. # The copyrights for code used from other parties are included in
 .. # the corresponding files.
@@ -40,7 +40,7 @@ Notes on Options
 
 .. note:: All |PSIfour| keyword names and values are insensitive to case, both
    those that are placed in ``set`` blocks and as Python function arguments.
-   The one exception is documented for the *subset* option in the :py:func:`~wrapper_database.database`
+   The one exception is documented for the *subset* option in the :py:func:`~psi4.driver.wrapper_database.database`
    function, where case structure must match the database file.
 
 .. _`op_py_bool`:

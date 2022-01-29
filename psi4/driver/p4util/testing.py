@@ -3,7 +3,7 @@
 #
 # Psi4: an open-source quantum chemistry software package
 #
-# Copyright (c) 2007-2019 The Psi4 Developers.
+# Copyright (c) 2007-2022 The Psi4 Developers.
 #
 # The copyrights for code used from other parties are included in
 # the corresponding files.
@@ -81,6 +81,9 @@ def _mergedapis_compare_matrices(expected, computed, *args, **kwargs):
 
     qcdb.testing._merge_psi4_qcel_apis(args, kwargs)
 
+    if kwargs.pop("check_name", False):
+        compare(expected.name, computed.name, f'{expected.name} vs. {computed.name} name', quiet=True)
+
     compare(expected.nirrep(), computed.nirrep(), f'{expected.name} vs. {computed.name} irreps', quiet=True)
     compare(expected.symmetry(), computed.symmetry(), f'{expected.name} vs. {computed.name} symmetry', quiet=True)
     for irrep in range(expected.nirrep()):
@@ -121,7 +124,7 @@ def _mergedapis_compare_wavefunctions(expected, computed, *args, **kwargs):
     if expected.Fb():          compare_matrices(expected.Fb(), computed.Fb(), 'compare Fb', atol=atol, **kwargscopy)
     if expected.H():           compare_matrices(expected.H(), computed.H(), 'compare H', atol=atol, **kwargscopy)
     if expected.S():           compare_matrices(expected.S(), computed.S(), 'compare S', atol=atol, **kwargscopy)
-    if expected.X():           compare_matrices(expected.X(), computed.X(), 'compare X', atol=atol, **kwargscopy)
+    if expected.lagrangian():  compare_matrices(expected.lagrangian(), computed.lagrangian(), 'compare lagrangian', atol=atol, **kwargscopy)
     if expected.aotoso():      compare_matrices(expected.aotoso(), computed.aotoso(), 'compare aotoso', atol=atol, **kwargscopy)
     if expected.gradient():    compare_matrices(expected.gradient(), computed.gradient(), 'compare gradient', atol=atol, **kwargscopy)
     if expected.hessian():     compare_matrices(expected.hessian(), computed.hessian(), 'compare hessian', atol=atol, **kwargscopy)
@@ -136,6 +139,7 @@ def _mergedapis_compare_wavefunctions(expected, computed, *args, **kwargs):
     compare(expected.nmo(), computed.nmo(), 'compare nmo', **kwargscopy)
     compare(expected.nso(), computed.nso(), 'compare nso', **kwargscopy)
     compare(expected.name(), computed.name(), 'compare name', **kwargscopy)
+    compare(expected.module(), computed.module(), 'compare module', **kwargscopy)
     compare_values(expected.energy(), computed.energy(), 'compare energy', atol=atol, **kwargscopy)
     compare_values(expected.efzc(), computed.efzc(), 'compare frozen core energy', atol=atol, **kwargscopy)
     compare_values(expected.get_dipole_field_strength()[0],
@@ -175,7 +179,7 @@ def _mergedapis_compare_wavefunctions(expected, computed, *args, **kwargs):
 def _psi4_true_raise_handler(passfail, label, message, return_message=False, quiet=False):
     """Handle comparison result by printing to screen, printing to Psi output file, raising TestComparisonError, and (incidently) returning."""
 
-    width = 66
+    width = 86
     if passfail:
         if not quiet:
             core.print_out(f'    {label:.<{width}}PASSED\n')

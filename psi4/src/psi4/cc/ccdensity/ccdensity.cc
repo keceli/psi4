@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -365,6 +365,7 @@ PsiReturnType ccdensity(std::shared_ptr<Wavefunction> ref_wfn, Options &options)
         }
 
         /* Transform Da/b to so basis and set in wfn */
+        // If this becomes a wavefunction subclass someday, just redefine the densities directly.
         if (ref_wfn->same_a_b_dens()) {
             Pa->scale(0.5);
             auto Pa_so = linalg::triplet(ref_wfn->Ca(), Pa, ref_wfn->Ca(), false, false, true);
@@ -372,7 +373,8 @@ PsiReturnType ccdensity(std::shared_ptr<Wavefunction> ref_wfn, Options &options)
                 auto ref_Da_so = ref_wfn->Da();
                 ref_Da_so->copy(Pa_so);
             } else {
-                ref_wfn->set_array_variable("CC ROOT " + std::to_string(i) + " Da", Pa_so);
+                auto var_title = "CC ROOT " + std::to_string(i) + " Da";
+                ref_wfn->set_array_variable(var_title, Pa_so);
             }
         } else {
             auto Pa_so = linalg::triplet(ref_wfn->Ca(), Pa, ref_wfn->Ca(), false, false, true);
@@ -383,22 +385,17 @@ PsiReturnType ccdensity(std::shared_ptr<Wavefunction> ref_wfn, Options &options)
                 ref_Da_so->copy(Pa_so);
                 ref_Db_so->copy(Pb_so);
             } else {
-                ref_wfn->set_array_variable("CC ROOT " + std::to_string(i) + " Da", Pa_so);
-                ref_wfn->set_array_variable("CC ROOT " + std::to_string(i) + " Db", Pb_so);
+                auto var_title = "CC ROOT " + std::to_string(i) + " Da";
+                ref_wfn->set_array_variable(var_title, Pa_so);
+                var_title = "CC ROOT " + std::to_string(i) + " Db";
+                ref_wfn->set_array_variable(var_title, Pb_so);
             }
         }
 
         // For psivar scraper
 
-        // Process::environment.globals["CC ROOT 0 DIPOLE X"] = Process::environment.globals["CC DIPOLE X"];
-        // Process::environment.globals["CC ROOT 0 DIPOLE Y"] = Process::environment.globals["CC DIPOLE Y"];
-        // Process::environment.globals["CC ROOT 0 DIPOLE Z"] = Process::environment.globals["CC DIPOLE Z"];
-        // Process::environment.globals["CC ROOT 0 QUADRUPOLE XX"] = Process::environment.globals["CC QUADRUPOLE XX"];
-        // Process::environment.globals["CC ROOT 0 QUADRUPOLE XY"] = Process::environment.globals["CC QUADRUPOLE XY"];
-        // Process::environment.globals["CC ROOT 0 QUADRUPOLE XZ"] = Process::environment.globals["CC QUADRUPOLE XZ"];
-        // Process::environment.globals["CC ROOT 0 QUADRUPOLE YY"] = Process::environment.globals["CC QUADRUPOLE YY"];
-        // Process::environment.globals["CC ROOT 0 QUADRUPOLE YZ"] = Process::environment.globals["CC QUADRUPOLE YZ"];
-        // Process::environment.globals["CC ROOT 0 QUADRUPOLE ZZ"] = Process::environment.globals["CC QUADRUPOLE ZZ"];
+        // Process::environment.globals["CC ROOT n DIPOLE"]
+        // Process::environment.globals["CC ROOT n QUADRUPOLE"]
         // Process::environment.globals["CC ROOT n DIPOLE X"]
         // Process::environment.globals["CC ROOT n DIPOLE Y"]
         // Process::environment.globals["CC ROOT n DIPOLE Z"]
@@ -410,6 +407,8 @@ PsiReturnType ccdensity(std::shared_ptr<Wavefunction> ref_wfn, Options &options)
         // Process::environment.globals["CC ROOT n QUADRUPOLE ZZ"]
 
         free_block(moinfo.opdm);
+        free_block(moinfo.opdm_a);
+        free_block(moinfo.opdm_b);
 
         psio_close(PSIF_CC_TMP, 0);
         psio_open(PSIF_CC_TMP, PSIO_OPEN_NEW);

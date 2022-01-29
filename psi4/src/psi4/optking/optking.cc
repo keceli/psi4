@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -418,8 +418,7 @@ OptReturnType optking(void) {
       p_Opt_data->reset_trust_radius();
       delete p_Opt_data;
       INTCO_EXCEPT::dynamic_level = options.get_int("DYNAMIC_LEVEL"); // reset for future optimizations
-      opt_intco_dat_remove(); // rm intco definitions
-      opt_io_remove();        // rm optimization data
+      opt_clean();
       mol1->write_geom();  // write geometry -> chkpt file (also output for QChem)
       print_end_out();
 

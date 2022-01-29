@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -32,21 +32,19 @@
  *  A multireference coupled cluster code
  ***************************************************************************/
 #include "psi4/libmoinfo/libmoinfo.h"
-#include "psi4/libpsi4util/libpsi4util.h"
 
 #include "algebra_interface.h"
 #include "blas.h"
-#include "debugging.h"
 #include "index.h"
 #include "matrix.h"
 #include "mrcc.h"
 
-extern FILE* outfile;
-
 namespace psi {
 namespace psimrcc {
-extern MOInfo* moinfo;
-extern MemoryManager* memory_manager;
+
+// Many functions in this file have six-index local variables.
+// This is a good place to look for large memory expenses.
+// Because the variables are local, updating the wfn memory count is unnecessary.
 
 void CCMRCC::build_t2_amplitudes() {
     build_t2_iJaB_amplitudes();
@@ -55,280 +53,231 @@ void CCMRCC::build_t2_amplitudes() {
 }
 
 void CCMRCC::build_t2_ijab_amplitudes() {
-    Timer timer;
-    DEBUGGING(1, outfile->Printf("\n\tBuilding the t2_ijab Amplitudes   ...");
-
-    )
-    if (moinfo->get_ref_size(UniqueOpenShellRefs) == 0) {
-        blas->append("t2_eqns[oo][vv]{c}  = t2_eqns[oO][vV]{c}");
-        blas->append("t2_eqns[oo][vv]{c} += #2134# - t2_eqns[oO][vV]{c}");
+    if (wfn_->moinfo()->get_ref_size(UniqueOpenShellRefs) == 0) {
+        wfn_->blas()->append("t2_eqns[oo][vv]{c}  = t2_eqns[oO][vV]{c}");
+        wfn_->blas()->append("t2_eqns[oo][vv]{c} += #2134# - t2_eqns[oO][vV]{c}");
     } else {
         // Closed-shell
-        blas->append("t2_eqns[oo][vv]{c}  = <[oo]:[vv]>");
+        wfn_->blas()->append("t2_eqns[oo][vv]{c}  = <[oo]:[vv]>");
 
-        blas->append("t2_eqns[oo][vv]{c} += #3124# - t2[v][voo]{c} 1@2 F'_ae[v][v]{c}");
-        blas->append("t2_eqns[oo][vv]{c} += #4123#   t2[v][voo]{c} 1@2 F'_ae[v][v]{c}");
+        wfn_->blas()->append("t2_eqns[oo][vv]{c} += #3124# - t2[v][voo]{c} 1@2 F'_ae[v][v]{c}");
+        wfn_->blas()->append("t2_eqns[oo][vv]{c} += #4123#   t2[v][voo]{c} 1@2 F'_ae[v][v]{c}");
 
-        blas->append("t2_eqns[oo][vv]{c} += #1342#   t2[o][ovv]{c} 1@1 F'_mi[o][o]{c}");
-        blas->append("t2_eqns[oo][vv]{c} += #2341# - t2[o][ovv]{c} 1@1 F'_mi[o][o]{c}");
+        wfn_->blas()->append("t2_eqns[oo][vv]{c} += #1342#   t2[o][ovv]{c} 1@1 F'_mi[o][o]{c}");
+        wfn_->blas()->append("t2_eqns[oo][vv]{c} += #2341# - t2[o][ovv]{c} 1@1 F'_mi[o][o]{c}");
 
-        blas->append("t2_eqns[oo][vv]{c} += 1/2  W_mnij[oo][oo]{c} 1@1 tau[oo][vv]{c}");
+        wfn_->blas()->append("t2_eqns[oo][vv]{c} += 1/2  W_mnij[oo][oo]{c} 1@1 tau[oo][vv]{c}");
 
-        blas->append("t2_eqns[oo][v>v]{c} = tau[oo][v>v]{c} 2@2 <[v>v]:[v>v]>");
+        wfn_->blas()->append("t2_eqns[oo][v>v]{c} = tau[oo][v>v]{c} 2@2 <[v>v]:[v>v]>");
 
-        blas->append("t2_eqns[oo][vv]{c} +>= #1234# t2_eqns[oo][v>v]{c}");
+        wfn_->blas()->append("t2_eqns[oo][vv]{c} +>= #1234# t2_eqns[oo][v>v]{c}");
 
-        blas->append("t2_eqns[oo][vv]{c} += #1234# - Z_ijam[oov][o]{c} 2@1 t1[o][v]{c}");
-        blas->append("t2_eqns[oo][vv]{c} += #1243#   Z_ijam[oov][o]{c} 2@1 t1[o][v]{c}");
+        wfn_->blas()->append("t2_eqns[oo][vv]{c} += #1234# - Z_ijam[oov][o]{c} 2@1 t1[o][v]{c}");
+        wfn_->blas()->append("t2_eqns[oo][vv]{c} += #1243#   Z_ijam[oov][o]{c} 2@1 t1[o][v]{c}");
 
-        blas->append("t2_eqns[oo][vv]{c} += #2413#   W_jbme[ov][ov]{c} 2@2 t2[ov][ov]{c}");
-        blas->append("t2_eqns[oo][vv]{c} += #2314# - W_jbme[ov][ov]{c} 2@2 t2[ov][ov]{c}");
+        wfn_->blas()->append("t2_eqns[oo][vv]{c} += #2413#   W_jbme[ov][ov]{c} 2@2 t2[ov][ov]{c}");
+        wfn_->blas()->append("t2_eqns[oo][vv]{c} += #2314# - W_jbme[ov][ov]{c} 2@2 t2[ov][ov]{c}");
 
-        blas->append("t2_eqns[oo][vv]{c} += #1423# - W_jbme[ov][ov]{c} 2@2 t2[ov][ov]{c}");
-        blas->append("t2_eqns[oo][vv]{c} += #1324#   W_jbme[ov][ov]{c} 2@2 t2[ov][ov]{c}");
+        wfn_->blas()->append("t2_eqns[oo][vv]{c} += #1423# - W_jbme[ov][ov]{c} 2@2 t2[ov][ov]{c}");
+        wfn_->blas()->append("t2_eqns[oo][vv]{c} += #1324#   W_jbme[ov][ov]{c} 2@2 t2[ov][ov]{c}");
 
-        //  blas->append("t2_eqns[oo][vv]{c} += #P-(34)P-(12)4213# - ([ov]:[vo]) 1@2 t1t1_iame[ov][ov]{c}");
+        //  wfn_->blas()->append("t2_eqns[oo][vv]{c} += #P-(34)P-(12)4213# - ([ov]:[vo]) 1@2 t1t1_iame[ov][ov]{c}");
 
-        blas->append("t2_eqns[oo][vv]{c} += #4213# - ([ov]:[vo]) 1@2 t1t1_iame[ov][ov]{c}");
-        blas->append("t2_eqns[oo][vv]{c} += #3214# + ([ov]:[vo]) 1@2 t1t1_iame[ov][ov]{c}");
-        blas->append("t2_eqns[oo][vv]{c} += #4123# + ([ov]:[vo]) 1@2 t1t1_iame[ov][ov]{c}");
-        blas->append("t2_eqns[oo][vv]{c} += #3124# - ([ov]:[vo]) 1@2 t1t1_iame[ov][ov]{c}");
+        wfn_->blas()->append("t2_eqns[oo][vv]{c} += #4213# - ([ov]:[vo]) 1@2 t1t1_iame[ov][ov]{c}");
+        wfn_->blas()->append("t2_eqns[oo][vv]{c} += #3214# + ([ov]:[vo]) 1@2 t1t1_iame[ov][ov]{c}");
+        wfn_->blas()->append("t2_eqns[oo][vv]{c} += #4123# + ([ov]:[vo]) 1@2 t1t1_iame[ov][ov]{c}");
+        wfn_->blas()->append("t2_eqns[oo][vv]{c} += #3124# - ([ov]:[vo]) 1@2 t1t1_iame[ov][ov]{c}");
 
-        blas->append("t2_eqns[oo][vv]{c} += #2413#   W_jbME[ov][OV]{c} 2@2 t2[ov][OV]{c}");
-        blas->append("t2_eqns[oo][vv]{c} += #2314# - W_jbME[ov][OV]{c} 2@2 t2[ov][OV]{c}");
+        wfn_->blas()->append("t2_eqns[oo][vv]{c} += #2413#   W_jbME[ov][OV]{c} 2@2 t2[ov][OV]{c}");
+        wfn_->blas()->append("t2_eqns[oo][vv]{c} += #2314# - W_jbME[ov][OV]{c} 2@2 t2[ov][OV]{c}");
 
-        blas->append("t2_eqns[oo][vv]{c} += #1423# - W_jbME[ov][OV]{c} 2@2 t2[ov][OV]{c}");
-        blas->append("t2_eqns[oo][vv]{c} += #1324#   W_jbME[ov][OV]{c} 2@2 t2[ov][OV]{c}");
+        wfn_->blas()->append("t2_eqns[oo][vv]{c} += #1423# - W_jbME[ov][OV]{c} 2@2 t2[ov][OV]{c}");
+        wfn_->blas()->append("t2_eqns[oo][vv]{c} += #1324#   W_jbME[ov][OV]{c} 2@2 t2[ov][OV]{c}");
 
-        blas->append("t2_eqns[oo][vv]{c} += #1234#   t1[o][v]{c} 2@1 <[v]:[ovv]>");
-        blas->append("t2_eqns[oo][vv]{c} += #2134# - t1[o][v]{c} 2@1 <[v]:[ovv]>");
+        wfn_->blas()->append("t2_eqns[oo][vv]{c} += #1234#   t1[o][v]{c} 2@1 <[v]:[ovv]>");
+        wfn_->blas()->append("t2_eqns[oo][vv]{c} += #2134# - t1[o][v]{c} 2@1 <[v]:[ovv]>");
 
-        blas->append("t2_eqns[oo][vv]{c} += #3412# - t1[o][v]{c} 1@1 <[o]:[voo]>");
-        blas->append("t2_eqns[oo][vv]{c} += #4312#   t1[o][v]{c} 1@1 <[o]:[voo]>");
+        wfn_->blas()->append("t2_eqns[oo][vv]{c} += #3412# - t1[o][v]{c} 1@1 <[o]:[voo]>");
+        wfn_->blas()->append("t2_eqns[oo][vv]{c} += #4312#   t1[o][v]{c} 1@1 <[o]:[voo]>");
     }
 
     // Open-shell
-    blas->append("t2_eqns[oo][vv]{o}  = <[oo]:[vv]>");
+    wfn_->blas()->append("t2_eqns[oo][vv]{o}  = <[oo]:[vv]>");
 
-    blas->append("t2_eqns[oo][vv]{o} += #3124# - t2[v][voo]{o} 1@2 F'_ae[v][v]{o}");
-    blas->append("t2_eqns[oo][vv]{o} += #4123#   t2[v][voo]{o} 1@2 F'_ae[v][v]{o}");
+    wfn_->blas()->append("t2_eqns[oo][vv]{o} += #3124# - t2[v][voo]{o} 1@2 F'_ae[v][v]{o}");
+    wfn_->blas()->append("t2_eqns[oo][vv]{o} += #4123#   t2[v][voo]{o} 1@2 F'_ae[v][v]{o}");
 
-    blas->append("t2_eqns[oo][vv]{o} += #1342#   t2[o][ovv]{o} 1@1 F'_mi[o][o]{o}");
-    blas->append("t2_eqns[oo][vv]{o} += #2341# - t2[o][ovv]{o} 1@1 F'_mi[o][o]{o}");
+    wfn_->blas()->append("t2_eqns[oo][vv]{o} += #1342#   t2[o][ovv]{o} 1@1 F'_mi[o][o]{o}");
+    wfn_->blas()->append("t2_eqns[oo][vv]{o} += #2341# - t2[o][ovv]{o} 1@1 F'_mi[o][o]{o}");
 
-    blas->append("t2_eqns[oo][vv]{o} += 1/2  W_mnij[oo][oo]{o} 1@1 tau[oo][vv]{o}");
+    wfn_->blas()->append("t2_eqns[oo][vv]{o} += 1/2  W_mnij[oo][oo]{o} 1@1 tau[oo][vv]{o}");
 
-    blas->append("t2_eqns[oo][v>v]{o} = tau[oo][v>v]{o} 2@2 <[v>v]:[v>v]>");
+    wfn_->blas()->append("t2_eqns[oo][v>v]{o} = tau[oo][v>v]{o} 2@2 <[v>v]:[v>v]>");
 
-    blas->append("t2_eqns[oo][vv]{o} +>= #1234# t2_eqns[oo][v>v]{o}");
+    wfn_->blas()->append("t2_eqns[oo][vv]{o} +>= #1234# t2_eqns[oo][v>v]{o}");
 
-    blas->append("t2_eqns[oo][vv]{o} += #1234# - Z_ijam[oov][o]{o} 2@1 t1[o][v]{o}");
-    blas->append("t2_eqns[oo][vv]{o} += #1243#   Z_ijam[oov][o]{o} 2@1 t1[o][v]{o}");
+    wfn_->blas()->append("t2_eqns[oo][vv]{o} += #1234# - Z_ijam[oov][o]{o} 2@1 t1[o][v]{o}");
+    wfn_->blas()->append("t2_eqns[oo][vv]{o} += #1243#   Z_ijam[oov][o]{o} 2@1 t1[o][v]{o}");
 
-    blas->append("t2_eqns[oo][vv]{o} += #2413#   W_jbme[ov][ov]{o} 2@2 t2[ov][ov]{o}");
-    blas->append("t2_eqns[oo][vv]{o} += #2314# - W_jbme[ov][ov]{o} 2@2 t2[ov][ov]{o}");
+    wfn_->blas()->append("t2_eqns[oo][vv]{o} += #2413#   W_jbme[ov][ov]{o} 2@2 t2[ov][ov]{o}");
+    wfn_->blas()->append("t2_eqns[oo][vv]{o} += #2314# - W_jbme[ov][ov]{o} 2@2 t2[ov][ov]{o}");
 
-    blas->append("t2_eqns[oo][vv]{o} += #1423# - W_jbme[ov][ov]{o} 2@2 t2[ov][ov]{o}");
-    blas->append("t2_eqns[oo][vv]{o} += #1324#   W_jbme[ov][ov]{o} 2@2 t2[ov][ov]{o}");
+    wfn_->blas()->append("t2_eqns[oo][vv]{o} += #1423# - W_jbme[ov][ov]{o} 2@2 t2[ov][ov]{o}");
+    wfn_->blas()->append("t2_eqns[oo][vv]{o} += #1324#   W_jbme[ov][ov]{o} 2@2 t2[ov][ov]{o}");
 
-    blas->append("t2_eqns[oo][vv]{o} += #4213# - ([ov]:[vo]) 1@2 t1t1_iame[ov][ov]{o}");
-    blas->append("t2_eqns[oo][vv]{o} += #3214# + ([ov]:[vo]) 1@2 t1t1_iame[ov][ov]{o}");
-    blas->append("t2_eqns[oo][vv]{o} += #4123# + ([ov]:[vo]) 1@2 t1t1_iame[ov][ov]{o}");
-    blas->append("t2_eqns[oo][vv]{o} += #3124# - ([ov]:[vo]) 1@2 t1t1_iame[ov][ov]{o}");
+    wfn_->blas()->append("t2_eqns[oo][vv]{o} += #4213# - ([ov]:[vo]) 1@2 t1t1_iame[ov][ov]{o}");
+    wfn_->blas()->append("t2_eqns[oo][vv]{o} += #3214# + ([ov]:[vo]) 1@2 t1t1_iame[ov][ov]{o}");
+    wfn_->blas()->append("t2_eqns[oo][vv]{o} += #4123# + ([ov]:[vo]) 1@2 t1t1_iame[ov][ov]{o}");
+    wfn_->blas()->append("t2_eqns[oo][vv]{o} += #3124# - ([ov]:[vo]) 1@2 t1t1_iame[ov][ov]{o}");
 
-    blas->append("t2_eqns[oo][vv]{o} += #2413#   W_jbME[ov][OV]{o} 2@2 t2[ov][OV]{o}");
-    blas->append("t2_eqns[oo][vv]{o} += #2314# - W_jbME[ov][OV]{o} 2@2 t2[ov][OV]{o}");
+    wfn_->blas()->append("t2_eqns[oo][vv]{o} += #2413#   W_jbME[ov][OV]{o} 2@2 t2[ov][OV]{o}");
+    wfn_->blas()->append("t2_eqns[oo][vv]{o} += #2314# - W_jbME[ov][OV]{o} 2@2 t2[ov][OV]{o}");
 
-    blas->append("t2_eqns[oo][vv]{o} += #1423# - W_jbME[ov][OV]{o} 2@2 t2[ov][OV]{o}");
-    blas->append("t2_eqns[oo][vv]{o} += #1324#   W_jbME[ov][OV]{o} 2@2 t2[ov][OV]{o}");
+    wfn_->blas()->append("t2_eqns[oo][vv]{o} += #1423# - W_jbME[ov][OV]{o} 2@2 t2[ov][OV]{o}");
+    wfn_->blas()->append("t2_eqns[oo][vv]{o} += #1324#   W_jbME[ov][OV]{o} 2@2 t2[ov][OV]{o}");
 
-    blas->append("t2_eqns[oo][vv]{o} += #1234#   t1[o][v]{o} 2@1 <[v]:[ovv]>");
-    blas->append("t2_eqns[oo][vv]{o} += #2134# - t1[o][v]{o} 2@1 <[v]:[ovv]>");
+    wfn_->blas()->append("t2_eqns[oo][vv]{o} += #1234#   t1[o][v]{o} 2@1 <[v]:[ovv]>");
+    wfn_->blas()->append("t2_eqns[oo][vv]{o} += #2134# - t1[o][v]{o} 2@1 <[v]:[ovv]>");
 
-    blas->append("t2_eqns[oo][vv]{o} += #3412# - t1[o][v]{o} 1@1 <[o]:[voo]>");
-    blas->append("t2_eqns[oo][vv]{o} += #4312#   t1[o][v]{o} 1@1 <[o]:[voo]>");
-
-    DEBUGGING(3, blas->print("t2_eqns[oo][vv]{c}"); blas->print("t2_eqns[oo][vv]{o}"););
-
-    DEBUGGING(1, outfile->Printf(" done. Timing %20.6f s", timer.get());
-
-    );
+    wfn_->blas()->append("t2_eqns[oo][vv]{o} += #3412# - t1[o][v]{o} 1@1 <[o]:[voo]>");
+    wfn_->blas()->append("t2_eqns[oo][vv]{o} += #4312#   t1[o][v]{o} 1@1 <[o]:[voo]>");
 }
 
 void CCMRCC::build_t2_iJaB_amplitudes() {
-    Timer timer;
-    DEBUGGING(1, outfile->Printf("\n\tBuilding the t2_iJaB Amplitudes   ...");
-
-    );
     // Closed-shell
-    blas->append("t2_eqns[oO][vV]{c}  = <[oo]|[vv]>");
+    wfn_->blas()->append("t2_eqns[oO][vV]{c}  = <[oo]|[vv]>");
 
-    blas->append("t2_eqns[oO][vV]{c} += #3214# t2[V][vOo]{c} 1@2 F'_ae[v][v]{c}");
-    blas->append("t2_eqns[oO][vV]{c} += #4123# t2[v][VoO]{c} 1@2 F'_ae[v][v]{c}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{c} += #3214# t2[V][vOo]{c} 1@2 F'_ae[v][v]{c}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{c} += #4123# t2[v][VoO]{c} 1@2 F'_ae[v][v]{c}");
 
-    blas->append("t2_eqns[oO][vV]{c} += #1432# - t2[O][oVv]{c} 1@1 F'_mi[o][o]{c}");
-    blas->append("t2_eqns[oO][vV]{c} += #2341# - t2[o][OvV]{c} 1@1 F'_mi[o][o]{c}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{c} += #1432# - t2[O][oVv]{c} 1@1 F'_mi[o][o]{c}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{c} += #2341# - t2[o][OvV]{c} 1@1 F'_mi[o][o]{c}");
 
-    blas->append("t2_eqns[oO][vV]{c} += W_mNiJ[oO][oO]{c} 1@1 tau[oO][vV]{c}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{c} += W_mNiJ[oO][oO]{c} 1@1 tau[oO][vV]{c}");
 
-    // blas->append("t2_eqns[oO][vV]{c} += tau[oO][vV]{c} 2@2 <[vv]|[vv]>");
+    // wfn_->blas()->append("t2_eqns[oO][vV]{c} += tau[oO][vV]{c} 2@2 <[vv]|[vv]>");
 
-    blas->append("t2_eqns[oO][vV]{c} += tau[oO][v>=V]{c} 2@2 <[vv]|[v>=v]>");
-    blas->append("t2_eqns[oO][vV]{c} += #1243# tau[oO][V>=v]{c} 2@2 <[vv]|[v>=v]>");
+    wfn_->blas()->append("t2_eqns[oO][vV]{c} += tau[oO][v>=V]{c} 2@2 <[vv]|[v>=v]>");
+    wfn_->blas()->append("t2_eqns[oO][vV]{c} += #1243# tau[oO][V>=v]{c} 2@2 <[vv]|[v>=v]>");
 
-    blas->append("t2_eqns[oO][vV]{c} += #1234#  - Z_iJaM[oOv][O]{c} 2@1 t1[O][V]{c}");
-    blas->append("t2_eqns[oO][vV]{c} += #1243#    Z_iJAm[oOV][o]{c} 2@1 t1[o][v]{c}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{c} += #1234#  - Z_iJaM[oOv][O]{c} 2@1 t1[O][V]{c}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{c} += #1243#    Z_iJAm[oOV][o]{c} 2@1 t1[o][v]{c}");
 
-    blas->append("t2_eqns[oO][vV]{c} += #2413#   W_jbME[ov][OV]{c} 2@2 t2[ov][ov]{c}");
-    blas->append("t2_eqns[oO][vV]{c} += #2413#   W_jbme[ov][ov]{c} 2@2 t2[ov][OV]{c}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{c} += #2413#   W_jbME[ov][OV]{c} 2@2 t2[ov][ov]{c}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{c} += #2413#   W_jbme[ov][ov]{c} 2@2 t2[ov][OV]{c}");
 
-    blas->append("t2_eqns[oO][vV]{c} += #2314#   W_jBmE[oV][oV]{c} 2@2 t2[oV][Ov]{c}");
-    blas->append("t2_eqns[oO][vV]{c} += #1423#   W_jBmE[oV][oV]{c} 2@1 t2[oV][Ov]{c}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{c} += #2314#   W_jBmE[oV][oV]{c} 2@2 t2[oV][Ov]{c}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{c} += #1423#   W_jBmE[oV][oV]{c} 2@1 t2[oV][Ov]{c}");
 
-    blas->append("t2_eqns[oO][vV]{c} += #1324#   W_jbME[ov][OV]{c} 2@2 t2[OV][OV]{c}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{c} += #1324#   W_jbME[ov][OV]{c} 2@2 t2[OV][OV]{c}");
 
-    blas->append("t2_eqns[oO][vV]{c} += #1324#   W_jbme[ov][ov]{c} 2@1 t2[ov][OV]{c}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{c} += #1324#   W_jbme[ov][ov]{c} 2@1 t2[ov][OV]{c}");
 
-    blas->append("t2_eqns[oO][vV]{c} += #4213# - ([ov]|[vo]) 1@2 t1t1_iame[ov][ov]{c}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{c} += #4213# - ([ov]|[vo]) 1@2 t1t1_iame[ov][ov]{c}");
 
-    blas->append("t2_eqns[oO][vV]{c} += #2314# - <[ov]|[ov]> 1@2 t1t1_iAMe[oV][Ov]{c}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{c} += #2314# - <[ov]|[ov]> 1@2 t1t1_iAMe[oV][Ov]{c}");
 
-    blas->append("t2_eqns[oO][vV]{c} += #1423# - <[ov]|[ov]> 1@1 t1t1_iAMe[oV][Ov]{c}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{c} += #1423# - <[ov]|[ov]> 1@1 t1t1_iAMe[oV][Ov]{c}");
 
-    blas->append("t2_eqns[oO][vV]{c} += #3124# - ([ov]|[vo]) 1@2 t1t1_IAME[OV][OV]{c}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{c} += #3124# - ([ov]|[vo]) 1@2 t1t1_IAME[OV][OV]{c}");
 
-    blas->append("t2_eqns[oO][vV]{c} += #1234#   t1[o][v]{c} 2@1 <[v]|[ovv]>");
-    blas->append("t2_eqns[oO][vV]{c} += #2143#   t1[O][V]{c} 2@1 <[v]|[ovv]>");
+    wfn_->blas()->append("t2_eqns[oO][vV]{c} += #1234#   t1[o][v]{c} 2@1 <[v]|[ovv]>");
+    wfn_->blas()->append("t2_eqns[oO][vV]{c} += #2143#   t1[O][V]{c} 2@1 <[v]|[ovv]>");
 
-    blas->append("t2_eqns[oO][vV]{c} += #3412# - t1[o][v]{c} 1@1 <[o]|[voo]>");
-    blas->append("t2_eqns[oO][vV]{c} += #4321# - t1[O][V]{c} 1@1 <[o]|[voo]>");
+    wfn_->blas()->append("t2_eqns[oO][vV]{c} += #3412# - t1[o][v]{c} 1@1 <[o]|[voo]>");
+    wfn_->blas()->append("t2_eqns[oO][vV]{c} += #4321# - t1[O][V]{c} 1@1 <[o]|[voo]>");
 
     // Open-shell
-    blas->append("t2_eqns[oO][vV]{o}  = <[oo]|[vv]>");
+    wfn_->blas()->append("t2_eqns[oO][vV]{o}  = <[oo]|[vv]>");
 
-    blas->append("t2_eqns[oO][vV]{o} += #3214# t2[V][vOo]{o} 1@2 F'_AE[V][V]{o}");
-    blas->append("t2_eqns[oO][vV]{o} += #4123# t2[v][VoO]{o} 1@2 F'_ae[v][v]{o}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{o} += #3214# t2[V][vOo]{o} 1@2 F'_AE[V][V]{o}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{o} += #4123# t2[v][VoO]{o} 1@2 F'_ae[v][v]{o}");
 
-    blas->append("t2_eqns[oO][vV]{o} += #1432# - t2[O][oVv]{o} 1@1 F'_MI[O][O]{o}");
-    blas->append("t2_eqns[oO][vV]{o} += #2341# - t2[o][OvV]{o} 1@1 F'_mi[o][o]{o}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{o} += #1432# - t2[O][oVv]{o} 1@1 F'_MI[O][O]{o}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{o} += #2341# - t2[o][OvV]{o} 1@1 F'_mi[o][o]{o}");
 
-    blas->append("t2_eqns[oO][vV]{o} += W_mNiJ[oO][oO]{o} 1@1 tau[oO][vV]{o}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{o} += W_mNiJ[oO][oO]{o} 1@1 tau[oO][vV]{o}");
 
-    // blas->append("t2_eqns[oO][vV]{o} += tau[oO][vV]{o} 2@2 <[vv]|[vv]>");
+    // wfn_->blas()->append("t2_eqns[oO][vV]{o} += tau[oO][vV]{o} 2@2 <[vv]|[vv]>");
 
-    blas->append("t2_eqns[oO][vV]{o} += tau[oO][v>=V]{o} 2@2 <[vv]|[v>=v]>");
-    blas->append("t2_eqns[oO][vV]{o} += #1243# tau[oO][V>=v]{o} 2@2 <[vv]|[v>=v]>");
+    wfn_->blas()->append("t2_eqns[oO][vV]{o} += tau[oO][v>=V]{o} 2@2 <[vv]|[v>=v]>");
+    wfn_->blas()->append("t2_eqns[oO][vV]{o} += #1243# tau[oO][V>=v]{o} 2@2 <[vv]|[v>=v]>");
 
-    blas->append("t2_eqns[oO][vV]{o} += #1234#  - Z_iJaM[oOv][O]{o} 2@1 t1[O][V]{o}");
-    blas->append("t2_eqns[oO][vV]{o} += #1243#    Z_iJAm[oOV][o]{o} 2@1 t1[o][v]{o}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{o} += #1234#  - Z_iJaM[oOv][O]{o} 2@1 t1[O][V]{o}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{o} += #1243#    Z_iJAm[oOV][o]{o} 2@1 t1[o][v]{o}");
 
-    blas->append("t2_eqns[oO][vV]{o} += #2413#   W_JBme[OV][ov]{o} 2@2 t2[ov][ov]{o}");
-    blas->append("t2_eqns[oO][vV]{o} += #2413#   W_JBME[OV][OV]{o} 2@2 t2[ov][OV]{o}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{o} += #2413#   W_JBme[OV][ov]{o} 2@2 t2[ov][ov]{o}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{o} += #2413#   W_JBME[OV][OV]{o} 2@2 t2[ov][OV]{o}");
 
-    blas->append("t2_eqns[oO][vV]{o} += #2314#   W_JbMe[Ov][Ov]{o} 2@2 t2[oV][Ov]{o}");
-    blas->append("t2_eqns[oO][vV]{o} += #1423#   W_jBmE[oV][oV]{o} 2@1 t2[oV][Ov]{o}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{o} += #2314#   W_JbMe[Ov][Ov]{o} 2@2 t2[oV][Ov]{o}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{o} += #1423#   W_jBmE[oV][oV]{o} 2@1 t2[oV][Ov]{o}");
 
-    blas->append("t2_eqns[oO][vV]{o} += #1324#   W_jbME[ov][OV]{o} 2@2 t2[OV][OV]{o}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{o} += #1324#   W_jbME[ov][OV]{o} 2@2 t2[OV][OV]{o}");
 
-    blas->append("t2_eqns[oO][vV]{o} += #1324#   W_jbme[ov][ov]{o} 2@1 t2[ov][OV]{o}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{o} += #1324#   W_jbme[ov][ov]{o} 2@1 t2[ov][OV]{o}");
 
-    blas->append("t2_eqns[oO][vV]{o} += #4213# - ([ov]|[vo]) 1@2 t1t1_iame[ov][ov]{o}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{o} += #4213# - ([ov]|[vo]) 1@2 t1t1_iame[ov][ov]{o}");
 
-    blas->append("t2_eqns[oO][vV]{o} += #2314# - <[ov]|[ov]> 1@2 t1t1_iAMe[oV][Ov]{o}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{o} += #2314# - <[ov]|[ov]> 1@2 t1t1_iAMe[oV][Ov]{o}");
 
-    blas->append("t2_eqns[oO][vV]{o} += #1423# - <[ov]|[ov]> 1@1 t1t1_iAMe[oV][Ov]{o}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{o} += #1423# - <[ov]|[ov]> 1@1 t1t1_iAMe[oV][Ov]{o}");
 
-    blas->append("t2_eqns[oO][vV]{o} += #3124# - ([ov]|[vo]) 1@2 t1t1_IAME[OV][OV]{o}");
+    wfn_->blas()->append("t2_eqns[oO][vV]{o} += #3124# - ([ov]|[vo]) 1@2 t1t1_IAME[OV][OV]{o}");
 
-    blas->append("t2_eqns[oO][vV]{o} += #1234#   t1[o][v]{o} 2@1 <[v]|[ovv]>");
-    blas->append("t2_eqns[oO][vV]{o} += #2143#   t1[O][V]{o} 2@1 <[v]|[ovv]>");
+    wfn_->blas()->append("t2_eqns[oO][vV]{o} += #1234#   t1[o][v]{o} 2@1 <[v]|[ovv]>");
+    wfn_->blas()->append("t2_eqns[oO][vV]{o} += #2143#   t1[O][V]{o} 2@1 <[v]|[ovv]>");
 
-    blas->append("t2_eqns[oO][vV]{o} += #3412# - t1[o][v]{o} 1@1 <[o]|[voo]>");
-    blas->append("t2_eqns[oO][vV]{o} += #4321# - t1[O][V]{o} 1@1 <[o]|[voo]>");
-
-    DEBUGGING(3, blas->print("t2_eqns[oO][vV]{c}"); blas->print("t2_eqns[oO][vV]{o}");)
-
-    if (pert_cbs && pert_cbs_coupling) {
-        outfile->Printf("\n Computing frozen-virtual contribution to H(iJaB)");
-
-        blas->append("t2_eqns[oO][vV]{u} +=  t2_1[oO][vF]{u} 2@1 <[vf]|[vv]>");
-        blas->append("t2_eqns[oO][vV]{u} +=  t2_1[oO][fV]{u} 2@1 <[fv]|[vv]>");
-        blas->append("t2_eqns[oO][vV]{u} +=  t2_1[oO][fF]{u} 2@1 <[ff]|[vv]>");
-
-        blas->append("t2_eqns[oO][vV]{u} += #1342#   t2_1[ov][of]{u} 2@2 ([vo]|[of])");
-        blas->append("t2_eqns[oO][vV]{u} += #1342#   t2_1[ov][OF]{u} 2@2 ([vo]:[of])");
-        blas->append("t2_eqns[oO][vV]{u} += #1423# - t2_1[oV][Of]{u} 2@2 <[ov]|[of]>");
-        blas->append("t2_eqns[oO][vV]{u} += #2314# - t2_1[oF][Ov]{u} 1@2 <[ov]|[of]>");
-        blas->append("t2_eqns[oO][vV]{u} += #2431#   t2_1[OV][OF]{u} 2@2 ([vo]|[of])");
-        blas->append("t2_eqns[oO][vV]{u} += #2431#   t2_1[of][OV]{u} 1@2 ([vo]:[of])");
-    }
-
-    DEBUGGING(1, outfile->Printf(" done. Timing %20.6f s", timer.get());
-
-    )
+    wfn_->blas()->append("t2_eqns[oO][vV]{o} += #3412# - t1[o][v]{o} 1@1 <[o]|[voo]>");
+    wfn_->blas()->append("t2_eqns[oO][vV]{o} += #4321# - t1[O][V]{o} 1@1 <[o]|[voo]>");
 }
 
 void CCMRCC::build_t2_IJAB_amplitudes() {
-    Timer timer;
-    DEBUGGING(1, outfile->Printf("\n\tBuilding the t2_IJAB Amplitudes   ...");
-
-    )
     // Closed-shell
-    blas->append("t2_eqns[OO][VV]{c}  = t2_eqns[oo][vv]{c}");
+    wfn_->blas()->append("t2_eqns[OO][VV]{c}  = t2_eqns[oo][vv]{c}");
 
     // Open-shell
-    blas->append("t2_eqns[OO][VV]{o}  = <[oo]:[vv]>");
+    wfn_->blas()->append("t2_eqns[OO][VV]{o}  = <[oo]:[vv]>");
 
-    blas->append("t2_eqns[OO][VV]{o} += #3124# - t2[V][VOO]{o} 1@2 F'_AE[V][V]{o}");
-    blas->append("t2_eqns[OO][VV]{o} += #4123#   t2[V][VOO]{o} 1@2 F'_AE[V][V]{o}");
+    wfn_->blas()->append("t2_eqns[OO][VV]{o} += #3124# - t2[V][VOO]{o} 1@2 F'_AE[V][V]{o}");
+    wfn_->blas()->append("t2_eqns[OO][VV]{o} += #4123#   t2[V][VOO]{o} 1@2 F'_AE[V][V]{o}");
 
-    blas->append("t2_eqns[OO][VV]{o} += #1342#   t2[O][OVV]{o} 1@1 F'_MI[O][O]{o}");
-    blas->append("t2_eqns[OO][VV]{o} += #2341# - t2[O][OVV]{o} 1@1 F'_MI[O][O]{o}");
+    wfn_->blas()->append("t2_eqns[OO][VV]{o} += #1342#   t2[O][OVV]{o} 1@1 F'_MI[O][O]{o}");
+    wfn_->blas()->append("t2_eqns[OO][VV]{o} += #2341# - t2[O][OVV]{o} 1@1 F'_MI[O][O]{o}");
 
-    blas->append("t2_eqns[OO][VV]{o} += 1/2  W_MNIJ[OO][OO]{o} 1@1 tau[OO][VV]{o}");
+    wfn_->blas()->append("t2_eqns[OO][VV]{o} += 1/2  W_MNIJ[OO][OO]{o} 1@1 tau[OO][VV]{o}");
 
-    blas->append("t2_eqns[OO][V>V]{o} = tau[OO][V>V]{o} 2@2 <[v>v]:[v>v]>");
+    wfn_->blas()->append("t2_eqns[OO][V>V]{o} = tau[OO][V>V]{o} 2@2 <[v>v]:[v>v]>");
 
-    blas->append("t2_eqns[OO][VV]{o} +>= #1234#  t2_eqns[OO][V>V]{o}");
+    wfn_->blas()->append("t2_eqns[OO][VV]{o} +>= #1234#  t2_eqns[OO][V>V]{o}");
 
-    blas->append("t2_eqns[OO][VV]{o} += #1234# - Z_IJAM[OOV][O]{o} 2@1 t1[O][V]{o}");
-    blas->append("t2_eqns[OO][VV]{o} += #1243#   Z_IJAM[OOV][O]{o} 2@1 t1[O][V]{o}");
+    wfn_->blas()->append("t2_eqns[OO][VV]{o} += #1234# - Z_IJAM[OOV][O]{o} 2@1 t1[O][V]{o}");
+    wfn_->blas()->append("t2_eqns[OO][VV]{o} += #1243#   Z_IJAM[OOV][O]{o} 2@1 t1[O][V]{o}");
 
-    blas->append("t2_eqns[OO][VV]{o} += #2413#   W_JBME[OV][OV]{o} 2@2 t2[OV][OV]{o}");
-    blas->append("t2_eqns[OO][VV]{o} += #2314# - W_JBME[OV][OV]{o} 2@2 t2[OV][OV]{o}");
+    wfn_->blas()->append("t2_eqns[OO][VV]{o} += #2413#   W_JBME[OV][OV]{o} 2@2 t2[OV][OV]{o}");
+    wfn_->blas()->append("t2_eqns[OO][VV]{o} += #2314# - W_JBME[OV][OV]{o} 2@2 t2[OV][OV]{o}");
 
-    blas->append("t2_eqns[OO][VV]{o} += #1423# - W_JBME[OV][OV]{o} 2@2 t2[OV][OV]{o}");
-    blas->append("t2_eqns[OO][VV]{o} += #1324#   W_JBME[OV][OV]{o} 2@2 t2[OV][OV]{o}");
+    wfn_->blas()->append("t2_eqns[OO][VV]{o} += #1423# - W_JBME[OV][OV]{o} 2@2 t2[OV][OV]{o}");
+    wfn_->blas()->append("t2_eqns[OO][VV]{o} += #1324#   W_JBME[OV][OV]{o} 2@2 t2[OV][OV]{o}");
 
-    blas->append("t2_eqns[OO][VV]{o} += #4213# - ([ov]:[vo]) 1@2 t1t1_IAME[OV][OV]{o}");
-    blas->append("t2_eqns[OO][VV]{o} += #3214# + ([ov]:[vo]) 1@2 t1t1_IAME[OV][OV]{o}");
-    blas->append("t2_eqns[OO][VV]{o} += #4123# + ([ov]:[vo]) 1@2 t1t1_IAME[OV][OV]{o}");
-    blas->append("t2_eqns[OO][VV]{o} += #3124# - ([ov]:[vo]) 1@2 t1t1_IAME[OV][OV]{o}");
+    wfn_->blas()->append("t2_eqns[OO][VV]{o} += #4213# - ([ov]:[vo]) 1@2 t1t1_IAME[OV][OV]{o}");
+    wfn_->blas()->append("t2_eqns[OO][VV]{o} += #3214# + ([ov]:[vo]) 1@2 t1t1_IAME[OV][OV]{o}");
+    wfn_->blas()->append("t2_eqns[OO][VV]{o} += #4123# + ([ov]:[vo]) 1@2 t1t1_IAME[OV][OV]{o}");
+    wfn_->blas()->append("t2_eqns[OO][VV]{o} += #3124# - ([ov]:[vo]) 1@2 t1t1_IAME[OV][OV]{o}");
 
-    blas->append("t2_eqns[OO][VV]{o} += #2413#   W_JBme[OV][ov]{o} 2@1 t2[ov][OV]{o}");
-    blas->append("t2_eqns[OO][VV]{o} += #2314# - W_JBme[OV][ov]{o} 2@1 t2[ov][OV]{o}");
+    wfn_->blas()->append("t2_eqns[OO][VV]{o} += #2413#   W_JBme[OV][ov]{o} 2@1 t2[ov][OV]{o}");
+    wfn_->blas()->append("t2_eqns[OO][VV]{o} += #2314# - W_JBme[OV][ov]{o} 2@1 t2[ov][OV]{o}");
 
-    blas->append("t2_eqns[OO][VV]{o} += #1423# - W_JBme[OV][ov]{o} 2@1 t2[ov][OV]{o}");
-    blas->append("t2_eqns[OO][VV]{o} += #1324#   W_JBme[OV][ov]{o} 2@1 t2[ov][OV]{o}");
+    wfn_->blas()->append("t2_eqns[OO][VV]{o} += #1423# - W_JBme[OV][ov]{o} 2@1 t2[ov][OV]{o}");
+    wfn_->blas()->append("t2_eqns[OO][VV]{o} += #1324#   W_JBme[OV][ov]{o} 2@1 t2[ov][OV]{o}");
 
-    blas->append("t2_eqns[OO][VV]{o} += #1234#   t1[O][V]{o} 2@1 <[v]:[ovv]>");
-    blas->append("t2_eqns[OO][VV]{o} += #2134# - t1[O][V]{o} 2@1 <[v]:[ovv]>");
+    wfn_->blas()->append("t2_eqns[OO][VV]{o} += #1234#   t1[O][V]{o} 2@1 <[v]:[ovv]>");
+    wfn_->blas()->append("t2_eqns[OO][VV]{o} += #2134# - t1[O][V]{o} 2@1 <[v]:[ovv]>");
 
-    blas->append("t2_eqns[OO][VV]{o} += #3412# - t1[O][V]{o} 1@1 <[o]:[voo]>");
-    blas->append("t2_eqns[OO][VV]{o} += #4312#   t1[O][V]{o} 1@1 <[o]:[voo]>");
-
-    DEBUGGING(3, blas->print("t2_eqns[OO][VV]{o}"););
-
-    DEBUGGING(1, outfile->Printf(" done. Timing %20.6f s", timer.get());
-
-    )
+    wfn_->blas()->append("t2_eqns[OO][VV]{o} += #3412# - t1[O][V]{o} 1@1 <[o]:[voo]>");
+    wfn_->blas()->append("t2_eqns[OO][VV]{o} += #4312#   t1[O][V]{o} 1@1 <[o]:[voo]>");
 }
 
 void CCMRCC::build_t2_amplitudes_triples() {
-    Timer timer;
-    DEBUGGING(1, outfile->Printf("\n\tBuilding the T3->T2 Amplitudes   ...");
-
-    )
     build_t2_ijab_amplitudes_triples_diagram1();
     build_t2_iJaB_amplitudes_triples_diagram1();
     build_t2_IJAB_amplitudes_triples_diagram1();
@@ -340,9 +289,6 @@ void CCMRCC::build_t2_amplitudes_triples() {
     build_t2_ijab_amplitudes_triples_diagram3();
     build_t2_iJaB_amplitudes_triples_diagram3();
     build_t2_IJAB_amplitudes_triples_diagram3();
-    DEBUGGING(1, outfile->Printf(" done. Timing %20.6f s", timer.get());
-
-    )
 }
 
 /**
@@ -355,41 +301,38 @@ void CCMRCC::build_t2_amplitudes_triples() {
  */
 void CCMRCC::build_t2_ijab_amplitudes_triples_diagram1() {
     // Loop over references
-    for (int ref = 0; ref < moinfo->get_nunique(); ref++) {
-        int unique_ref = moinfo->get_ref_number(ref, UniqueRefs);
+    for (int ref = 0; ref < wfn_->moinfo()->get_nunique(); ref++) {
+        int unique_ref = wfn_->moinfo()->get_ref_number(ref, UniqueRefs);
 
         // Grab the temporary matrices
-        CCMatTmp TijkabcMatTmp = blas->get_MatTmp("t3[ooo][vvv]", unique_ref, none);
-        double*** Tijkabc_matrix = TijkabcMatTmp->get_matrix();
-        CCMatTmp TijKabCMatTmp = blas->get_MatTmp("t3[ooO][vvV]", unique_ref, none);
-        double*** TijKabC_matrix = TijKabCMatTmp->get_matrix();
+        auto TijkabcMatTmp = wfn_->blas()->get_MatTmp("t3[ooo][vvv]", unique_ref, none);
+        auto Tijkabc_matrix = TijkabcMatTmp->get_matrix();
+        auto TijKabCMatTmp = wfn_->blas()->get_MatTmp("t3[ooO][vvV]", unique_ref, none);
+        auto TijKabC_matrix = TijKabCMatTmp->get_matrix();
 
-        CCMatTmp WkijaMatTmp = blas->get_MatTmp("W_kija[o][oov]", unique_ref, none);
-        CCMatTmp WkiJAMatTmp = blas->get_MatTmp("W_kiJA[o][oOV]", unique_ref, none);
-        double*** Wkija_matrix = WkijaMatTmp->get_matrix();
-        double*** WkiJA_matrix = WkiJAMatTmp->get_matrix();
+        auto WkijaMatTmp = wfn_->blas()->get_MatTmp("W_kija[o][oov]", unique_ref, none);
+        auto WkiJAMatTmp = wfn_->blas()->get_MatTmp("W_kiJA[o][oOV]", unique_ref, none);
+        auto Wkija_matrix = WkijaMatTmp->get_matrix();
+        auto WkiJA_matrix = WkiJAMatTmp->get_matrix();
 
-        CCMatTmp HijabMatTmp = blas->get_MatTmp("t2_eqns[oo][vv]", unique_ref, none);
+        auto HijabMatTmp = wfn_->blas()->get_MatTmp("t2_eqns[oo][vv]", unique_ref, none);
 
         // Grab the indexing for t3[iab][jkc]
-        CCIndex* iab_indexing = blas->get_index("[ovv]");
-        CCIndex* jkc_indexing = blas->get_index("[oov]");
-        CCIndex* j_indexing = blas->get_index("[o]");
+        auto iab_indexing = wfn_->blas()->get_index("[ovv]");
+        auto jkc_indexing = wfn_->blas()->get_index("[oov]");
+        auto j_indexing = wfn_->blas()->get_index("[o]");
 
-        short** iab_tuples = iab_indexing->get_tuples();
-        short** jkc_tuples = jkc_indexing->get_tuples();
+        auto& iab_tuples = iab_indexing->get_tuples();
+        auto& jkc_tuples = jkc_indexing->get_tuples();
 
         // PART A: Sort T[ijk][abc]->T[iab][jkc]
-        double*** T_iabjkc;
-        double*** H_iabj;
+        std::vector<double**> T_iabjkc(wfn_->nirrep(), nullptr);
+        std::vector<double**> H_iabj(wfn_->nirrep(), nullptr);
 
-        allocate1(double**, T_iabjkc, moinfo->get_nirreps());
-        allocate1(double**, H_iabj, moinfo->get_nirreps());
-
-        for (int h = 0; h < moinfo->get_nirreps(); h++) {
+        for (int h = 0; h < wfn_->moinfo()->get_nirreps(); h++) {
             // Allocate a block of T_iabjkc
-            allocate2(double, T_iabjkc[h], iab_indexing->get_pairpi(h), jkc_indexing->get_pairpi(h));
-            allocate2(double, H_iabj[h], iab_indexing->get_pairpi(h), j_indexing->get_pairpi(h));
+            T_iabjkc[h] = block_matrix(iab_indexing->get_pairpi(h), jkc_indexing->get_pairpi(h));
+            H_iabj[h] = block_matrix(iab_indexing->get_pairpi(h), j_indexing->get_pairpi(h));
 
             size_t iab_offset = iab_indexing->get_first(h);
             size_t jkc_offset = jkc_indexing->get_first(h);
@@ -469,15 +412,10 @@ void CCMRCC::build_t2_ijab_amplitudes_triples_diagram1() {
             }
 
             // Deallocate the memory for the block
-            release2(H_iabj[h]);
-            release2(T_iabjkc[h]);
+            free_block(H_iabj[h]);
+            free_block(T_iabjkc[h]);
         }
-        release1(H_iabj);
-        release1(T_iabjkc);
     }
-    //   blas->print("t2_test[oo][vv]{u}");
-    //   blas->solve("ERROR{u} = 1000000.0 t2_test[oo][vv]{u} . t2_test[oo][vv]{u}");
-    //   blas->print("ERROR{u}");
 }
 
 /**
@@ -492,60 +430,57 @@ void CCMRCC::build_t2_ijab_amplitudes_triples_diagram1() {
  */
 void CCMRCC::build_t2_iJaB_amplitudes_triples_diagram1() {
     // Loop over references
-    for (int ref = 0; ref < moinfo->get_nunique(); ref++) {
-        int unique_ref = moinfo->get_ref_number(ref, UniqueRefs);
+    for (int ref = 0; ref < wfn_->moinfo()->get_nunique(); ref++) {
+        int unique_ref = wfn_->moinfo()->get_ref_number(ref, UniqueRefs);
 
         // Grab the temporary matrices
-        CCMatTmp TijKabCMatTmp = blas->get_MatTmp("t3[ooO][vvV]", unique_ref, none);
-        double*** TijKabC_matrix = TijKabCMatTmp->get_matrix();
-        CCMatTmp TiJKaBCMatTmp = blas->get_MatTmp("t3[oOO][vVV]", unique_ref, none);
-        double*** TiJKaBC_matrix = TiJKaBCMatTmp->get_matrix();
+        CCMatTmp TijKabCMatTmp = wfn_->blas()->get_MatTmp("t3[ooO][vvV]", unique_ref, none);
+        auto TijKabC_matrix = TijKabCMatTmp->get_matrix();
+        CCMatTmp TiJKaBCMatTmp = wfn_->blas()->get_MatTmp("t3[oOO][vVV]", unique_ref, none);
+        auto TiJKaBC_matrix = TiJKaBCMatTmp->get_matrix();
 
-        CCMatTmp WkijaMatTmp = blas->get_MatTmp("W_kija[o][oov]", unique_ref, none);
-        double*** Wkija_matrix = WkijaMatTmp->get_matrix();
-        CCMatTmp WKIjaMatTmp = blas->get_MatTmp("W_KIja[O][Oov]", unique_ref, none);
-        double*** WKIja_matrix = WKIjaMatTmp->get_matrix();
-        CCMatTmp WkiJAMatTmp = blas->get_MatTmp("W_kiJA[o][oOV]", unique_ref, none);
-        double*** WkiJA_matrix = WkiJAMatTmp->get_matrix();
-        CCMatTmp WKIJAMatTmp = blas->get_MatTmp("W_KIJA[O][OOV]", unique_ref, none);
-        double*** WKIJA_matrix = WKIJAMatTmp->get_matrix();
+        CCMatTmp WkijaMatTmp = wfn_->blas()->get_MatTmp("W_kija[o][oov]", unique_ref, none);
+        auto Wkija_matrix = WkijaMatTmp->get_matrix();
+        CCMatTmp WKIjaMatTmp = wfn_->blas()->get_MatTmp("W_KIja[O][Oov]", unique_ref, none);
+        auto WKIja_matrix = WKIjaMatTmp->get_matrix();
+        CCMatTmp WkiJAMatTmp = wfn_->blas()->get_MatTmp("W_kiJA[o][oOV]", unique_ref, none);
+        auto WkiJA_matrix = WkiJAMatTmp->get_matrix();
+        CCMatTmp WKIJAMatTmp = wfn_->blas()->get_MatTmp("W_KIJA[O][OOV]", unique_ref, none);
+        auto WKIJA_matrix = WKIJAMatTmp->get_matrix();
 
-        CCMatTmp HiJaBMatTmp = blas->get_MatTmp("t2_eqns[oO][vV]", unique_ref, none);
+        CCMatTmp HiJaBMatTmp = wfn_->blas()->get_MatTmp("t2_eqns[oO][vV]", unique_ref, none);
 
         // Grab the indexing for t3[iab][jkc]
-        CCIndex* jab_indexing = blas->get_index("[ovv]");
-        CCIndex* kac_indexing = blas->get_index("[ovv]");
-        CCIndex* iab_indexing = blas->get_index("[ovv]");
-        CCIndex* iac_indexing = blas->get_index("[ovv]");
-        CCIndex* kab_indexing = blas->get_index("[ovv]");
-        CCIndex* kjb_indexing = blas->get_index("[oov]");
-        CCIndex* kjc_indexing = blas->get_index("[oov]");
-        CCIndex* ijc_indexing = blas->get_index("[oov]");
-        CCIndex* ijb_indexing = blas->get_index("[oov]");
-        CCIndex* j_indexing = blas->get_index("[o]");
-        CCIndex* i_indexing = blas->get_index("[o]");
+        auto jab_indexing = wfn_->blas()->get_index("[ovv]");
+        auto kac_indexing = wfn_->blas()->get_index("[ovv]");
+        auto iab_indexing = wfn_->blas()->get_index("[ovv]");
+        auto iac_indexing = wfn_->blas()->get_index("[ovv]");
+        auto kab_indexing = wfn_->blas()->get_index("[ovv]");
+        auto kjb_indexing = wfn_->blas()->get_index("[oov]");
+        auto kjc_indexing = wfn_->blas()->get_index("[oov]");
+        auto ijc_indexing = wfn_->blas()->get_index("[oov]");
+        auto ijb_indexing = wfn_->blas()->get_index("[oov]");
+        auto j_indexing = wfn_->blas()->get_index("[o]");
+        auto i_indexing = wfn_->blas()->get_index("[o]");
 
-        short** iab_tuples = iab_indexing->get_tuples();
-        short** jab_tuples = jab_indexing->get_tuples();
-        short** iac_tuples = iac_indexing->get_tuples();
-        short** kab_tuples = kab_indexing->get_tuples();
-        short** kac_tuples = kac_indexing->get_tuples();
+        auto& iab_tuples = iab_indexing->get_tuples();
+        auto& jab_tuples = jab_indexing->get_tuples();
+        auto& iac_tuples = iac_indexing->get_tuples();
+        auto& kab_tuples = kab_indexing->get_tuples();
+        auto& kac_tuples = kac_indexing->get_tuples();
 
-        short** kjb_tuples = kjb_indexing->get_tuples();
-        short** kjc_tuples = kjc_indexing->get_tuples();
-        short** ijc_tuples = ijc_indexing->get_tuples();
-        short** ijb_tuples = ijb_indexing->get_tuples();
+        auto& kjb_tuples = kjb_indexing->get_tuples();
+        auto& kjc_tuples = kjc_indexing->get_tuples();
+        auto& ijc_tuples = ijc_indexing->get_tuples();
+        auto& ijb_tuples = ijb_indexing->get_tuples();
 
-        double*** T_iackjb;
-        double*** H_iabj;
+        std::vector<double**> T_iackjb(wfn_->nirrep(), nullptr);
+        std::vector<double**> H_iabj(wfn_->nirrep());
 
-        allocate1(double**, T_iackjb, moinfo->get_nirreps());
-        allocate1(double**, H_iabj, moinfo->get_nirreps());
-
-        for (int h = 0; h < moinfo->get_nirreps(); h++) {
+        for (int h = 0; h < wfn_->moinfo()->get_nirreps(); h++) {
             // Allocate a block of T_iabjkc
-            allocate2(double, T_iackjb[h], iac_indexing->get_pairpi(h), kjb_indexing->get_pairpi(h));
-            allocate2(double, H_iabj[h], iab_indexing->get_pairpi(h), j_indexing->get_pairpi(h));
+            T_iackjb[h] = block_matrix(iac_indexing->get_pairpi(h), kjb_indexing->get_pairpi(h));
+            H_iabj[h] = block_matrix(iab_indexing->get_pairpi(h), j_indexing->get_pairpi(h));
 
             size_t iab_offset = iab_indexing->get_first(h);
             size_t iac_offset = iac_indexing->get_first(h);
@@ -704,15 +639,10 @@ void CCMRCC::build_t2_iJaB_amplitudes_triples_diagram1() {
                 }
             }
             // Deallocate the memory for the block
-            release2(T_iackjb[h]);
-            release2(H_iabj[h]);
+            free_block(T_iackjb[h]);
+            free_block(H_iabj[h]);
         }
-        release1(H_iabj);
-        release1(T_iackjb);
     }
-    //   blas->print("t2_test[oO][vV]{u}");
-    //   blas->solve("ERROR{u} = 1000000.0 t2_test[oO][vV]{u} . t2_test[oO][vV]{u}");
-    //   blas->print("ERROR{u}");
 }
 
 /**
@@ -725,44 +655,41 @@ void CCMRCC::build_t2_iJaB_amplitudes_triples_diagram1() {
  */
 void CCMRCC::build_t2_IJAB_amplitudes_triples_diagram1() {
     // Loop over references
-    for (int ref = 0; ref < moinfo->get_nunique(); ref++) {
-        int unique_ref = moinfo->get_ref_number(ref, UniqueRefs);
+    for (int ref = 0; ref < wfn_->moinfo()->get_nunique(); ref++) {
+        int unique_ref = wfn_->moinfo()->get_ref_number(ref, UniqueRefs);
 
         // Grab the temporary matrices
-        CCMatTmp TiJKaBCMatTmp = blas->get_MatTmp("t3[oOO][vVV]", unique_ref, none);
-        double*** TiJKaBC_matrix = TiJKaBCMatTmp->get_matrix();
-        CCMatTmp TIJKABCMatTmp = blas->get_MatTmp("t3[OOO][VVV]", unique_ref, none);
-        double*** TIJKABC_matrix = TIJKABCMatTmp->get_matrix();
+        auto TiJKaBCMatTmp = wfn_->blas()->get_MatTmp("t3[oOO][vVV]", unique_ref, none);
+        auto TiJKaBC_matrix = TiJKaBCMatTmp->get_matrix();
+        auto TIJKABCMatTmp = wfn_->blas()->get_MatTmp("t3[OOO][VVV]", unique_ref, none);
+        auto TIJKABC_matrix = TIJKABCMatTmp->get_matrix();
 
-        CCMatTmp WKIjaMatTmp = blas->get_MatTmp("W_KIja[O][Oov]", unique_ref, none);
-        CCMatTmp WKIJAMatTmp = blas->get_MatTmp("W_KIJA[O][OOV]", unique_ref, none);
-        double*** WKIja_matrix = WKIjaMatTmp->get_matrix();
-        double*** WKIJA_matrix = WKIJAMatTmp->get_matrix();
+        auto WKIjaMatTmp = wfn_->blas()->get_MatTmp("W_KIja[O][Oov]", unique_ref, none);
+        auto WKIJAMatTmp = wfn_->blas()->get_MatTmp("W_KIJA[O][OOV]", unique_ref, none);
+        auto WKIja_matrix = WKIjaMatTmp->get_matrix();
+        auto WKIJA_matrix = WKIJAMatTmp->get_matrix();
 
-        CCMatTmp HIJABMatTmp = blas->get_MatTmp("t2_eqns[OO][VV]", unique_ref, none);
+        CCMatTmp HIJABMatTmp = wfn_->blas()->get_MatTmp("t2_eqns[OO][VV]", unique_ref, none);
 
         // Grab the indexing for t3[iab][jkc]
-        CCIndex* iab_indexing = blas->get_index("[ovv]");
-        CCIndex* kbc_indexing = blas->get_index("[ovv]");
-        CCIndex* jia_indexing = blas->get_index("[oov]");
-        CCIndex* jkc_indexing = blas->get_index("[oov]");
-        CCIndex* j_indexing = blas->get_index("[o]");
+        auto iab_indexing = wfn_->blas()->get_index("[ovv]");
+        auto kbc_indexing = wfn_->blas()->get_index("[ovv]");
+        auto jia_indexing = wfn_->blas()->get_index("[oov]");
+        auto jkc_indexing = wfn_->blas()->get_index("[oov]");
+        auto j_indexing = wfn_->blas()->get_index("[o]");
 
-        short** iab_tuples = iab_indexing->get_tuples();
-        short** kbc_tuples = kbc_indexing->get_tuples();
-        short** jia_tuples = jia_indexing->get_tuples();
-        short** jkc_tuples = jkc_indexing->get_tuples();
+        auto& iab_tuples = iab_indexing->get_tuples();
+        auto& kbc_tuples = kbc_indexing->get_tuples();
+        auto& jia_tuples = jia_indexing->get_tuples();
+        auto& jkc_tuples = jkc_indexing->get_tuples();
 
-        double*** T_iabjkc;
-        double*** H_iabj;
+        std::vector<double**> T_iabjkc(wfn_->nirrep(), nullptr);
+        std::vector<double**> H_iabj(wfn_->nirrep(), nullptr);
 
-        allocate1(double**, T_iabjkc, moinfo->get_nirreps());
-        allocate1(double**, H_iabj, moinfo->get_nirreps());
-
-        for (int h = 0; h < moinfo->get_nirreps(); h++) {
+        for (int h = 0; h < wfn_->moinfo()->get_nirreps(); h++) {
             // Allocate a block of T_iabjkc
-            allocate2(double, T_iabjkc[h], kbc_indexing->get_pairpi(h), jia_indexing->get_pairpi(h));
-            allocate2(double, H_iabj[h], kbc_indexing->get_pairpi(h), j_indexing->get_pairpi(h));
+            T_iabjkc[h] = block_matrix(kbc_indexing->get_pairpi(h), jia_indexing->get_pairpi(h));
+            H_iabj[h] = block_matrix(kbc_indexing->get_pairpi(h), j_indexing->get_pairpi(h));
 
             size_t iab_offset = iab_indexing->get_first(h);
             size_t kbc_offset = kbc_indexing->get_first(h);
@@ -844,15 +771,10 @@ void CCMRCC::build_t2_IJAB_amplitudes_triples_diagram1() {
             }
 
             // Deallocate the memory for the block
-            release2(H_iabj[h]);
-            release2(T_iabjkc[h]);
+            free_block(H_iabj[h]);
+            free_block(T_iabjkc[h]);
         }
-        release1(H_iabj);
-        release1(T_iabjkc);
     }
-    //   blas->print("t2_test[OO][VV]{u}");
-    //   blas->solve("ERROR{u} = 1000000.0 t2_test[OO][VV]{u} . t2_test[OO][VV]{u}");
-    //   blas->print("ERROR{u}");
 }
 
 /**
@@ -865,40 +787,37 @@ void CCMRCC::build_t2_IJAB_amplitudes_triples_diagram1() {
  */
 void CCMRCC::build_t2_ijab_amplitudes_triples_diagram2() {
     // Loop over references
-    for (int ref = 0; ref < moinfo->get_nunique(); ref++) {
-        int unique_ref = moinfo->get_ref_number(ref, UniqueRefs);
+    for (int ref = 0; ref < wfn_->moinfo()->get_nunique(); ref++) {
+        int unique_ref = wfn_->moinfo()->get_ref_number(ref, UniqueRefs);
 
         // Grab the temporary matrices
-        CCMatTmp TijkabcMatTmp = blas->get_MatTmp("t3[ooo][vvv]", unique_ref, none);
-        double*** Tijkabc_matrix = TijkabcMatTmp->get_matrix();
-        CCMatTmp TijKabCMatTmp = blas->get_MatTmp("t3[ooO][vvV]", unique_ref, none);
-        double*** TijKabC_matrix = TijKabCMatTmp->get_matrix();
+        auto TijkabcMatTmp = wfn_->blas()->get_MatTmp("t3[ooo][vvv]", unique_ref, none);
+        auto Tijkabc_matrix = TijkabcMatTmp->get_matrix();
+        auto TijKabCMatTmp = wfn_->blas()->get_MatTmp("t3[ooO][vvV]", unique_ref, none);
+        auto TijKabC_matrix = TijKabCMatTmp->get_matrix();
 
-        CCMatTmp WaibcMatTmp = blas->get_MatTmp("W_aibc[v][ovv]", unique_ref, none);
-        double*** Waibc_matrix = WaibcMatTmp->get_matrix();
-        CCMatTmp WaIbCMatTmp = blas->get_MatTmp("W_aIbC[v][OvV]", unique_ref, none);
-        double*** WaIbC_matrix = WaIbCMatTmp->get_matrix();
+        auto WaibcMatTmp = wfn_->blas()->get_MatTmp("W_aibc[v][ovv]", unique_ref, none);
+        auto Waibc_matrix = WaibcMatTmp->get_matrix();
+        auto WaIbCMatTmp = wfn_->blas()->get_MatTmp("W_aIbC[v][OvV]", unique_ref, none);
+        auto WaIbC_matrix = WaIbCMatTmp->get_matrix();
 
-        CCMatTmp HijabMatTmp = blas->get_MatTmp("t2_eqns[oo][vv]", unique_ref, none);
+        auto HijabMatTmp = wfn_->blas()->get_MatTmp("t2_eqns[oo][vv]", unique_ref, none);
 
         // Grab the indexing for t3[iab][jkc]
-        CCIndex* ovv_indexing = blas->get_index("[ovv]");
-        CCIndex* oov_indexing = blas->get_index("[oov]");
-        CCIndex* v_indexing = blas->get_index("[v]");
+        auto ovv_indexing = wfn_->blas()->get_index("[ovv]");
+        auto oov_indexing = wfn_->blas()->get_index("[oov]");
+        auto v_indexing = wfn_->blas()->get_index("[v]");
 
-        short** ovv_tuples = ovv_indexing->get_tuples();
-        short** oov_tuples = oov_indexing->get_tuples();
+        auto& ovv_tuples = ovv_indexing->get_tuples();
+        auto& oov_tuples = oov_indexing->get_tuples();
 
-        double*** T_oovovv;
-        double*** H_ijab;
+        std::vector<double**> T_oovovv(wfn_->nirrep(), nullptr);
+        std::vector<double**> H_ijab(wfn_->nirrep(), nullptr);
 
-        allocate1(double**, T_oovovv, moinfo->get_nirreps());
-        allocate1(double**, H_ijab, moinfo->get_nirreps());
-
-        for (int h = 0; h < moinfo->get_nirreps(); h++) {
+        for (int h = 0; h < wfn_->nirrep(); h++) {
             // Allocate a block of T_iabjkc
-            allocate2(double, T_oovovv[h], oov_indexing->get_pairpi(h), ovv_indexing->get_pairpi(h));
-            allocate2(double, H_ijab[h], oov_indexing->get_pairpi(h), v_indexing->get_pairpi(h));
+            T_oovovv[h] = block_matrix(oov_indexing->get_pairpi(h), ovv_indexing->get_pairpi(h));
+            H_ijab[h] = block_matrix(oov_indexing->get_pairpi(h), v_indexing->get_pairpi(h));
 
             size_t ovv_offset = ovv_indexing->get_first(h);
             size_t oov_offset = oov_indexing->get_first(h);
@@ -976,15 +895,10 @@ void CCMRCC::build_t2_ijab_amplitudes_triples_diagram2() {
                 }
             }
             // Deallocate the memory for the block
-            release2(H_ijab[h]);
-            release2(T_oovovv[h]);
+            free_block(H_ijab[h]);
+            free_block(T_oovovv[h]);
         }
-        release1(H_ijab);
-        release1(T_oovovv);
     }
-    //   blas->print("t2_test[oo][vv]{u}");
-    //   blas->solve("ERROR{u} = 1000000.0 t2_test[oo][vv]{u} . t2_test[oo][vv]{u}");
-    //   blas->print("ERROR{u}");
 }
 
 /**
@@ -997,44 +911,41 @@ void CCMRCC::build_t2_ijab_amplitudes_triples_diagram2() {
  */
 void CCMRCC::build_t2_iJaB_amplitudes_triples_diagram2() {
     // Loop over references
-    for (int ref = 0; ref < moinfo->get_nunique(); ref++) {
-        int unique_ref = moinfo->get_ref_number(ref, UniqueRefs);
+    for (int ref = 0; ref < wfn_->moinfo()->get_nunique(); ref++) {
+        int unique_ref = wfn_->moinfo()->get_ref_number(ref, UniqueRefs);
 
         // Grab the temporary matrices
-        CCMatTmp TijKabCMatTmp = blas->get_MatTmp("t3[ooO][vvV]", unique_ref, none);
-        double*** TijKabC_matrix = TijKabCMatTmp->get_matrix();
-        CCMatTmp TiJKaBCMatTmp = blas->get_MatTmp("t3[oOO][vVV]", unique_ref, none);
-        double*** TiJKaBC_matrix = TiJKaBCMatTmp->get_matrix();
+        auto TijKabCMatTmp = wfn_->blas()->get_MatTmp("t3[ooO][vvV]", unique_ref, none);
+        auto TijKabC_matrix = TijKabCMatTmp->get_matrix();
+        auto TiJKaBCMatTmp = wfn_->blas()->get_MatTmp("t3[oOO][vVV]", unique_ref, none);
+        auto TiJKaBC_matrix = TiJKaBCMatTmp->get_matrix();
 
-        CCMatTmp WaibcMatTmp = blas->get_MatTmp("W_aibc[v][ovv]", unique_ref, none);
-        double*** Waibc_matrix = WaibcMatTmp->get_matrix();
-        CCMatTmp WaIbCMatTmp = blas->get_MatTmp("W_aIbC[v][OvV]", unique_ref, none);
-        double*** WaIbC_matrix = WaIbCMatTmp->get_matrix();
-        CCMatTmp WAiBcMatTmp = blas->get_MatTmp("W_AiBc[V][oVv]", unique_ref, none);
-        double*** WAiBc_matrix = WAiBcMatTmp->get_matrix();
-        CCMatTmp WAIBCMatTmp = blas->get_MatTmp("W_AIBC[V][OVV]", unique_ref, none);
-        double*** WAIBC_matrix = WAIBCMatTmp->get_matrix();
+        auto WaibcMatTmp = wfn_->blas()->get_MatTmp("W_aibc[v][ovv]", unique_ref, none);
+        auto Waibc_matrix = WaibcMatTmp->get_matrix();
+        auto WaIbCMatTmp = wfn_->blas()->get_MatTmp("W_aIbC[v][OvV]", unique_ref, none);
+        auto WaIbC_matrix = WaIbCMatTmp->get_matrix();
+        auto WAiBcMatTmp = wfn_->blas()->get_MatTmp("W_AiBc[V][oVv]", unique_ref, none);
+        auto WAiBc_matrix = WAiBcMatTmp->get_matrix();
+        auto WAIBCMatTmp = wfn_->blas()->get_MatTmp("W_AIBC[V][OVV]", unique_ref, none);
+        auto WAIBC_matrix = WAIBCMatTmp->get_matrix();
 
-        CCMatTmp HiJaBMatTmp = blas->get_MatTmp("t2_eqns[oO][vV]", unique_ref, none);
+        auto HiJaBMatTmp = wfn_->blas()->get_MatTmp("t2_eqns[oO][vV]", unique_ref, none);
 
         // Grab the indexing for t3[iab][jkc]
-        CCIndex* ovv_indexing = blas->get_index("[ovv]");
-        CCIndex* oov_indexing = blas->get_index("[oov]");
-        CCIndex* v_indexing = blas->get_index("[v]");
+        auto ovv_indexing = wfn_->blas()->get_index("[ovv]");
+        auto oov_indexing = wfn_->blas()->get_index("[oov]");
+        auto v_indexing = wfn_->blas()->get_index("[v]");
 
-        short** ovv_tuples = ovv_indexing->get_tuples();
-        short** oov_tuples = oov_indexing->get_tuples();
+        auto& ovv_tuples = ovv_indexing->get_tuples();
+        auto& oov_tuples = oov_indexing->get_tuples();
 
-        double*** T_oovovv;
-        double*** H_ijab;
+        std::vector<double**> T_oovovv(wfn_->nirrep(), nullptr);
+        std::vector<double**> H_ijab(wfn_->nirrep(), nullptr);
 
-        allocate1(double**, T_oovovv, moinfo->get_nirreps());
-        allocate1(double**, H_ijab, moinfo->get_nirreps());
-
-        for (int h = 0; h < moinfo->get_nirreps(); h++) {
+        for (int h = 0; h < wfn_->moinfo()->get_nirreps(); h++) {
             // Allocate a block of T_iabjkc
-            allocate2(double, T_oovovv[h], oov_indexing->get_pairpi(h), ovv_indexing->get_pairpi(h));
-            allocate2(double, H_ijab[h], oov_indexing->get_pairpi(h), v_indexing->get_pairpi(h));
+            T_oovovv[h] = block_matrix(oov_indexing->get_pairpi(h), ovv_indexing->get_pairpi(h));
+            H_ijab[h] = block_matrix(oov_indexing->get_pairpi(h), v_indexing->get_pairpi(h));
 
             size_t ovv_offset = ovv_indexing->get_first(h);
             size_t oov_offset = oov_indexing->get_first(h);
@@ -1178,15 +1089,10 @@ void CCMRCC::build_t2_iJaB_amplitudes_triples_diagram2() {
             }
 
             // Deallocate the memory for the block
-            release2(H_ijab[h]);
-            release2(T_oovovv[h]);
+            free_block(H_ijab[h]);
+            free_block(T_oovovv[h]);
         }
-        release1(H_ijab);
-        release1(T_oovovv);
     }
-    //   blas->print("t2_test[oO][vV]{u}");
-    //   blas->solve("ERROR{u} = 1000000.0 t2_test[oO][vV]{u} . t2_test[oO][vV]{u}");
-    //   blas->print("ERROR{u}");
 }
 
 /**
@@ -1199,40 +1105,37 @@ void CCMRCC::build_t2_iJaB_amplitudes_triples_diagram2() {
  */
 void CCMRCC::build_t2_IJAB_amplitudes_triples_diagram2() {
     // Loop over references
-    for (int ref = 0; ref < moinfo->get_nunique(); ref++) {
-        int unique_ref = moinfo->get_ref_number(ref, UniqueRefs);
+    for (int ref = 0; ref < wfn_->moinfo()->get_nunique(); ref++) {
+        int unique_ref = wfn_->moinfo()->get_ref_number(ref, UniqueRefs);
 
         // Grab the temporary matrices
-        CCMatTmp TiJKaBCMatTmp = blas->get_MatTmp("t3[oOO][vVV]", unique_ref, none);
-        double*** TiJKaBC_matrix = TiJKaBCMatTmp->get_matrix();
-        CCMatTmp TIJKABCMatTmp = blas->get_MatTmp("t3[OOO][VVV]", unique_ref, none);
-        double*** TIJKABC_matrix = TIJKABCMatTmp->get_matrix();
+        auto TiJKaBCMatTmp = wfn_->blas()->get_MatTmp("t3[oOO][vVV]", unique_ref, none);
+        auto TiJKaBC_matrix = TiJKaBCMatTmp->get_matrix();
+        auto TIJKABCMatTmp = wfn_->blas()->get_MatTmp("t3[OOO][VVV]", unique_ref, none);
+        auto TIJKABC_matrix = TIJKABCMatTmp->get_matrix();
 
-        CCMatTmp WAiBcMatTmp = blas->get_MatTmp("W_AiBc[V][oVv]", unique_ref, none);
-        double*** WAiBc_matrix = WAiBcMatTmp->get_matrix();
-        CCMatTmp WAIBCMatTmp = blas->get_MatTmp("W_AIBC[V][OVV]", unique_ref, none);
-        double*** WAIBC_matrix = WAIBCMatTmp->get_matrix();
+        auto WAiBcMatTmp = wfn_->blas()->get_MatTmp("W_AiBc[V][oVv]", unique_ref, none);
+        auto WAiBc_matrix = WAiBcMatTmp->get_matrix();
+        auto WAIBCMatTmp = wfn_->blas()->get_MatTmp("W_AIBC[V][OVV]", unique_ref, none);
+        auto WAIBC_matrix = WAIBCMatTmp->get_matrix();
 
-        CCMatTmp HIJABMatTmp = blas->get_MatTmp("t2_eqns[OO][VV]", unique_ref, none);
+        auto HIJABMatTmp = wfn_->blas()->get_MatTmp("t2_eqns[OO][VV]", unique_ref, none);
 
         // Grab the indexing for t3[iab][jkc]
-        CCIndex* ovv_indexing = blas->get_index("[ovv]");
-        CCIndex* oov_indexing = blas->get_index("[oov]");
-        CCIndex* v_indexing = blas->get_index("[v]");
+        auto ovv_indexing = wfn_->blas()->get_index("[ovv]");
+        auto oov_indexing = wfn_->blas()->get_index("[oov]");
+        auto v_indexing = wfn_->blas()->get_index("[v]");
 
-        short** ovv_tuples = ovv_indexing->get_tuples();
-        short** oov_tuples = oov_indexing->get_tuples();
+        auto& ovv_tuples = ovv_indexing->get_tuples();
+        auto& oov_tuples = oov_indexing->get_tuples();
 
-        double*** T_oovovv;
-        double*** H_ijab;
+        std::vector<double**> T_oovovv(wfn_->nirrep(), nullptr);
+        std::vector<double**> H_ijab(wfn_->nirrep());
 
-        allocate1(double**, T_oovovv, moinfo->get_nirreps());
-        allocate1(double**, H_ijab, moinfo->get_nirreps());
-
-        for (int h = 0; h < moinfo->get_nirreps(); h++) {
+        for (int h = 0; h < wfn_->moinfo()->get_nirreps(); h++) {
             // Allocate a block of T_iabjkc
-            allocate2(double, T_oovovv[h], oov_indexing->get_pairpi(h), ovv_indexing->get_pairpi(h));
-            allocate2(double, H_ijab[h], oov_indexing->get_pairpi(h), v_indexing->get_pairpi(h));
+            T_oovovv[h] = block_matrix(oov_indexing->get_pairpi(h), ovv_indexing->get_pairpi(h));
+            H_ijab[h] = block_matrix(oov_indexing->get_pairpi(h), v_indexing->get_pairpi(h));
 
             size_t ovv_offset = ovv_indexing->get_first(h);
             size_t oov_offset = oov_indexing->get_first(h);
@@ -1310,15 +1213,10 @@ void CCMRCC::build_t2_IJAB_amplitudes_triples_diagram2() {
                 }
             }
             // Deallocate the memory for the block
-            release2(H_ijab[h]);
-            release2(T_oovovv[h]);
+            free_block(H_ijab[h]);
+            free_block(T_oovovv[h]);
         }
-        release1(H_ijab);
-        release1(T_oovovv);
     }
-    //   blas->print("t2_test[OO][VV]{u}");
-    //   blas->solve("ERROR{u} = 1000000.0 t2_test[OO][VV]{u} . t2_test[OO][VV]{u}");
-    //   blas->print("ERROR{u}");
 }
 
 /**
@@ -1330,31 +1228,31 @@ void CCMRCC::build_t2_IJAB_amplitudes_triples_diagram2() {
  */
 void CCMRCC::build_t2_ijab_amplitudes_triples_diagram3() {
     // Loop over references
-    for (int ref = 0; ref < moinfo->get_nunique(); ref++) {
-        int unique_ref = moinfo->get_ref_number(ref, UniqueRefs);
+    for (int ref = 0; ref < wfn_->moinfo()->get_nunique(); ref++) {
+        int unique_ref = wfn_->moinfo()->get_ref_number(ref, UniqueRefs);
 
         // Grab the temporary matrices
-        CCMatTmp HijabMatTmp = blas->get_MatTmp("t2_eqns[oo][vv]", unique_ref, none);
-        CCMatTmp TijkabcMatTmp = blas->get_MatTmp("t3[ooo][vvv]", unique_ref, none);
-        CCMatTmp TijKabCMatTmp = blas->get_MatTmp("t3[ooO][vvV]", unique_ref, none);
-        CCMatTmp FmeMatTmp = blas->get_MatTmp("F2_me[o][v]", unique_ref, none);
-        CCMatTmp FMEMatTmp = blas->get_MatTmp("F2_ME[O][V]", unique_ref, none);
+        auto HijabMatTmp = wfn_->blas()->get_MatTmp("t2_eqns[oo][vv]", unique_ref, none);
+        auto TijkabcMatTmp = wfn_->blas()->get_MatTmp("t3[ooo][vvv]", unique_ref, none);
+        auto TijKabCMatTmp = wfn_->blas()->get_MatTmp("t3[ooO][vvV]", unique_ref, none);
+        auto FmeMatTmp = wfn_->blas()->get_MatTmp("F2_me[o][v]", unique_ref, none);
+        auto FMEMatTmp = wfn_->blas()->get_MatTmp("F2_ME[O][V]", unique_ref, none);
 
         // Grab the indexing for t3[ijk][abc]
-        short** ij_tuples = HijabMatTmp->get_left()->get_tuples();
-        short** ab_tuples = HijabMatTmp->get_right()->get_tuples();
-        short** m_tuples = FmeMatTmp->get_left()->get_tuples();
-        short** e_tuples = FmeMatTmp->get_right()->get_tuples();
+        auto& ij_tuples = HijabMatTmp->get_left()->get_tuples();
+        auto& ab_tuples = HijabMatTmp->get_right()->get_tuples();
+        auto& m_tuples = FmeMatTmp->get_left()->get_tuples();
+        auto& e_tuples = FmeMatTmp->get_right()->get_tuples();
 
-        double*** Tijkabc_matrix = TijkabcMatTmp->get_matrix();
-        double*** TijKabC_matrix = TijKabCMatTmp->get_matrix();
-        double*** Hijab_matrix = HijabMatTmp->get_matrix();
-        double*** Fme_matrix = FmeMatTmp->get_matrix();
-        double*** FME_matrix = FMEMatTmp->get_matrix();
-        CCIndex* ijkIndex = blas->get_index("[ooo]");
-        CCIndex* abcIndex = blas->get_index("[vvv]");
+        auto Tijkabc_matrix = TijkabcMatTmp->get_matrix();
+        auto TijKabC_matrix = TijKabCMatTmp->get_matrix();
+        auto Hijab_matrix = HijabMatTmp->get_matrix();
+        auto Fme_matrix = FmeMatTmp->get_matrix();
+        auto FME_matrix = FMEMatTmp->get_matrix();
+        auto ijkIndex = wfn_->blas()->get_index("[ooo]");
+        auto abcIndex = wfn_->blas()->get_index("[vvv]");
 
-        for (int h = 0; h < moinfo->get_nirreps(); h++) {
+        for (int h = 0; h < wfn_->moinfo()->get_nirreps(); h++) {
             size_t ij_offset = HijabMatTmp->get_left()->get_first(h);
             size_t ab_offset = HijabMatTmp->get_right()->get_first(h);
             for (int ab = 0; ab < HijabMatTmp->get_right_pairpi(h); ab++) {
@@ -1363,7 +1261,7 @@ void CCMRCC::build_t2_ijab_amplitudes_triples_diagram3() {
                 for (int ij = 0; ij < HijabMatTmp->get_left_pairpi(h); ij++) {
                     int i = ij_tuples[ij_offset + ij][0];
                     int j = ij_tuples[ij_offset + ij][1];
-                    for (int m_sym = 0; m_sym < moinfo->get_nirreps(); m_sym++) {
+                    for (int m_sym = 0; m_sym < wfn_->moinfo()->get_nirreps(); m_sym++) {
                         size_t m_offset = FmeMatTmp->get_left()->get_first(m_sym);
                         size_t e_offset = FmeMatTmp->get_right()->get_first(m_sym);
                         for (int e = 0; e < FmeMatTmp->get_right_pairpi(m_sym); e++) {
@@ -1382,9 +1280,6 @@ void CCMRCC::build_t2_ijab_amplitudes_triples_diagram3() {
             }
         }
     }
-    //   blas->print("t2_eqns[oo][vv]{u}");
-    //   blas->solve("ERROR{u} = 1000000.0 t2_eqns[oo][vv]{u} . t2_eqns[oo][vv]{u}");
-    //   blas->print("ERROR{u}");
 }
 
 /**
@@ -1396,31 +1291,31 @@ void CCMRCC::build_t2_ijab_amplitudes_triples_diagram3() {
  */
 void CCMRCC::build_t2_iJaB_amplitudes_triples_diagram3() {
     // Loop over references
-    for (int ref = 0; ref < moinfo->get_nunique(); ref++) {
-        int unique_ref = moinfo->get_ref_number(ref, UniqueRefs);
+    for (int ref = 0; ref < wfn_->moinfo()->get_nunique(); ref++) {
+        int unique_ref = wfn_->moinfo()->get_ref_number(ref, UniqueRefs);
 
         // Grab the temporary matrices
-        CCMatTmp HiJaBMatTmp = blas->get_MatTmp("t2_eqns[oO][vV]", unique_ref, none);
-        CCMatTmp TijKabCMatTmp = blas->get_MatTmp("t3[ooO][vvV]", unique_ref, none);
-        CCMatTmp TiJKaBCMatTmp = blas->get_MatTmp("t3[oOO][vVV]", unique_ref, none);
-        CCMatTmp FmeMatTmp = blas->get_MatTmp("F2_me[o][v]", unique_ref, none);
-        CCMatTmp FMEMatTmp = blas->get_MatTmp("F2_ME[O][V]", unique_ref, none);
+        auto HiJaBMatTmp = wfn_->blas()->get_MatTmp("t2_eqns[oO][vV]", unique_ref, none);
+        auto TijKabCMatTmp = wfn_->blas()->get_MatTmp("t3[ooO][vvV]", unique_ref, none);
+        auto TiJKaBCMatTmp = wfn_->blas()->get_MatTmp("t3[oOO][vVV]", unique_ref, none);
+        auto FmeMatTmp = wfn_->blas()->get_MatTmp("F2_me[o][v]", unique_ref, none);
+        auto FMEMatTmp = wfn_->blas()->get_MatTmp("F2_ME[O][V]", unique_ref, none);
 
         // Grab the indexing for t3[ijk][abc]
-        short** ij_tuples = HiJaBMatTmp->get_left()->get_tuples();
-        short** ab_tuples = HiJaBMatTmp->get_right()->get_tuples();
-        short** m_tuples = FmeMatTmp->get_left()->get_tuples();
-        short** e_tuples = FmeMatTmp->get_right()->get_tuples();
+        auto& ij_tuples = HiJaBMatTmp->get_left()->get_tuples();
+        auto& ab_tuples = HiJaBMatTmp->get_right()->get_tuples();
+        auto& m_tuples = FmeMatTmp->get_left()->get_tuples();
+        auto& e_tuples = FmeMatTmp->get_right()->get_tuples();
 
-        double*** TijKabC_matrix = TijKabCMatTmp->get_matrix();
-        double*** TiJKaBC_matrix = TiJKaBCMatTmp->get_matrix();
-        double*** HiJaB_matrix = HiJaBMatTmp->get_matrix();
-        double*** Fme_matrix = FmeMatTmp->get_matrix();
-        double*** FME_matrix = FMEMatTmp->get_matrix();
-        CCIndex* ijkIndex = blas->get_index("[ooo]");
-        CCIndex* abcIndex = blas->get_index("[vvv]");
+        auto TijKabC_matrix = TijKabCMatTmp->get_matrix();
+        auto TiJKaBC_matrix = TiJKaBCMatTmp->get_matrix();
+        auto HiJaB_matrix = HiJaBMatTmp->get_matrix();
+        auto Fme_matrix = FmeMatTmp->get_matrix();
+        auto FME_matrix = FMEMatTmp->get_matrix();
+        auto ijkIndex = wfn_->blas()->get_index("[ooo]");
+        auto abcIndex = wfn_->blas()->get_index("[vvv]");
 
-        for (int h = 0; h < moinfo->get_nirreps(); h++) {
+        for (int h = 0; h < wfn_->moinfo()->get_nirreps(); h++) {
             size_t ij_offset = HiJaBMatTmp->get_left()->get_first(h);
             size_t ab_offset = HiJaBMatTmp->get_right()->get_first(h);
             for (int ab = 0; ab < HiJaBMatTmp->get_right_pairpi(h); ab++) {
@@ -1429,7 +1324,7 @@ void CCMRCC::build_t2_iJaB_amplitudes_triples_diagram3() {
                 for (int ij = 0; ij < HiJaBMatTmp->get_left_pairpi(h); ij++) {
                     int i = ij_tuples[ij_offset + ij][0];
                     int j = ij_tuples[ij_offset + ij][1];
-                    for (int m_sym = 0; m_sym < moinfo->get_nirreps(); m_sym++) {
+                    for (int m_sym = 0; m_sym < wfn_->moinfo()->get_nirreps(); m_sym++) {
                         size_t m_offset = FmeMatTmp->get_left()->get_first(m_sym);
                         size_t e_offset = FmeMatTmp->get_right()->get_first(m_sym);
                         for (int e = 0; e < FmeMatTmp->get_right_pairpi(m_sym); e++) {
@@ -1448,9 +1343,9 @@ void CCMRCC::build_t2_iJaB_amplitudes_triples_diagram3() {
             }
         }
     }
-    //   blas->print("t2_test[oO][vV]{u}");
-    //   blas->solve("ERROR{u} = 1000000.0 t2_test[oO][vV]{u} . t2_test[oO][vV]{u}");
-    //   blas->print("ERROR{u}");
+    //   wfn_->blas()->print("t2_test[oO][vV]{u}");
+    //   wfn_->blas()->solve("ERROR{u} = 1000000.0 t2_test[oO][vV]{u} . t2_test[oO][vV]{u}");
+    //   wfn_->blas()->print("ERROR{u}");
 }
 
 /**
@@ -1462,31 +1357,31 @@ void CCMRCC::build_t2_iJaB_amplitudes_triples_diagram3() {
  */
 void CCMRCC::build_t2_IJAB_amplitudes_triples_diagram3() {
     // Loop over references
-    for (int ref = 0; ref < moinfo->get_nunique(); ref++) {
-        int unique_ref = moinfo->get_ref_number(ref, UniqueRefs);
+    for (int ref = 0; ref < wfn_->moinfo()->get_nunique(); ref++) {
+        int unique_ref = wfn_->moinfo()->get_ref_number(ref, UniqueRefs);
 
         // Grab the temporary matrices
-        CCMatTmp HIJABMatTmp = blas->get_MatTmp("t2_eqns[OO][VV]", unique_ref, none);
-        CCMatTmp TiJKaBCMatTmp = blas->get_MatTmp("t3[oOO][vVV]", unique_ref, none);
-        CCMatTmp TIJKABCMatTmp = blas->get_MatTmp("t3[OOO][VVV]", unique_ref, none);
-        CCMatTmp FmeMatTmp = blas->get_MatTmp("F2_me[o][v]", unique_ref, none);
-        CCMatTmp FMEMatTmp = blas->get_MatTmp("F2_ME[O][V]", unique_ref, none);
+        auto HIJABMatTmp = wfn_->blas()->get_MatTmp("t2_eqns[OO][VV]", unique_ref, none);
+        auto TiJKaBCMatTmp = wfn_->blas()->get_MatTmp("t3[oOO][vVV]", unique_ref, none);
+        auto TIJKABCMatTmp = wfn_->blas()->get_MatTmp("t3[OOO][VVV]", unique_ref, none);
+        auto FmeMatTmp = wfn_->blas()->get_MatTmp("F2_me[o][v]", unique_ref, none);
+        auto FMEMatTmp = wfn_->blas()->get_MatTmp("F2_ME[O][V]", unique_ref, none);
 
         // Grab the indexing for t3[ijk][abc]
-        short** ij_tuples = HIJABMatTmp->get_left()->get_tuples();
-        short** ab_tuples = HIJABMatTmp->get_right()->get_tuples();
-        short** m_tuples = FmeMatTmp->get_left()->get_tuples();
-        short** e_tuples = FmeMatTmp->get_right()->get_tuples();
+        auto& ij_tuples = HIJABMatTmp->get_left()->get_tuples();
+        auto& ab_tuples = HIJABMatTmp->get_right()->get_tuples();
+        auto& m_tuples = FmeMatTmp->get_left()->get_tuples();
+        auto& e_tuples = FmeMatTmp->get_right()->get_tuples();
 
-        double*** TiJKaBC_matrix = TiJKaBCMatTmp->get_matrix();
-        double*** TIJKABC_matrix = TIJKABCMatTmp->get_matrix();
-        double*** HIJAB_matrix = HIJABMatTmp->get_matrix();
-        double*** Fme_matrix = FmeMatTmp->get_matrix();
-        double*** FME_matrix = FMEMatTmp->get_matrix();
-        CCIndex* ijkIndex = blas->get_index("[ooo]");
-        CCIndex* abcIndex = blas->get_index("[vvv]");
+        auto TiJKaBC_matrix = TiJKaBCMatTmp->get_matrix();
+        auto TIJKABC_matrix = TIJKABCMatTmp->get_matrix();
+        auto HIJAB_matrix = HIJABMatTmp->get_matrix();
+        auto Fme_matrix = FmeMatTmp->get_matrix();
+        auto FME_matrix = FMEMatTmp->get_matrix();
+        auto ijkIndex = wfn_->blas()->get_index("[ooo]");
+        auto abcIndex = wfn_->blas()->get_index("[vvv]");
 
-        for (int h = 0; h < moinfo->get_nirreps(); h++) {
+        for (int h = 0; h < wfn_->moinfo()->get_nirreps(); h++) {
             size_t ij_offset = HIJABMatTmp->get_left()->get_first(h);
             size_t ab_offset = HIJABMatTmp->get_right()->get_first(h);
             for (int ab = 0; ab < HIJABMatTmp->get_right_pairpi(h); ab++) {
@@ -1495,7 +1390,7 @@ void CCMRCC::build_t2_IJAB_amplitudes_triples_diagram3() {
                 for (int ij = 0; ij < HIJABMatTmp->get_left_pairpi(h); ij++) {
                     int i = ij_tuples[ij_offset + ij][0];
                     int j = ij_tuples[ij_offset + ij][1];
-                    for (int m_sym = 0; m_sym < moinfo->get_nirreps(); m_sym++) {
+                    for (int m_sym = 0; m_sym < wfn_->moinfo()->get_nirreps(); m_sym++) {
                         size_t m_offset = FmeMatTmp->get_left()->get_first(m_sym);
                         size_t e_offset = FmeMatTmp->get_right()->get_first(m_sym);
                         for (int e = 0; e < FmeMatTmp->get_right_pairpi(m_sym); e++) {
@@ -1514,9 +1409,9 @@ void CCMRCC::build_t2_IJAB_amplitudes_triples_diagram3() {
             }
         }
     }
-    //   blas->print("t2_test[oO][vV]{u}");
-    //   blas->solve("ERROR{u} = 1000000.0 t2_test[oO][vV]{u} . t2_test[oO][vV]{u}");
-    //   blas->print("ERROR{u}");
+    //   wfn_->blas()->print("t2_test[oO][vV]{u}");
+    //   wfn_->blas()->solve("ERROR{u} = 1000000.0 t2_test[oO][vV]{u} . t2_test[oO][vV]{u}");
+    //   wfn_->blas()->print("ERROR{u}");
 }
 
 /**
@@ -1531,26 +1426,26 @@ void CCMRCC::build_t2_IJAB_amplitudes_triples_diagram3() {
 void CCMRCC::build_t2_ijab_amplitudes_triples_diagram1()
 {
   // Loop over references
-  for(int ref=0;ref<moinfo->get_nunique();ref++){
-    int unique_ref  = moinfo->get_ref_number("u",ref);
+  for(int ref=0;ref<wfn_->moinfo()->get_nunique();ref++){
+    int unique_ref  = wfn_->moinfo()->get_ref_number("u",ref);
 
     // Grab the temporary matrices
-    CCMatTmp  TijkabcMatTmp = blas->get_MatTmp("t3[ooo][vvv]",unique_ref,none);
+    CCMatTmp  TijkabcMatTmp = wfn_->blas()->get_MatTmp("t3[ooo][vvv]",unique_ref,none);
     double*** Tijkabc_matrix = TijkabcMatTmp->get_matrix();
-    CCMatTmp  TijKabCMatTmp = blas->get_MatTmp("t3[ooO][vvV]",unique_ref,none);
+    CCMatTmp  TijKabCMatTmp = wfn_->blas()->get_MatTmp("t3[ooO][vvV]",unique_ref,none);
     double*** TijKabC_matrix = TijKabCMatTmp->get_matrix();
 
-    CCMatTmp  WkijaMatTmp = blas->get_MatTmp("W_kija[o][oov]",unique_ref,none);
-    CCMatTmp  WkiJAMatTmp = blas->get_MatTmp("W_kiJA[o][oOV]",unique_ref,none);
+    CCMatTmp  WkijaMatTmp = wfn_->blas()->get_MatTmp("W_kija[o][oov]",unique_ref,none);
+    CCMatTmp  WkiJAMatTmp = wfn_->blas()->get_MatTmp("W_kiJA[o][oOV]",unique_ref,none);
     double*** Wkija_matrix = WkijaMatTmp->get_matrix();
     double*** WkiJA_matrix = WkiJAMatTmp->get_matrix();
 
-    CCMatTmp  HijabMatTmp = blas->get_MatTmp("t2_eqns[oo][vv]",unique_ref,none);
+    CCMatTmp  HijabMatTmp = wfn_->blas()->get_MatTmp("t2_eqns[oo][vv]",unique_ref,none);
 
     // Grab the indexing for t3[iab][jkc]
-    CCIndex* iab_indexing = blas->get_index("[ovv]");
-    CCIndex* jkc_indexing = blas->get_index("[oov]");
-    CCIndex*   j_indexing = blas->get_index("[o]");
+    CCIndex* iab_indexing = wfn_->blas()->get_index("[ovv]");
+    CCIndex* jkc_indexing = wfn_->blas()->get_index("[oov]");
+    CCIndex*   j_indexing = wfn_->blas()->get_index("[o]");
 
 
     short** iab_tuples = iab_indexing->get_tuples();
@@ -1560,10 +1455,10 @@ void CCMRCC::build_t2_ijab_amplitudes_triples_diagram1()
     double ***T_iabjkc;
     double ***H_iabj;
 
-    init_matrix<double**>(T_iabjkc,moinfo->get_nirreps());
-    init_matrix<double**>(H_iabj,moinfo->get_nirreps());
+    init_matrix<double**>(T_iabjkc,wfn_->moinfo()->get_nirreps());
+    init_matrix<double**>(H_iabj,wfn_->moinfo()->get_nirreps());
 
-    for(int h =0; h < moinfo->get_nirreps();h++){
+    for(int h =0; h < wfn_->moinfo()->get_nirreps();h++){
       // Allocate a block of T_iabjkc
       init_matrix<double>(T_iabjkc[h],iab_indexing->get_pairpi(h),jkc_indexing->get_pairpi(h));
       init_matrix<double>(H_iabj[h],iab_indexing->get_pairpi(h),j_indexing->get_pairpi(h));
@@ -1649,12 +1544,12 @@ void CCMRCC::build_t2_ijab_amplitudes_triples_diagram1()
       free_matrix<double>(H_iabj[h],iab_indexing->get_pairpi(h),j_indexing->get_pairpi(h));
       free_matrix<double>(T_iabjkc[h],iab_indexing->get_pairpi(h),jkc_indexing->get_pairpi(h));
     }
-    free_matrix<double**>(H_iabj,moinfo->get_nirreps());
-    free_matrix<double**>(T_iabjkc,moinfo->get_nirreps());
+    free_matrix<double**>(H_iabj,wfn_->moinfo()->get_nirreps());
+    free_matrix<double**>(T_iabjkc,wfn_->moinfo()->get_nirreps());
   }
-//   blas->print("t2_test[oo][vv]{u}");
-//   blas->solve("ERROR{u} = 1000000.0 t2_test[oo][vv]{u} . t2_test[oo][vv]{u}");
-//   blas->print("ERROR{u}");
+//   wfn_->blas()->print("t2_test[oo][vv]{u}");
+//   wfn_->blas()->solve("ERROR{u} = 1000000.0 t2_test[oo][vv]{u} . t2_test[oo][vv]{u}");
+//   wfn_->blas()->print("ERROR{u}");
 }
 */
 

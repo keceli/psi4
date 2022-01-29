@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -34,12 +34,13 @@
 #include "mrcc.h"
 #include "matrix.h"
 #include "blas.h"
-#include "debugging.h"
+#include "updater.h"
 
 namespace psi {
 namespace psimrcc {
 
-CCMRCC::CCMRCC(SharedWavefunction ref_wfn, Options &options) : CCManyBody(ref_wfn, options), options_(options) {
+CCMRCC::CCMRCC(std::shared_ptr<PSIMRCCWfn> wfn, Options &options)
+    : CCManyBody(wfn, options), options_(options), h_eff(Hamiltonian(wfn)) {
     triples_type = ccsd;
     triples_coupling_type = cubic;
     ap_correction = false;  // Set tu true when computing the a posteriori correction
@@ -60,10 +61,6 @@ CCMRCC::CCMRCC(SharedWavefunction ref_wfn, Options &options) : CCManyBody(ref_wf
         }
     }
 
-    // Parse the PERT_CBS parameter
-    pert_cbs = options.get_bool("PERTURB_CBS");
-    pert_cbs_coupling = options.get_bool("PERTURB_CBS_COUPLING");
-
     // Add the matrices that will store the intermediates
     add_matrices();
 
@@ -75,7 +72,13 @@ CCMRCC::CCMRCC(SharedWavefunction ref_wfn, Options &options) : CCManyBody(ref_wf
 
     compute_reference_energy();
 
-    DEBUGGING(1, blas->print_memory();)
+    // Initialize the appropriate updater
+    if (options.get_str("CORR_ANSATZ") == "MK")
+        updater_ = std::make_shared<MkUpdater>(wfn, options);
+    else if (options.get_str("CORR_ANSATZ") == "BW")
+        updater_ = std::make_shared<BWUpdater>(wfn, options);
+    else
+        throw PSIEXCEPTION("I don't know what updater goes with CORR_ANSATZ " + options.get_str("CORR_ANSATZ"));
 }
 
 CCMRCC::~CCMRCC() {}

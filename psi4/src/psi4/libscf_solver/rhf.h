@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -31,6 +31,8 @@
 
 #include "psi4/libpsio/psio.hpp"
 #include "hf.h"
+
+#include "psi4/pybind11.h"
 
 namespace psi {
 
@@ -63,9 +65,8 @@ class RHF : public HF {
 
     bool diis() override;
     void save_density_and_energy() override;
-    double compute_orbital_gradient(bool save_fock, int max_diis_vectors) override;
 
-    void form_C() override;
+    void form_C(double shift = 0.0) override;
     void form_D() override;
     void form_F() override;
     void form_G() override;

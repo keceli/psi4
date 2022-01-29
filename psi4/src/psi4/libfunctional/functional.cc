@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -42,11 +42,13 @@ void Functional::common_init() {
     name_ = "";
     description_ = "";
     citation_ = "";
+    xclib_description_ = "";
     alpha_ = 1.0;
     omega_ = 0.0;
 
     lsda_cutoff_ = 1.0E-20;
     meta_cutoff_ = 1.0E-20;
+    density_cutoff_ = -1.0;
 }
 void Functional::set_parameter(const std::string& key, double val) {
     throw PSIEXCEPTION("Functional: pseudo-abstract class.");
@@ -82,4 +84,6 @@ void Functional::compute_functional(const std::map<std::string, SharedVector>& i
                                     const std::map<std::string, SharedVector>& out, int npoints, int deriv) {
     throw PSIEXCEPTION("Functional: pseudo-abstract class.");
 }
+double Functional::query_density_cutoff(){throw PSIEXCEPTION("Functional: pseudo-abstract class.");}
+void Functional::set_density_cutoff(double cut){throw PSIEXCEPTION("Functional: pseudo-abstract class.");}
 }

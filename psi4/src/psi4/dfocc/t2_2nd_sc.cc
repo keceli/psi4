@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -293,7 +293,7 @@ void DFOCC::t2_2nd_sc() {
 
         // Overall energy
         Ecorr = Emp3AA + Emp3BB + Emp3AB;
-        Emp3 = Escf + Ecorr;
+        Emp3 = Eref + Ecorr;
 
         // Free ints
         bQijA.reset();

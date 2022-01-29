@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -55,7 +55,6 @@ class DFOCC : public Wavefunction {
     void mem_release();
     void get_moinfo();
     void title();
-    void title_grad();
     void lambda_title();
     void pt_title();
     void pat_title();
@@ -76,12 +75,7 @@ class DFOCC : public Wavefunction {
     // void combine_ref_sep_tpdm();
     void tpdm_tilde();
     void back_trans();
-    void tpdm_tilde_cc();
-    void back_trans_cc();
     void dfgrad();
-    void oei_grad();
-    void tei_grad_ref();
-    void tei_grad_corr();
     void gfock_oo();
     void gfock_vo();
     void gfock_ov();
@@ -115,6 +109,7 @@ class DFOCC : public Wavefunction {
     void approx_diag_ekt_mohess_vo();
     void approx_diag_ekt_mohess_oo();
     void prepare4grad();
+    void set_opdm();
     void z_vector();
     void z_vector_pcg();
     // void z_vector_cg();
@@ -335,7 +330,6 @@ class DFOCC : public Wavefunction {
     void tei_vovo_phys_ref_directAB(SharedTensor2d &K);
 
     // df
-    // void df();
     void df_corr();
     void df_ref();
     void trans_corr();
@@ -367,7 +361,6 @@ class DFOCC : public Wavefunction {
     void trans_oei();
     void pair_index();
     void fock_so();
-    void ref_grad();
     void b_so_non_zero();  // form non-zero so-basis df ints
 
     // Cholesky
@@ -587,16 +580,15 @@ class DFOCC : public Wavefunction {
     int ai_pair_idxAA(int i, int j);
     int get_rotation_block(std::string rotblock);
 
+    // Helpers
+    void response_helper();
+
     // DIIS
     std::shared_ptr<DIISManager> ccsdDiisManager;
     std::shared_ptr<DIISManager> ccsdDiisManagerAA;
     std::shared_ptr<DIISManager> ccsdDiisManagerBB;
     std::shared_ptr<DIISManager> ccsdDiisManagerAB;
     std::shared_ptr<DIISManager> ccsdlDiisManager;
-
-    // Gradients
-    std::map<std::string, SharedMatrix> gradients;
-    std::vector<std::string> gradient_terms;
 
     int natom;
     int nmo;      // Number of MOs
@@ -705,7 +697,7 @@ class DFOCC : public Wavefunction {
     double Eref;
     double Etotal;
     double Emp2;
-    double Emp2_t1;
+    double Emp2_t1 = 0.0;
     double Emp2BB;
     double Emp2AA;
     double Emp2AB;
@@ -1156,13 +1148,9 @@ class DFOCC : public Wavefunction {
     SharedTensor2d errvecsB;
 
     // SO basis
-    SharedTensor2d gQso;      // Gamma(Q|mu nu): 3-index TPDM
-    SharedTensor2d gQso_ref;  // Gamma(Q|mu nu): 3-index TPDM
     SharedTensor2d gQoo;      // Gamma(Q|i i): 3-index TPDM
     SharedTensor2d gQoo_ref;  // Gamma(Q|i i): 3-index TPDM
     SharedTensor2d gQon_ref;  // Gamma(Q|i nu): 3-index TPDM
-    SharedTensor2d Gaux;      // Gamma(P,Q): 2-index TPDM
-    SharedTensor2d Gaux_ref;  // Gamma(P,Q): 2-index TPDM
     SharedTensor2d dQso;      // D(Q|mu nu): 3-index OPDM for REF WFN
 
     // Amplitudes

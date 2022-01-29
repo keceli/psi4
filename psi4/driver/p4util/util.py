@@ -3,7 +3,7 @@
 #
 # Psi4: an open-source quantum chemistry software package
 #
-# Copyright (c) 2007-2019 The Psi4 Developers.
+# Copyright (c) 2007-2022 The Psi4 Developers.
 #
 # The copyrights for code used from other parties are included in
 # the corresponding files.
@@ -31,22 +31,23 @@ import os
 import re
 import sys
 import warnings
+from typing import Union
 
 from psi4 import core
+from psi4.driver.procrouting import *
 from .exceptions import ValidationError
+from .prop_util import *
 
-
-def oeprop(wfn, *args, **kwargs):
+def oeprop(wfn: core.Wavefunction, *args, **kwargs):
     """Evaluate one-electron properties.
 
     :returns: None
 
-    :type wfn: :py:class:`~psi4.core.Wavefunction`
     :param wfn: set of molecule, basis, orbitals from which to compute properties
 
     How to specify args, which are actually the most important
 
-    :type title: string
+    :type title: str
     :param title: label prepended to all psivars computed
 
     :examples:
@@ -61,6 +62,15 @@ def oeprop(wfn, *args, **kwargs):
         oe.set_title(kwargs['title'])
     for prop in args:
         oe.add(prop)
+            
+        # If we're doing MBIS, we want the free-atom volumes
+        # in order to compute volume ratios,
+        # but only if we're calling oeprop as the whole molecule
+        free_atom = kwargs.get('free_atom',False)
+        if "MBIS_VOLUME_RATIOS" in prop.upper() and not free_atom:
+            core.print_out("  Computing free-atom volumes\n")
+            free_atom_volumes(wfn)    
+
     oe.compute()
 
 
@@ -100,16 +110,16 @@ def cubeprop(wfn, **kwargs):
     cp.compute_properties()
 
 
-def set_memory(inputval, execute=True):
+def set_memory(inputval: Union[str, int, float], execute: bool = True, quiet: bool = False) -> int:
     """Function to reset the total memory allocation. Takes memory value
     *inputval* as type int, float, or str; int and float are taken literally
     as bytes to be set, string taken as a unit-containing value (e.g., 30 mb)
     which is case-insensitive. Set *execute* to False to interpret *inputval*
     without setting in Psi4 core.
 
-    :returns: *memory_amount* (float) Number of bytes of memory set
+    :returns: *memory_amount* Number of bytes of memory set
 
-    :raises: ValidationError when <500MiB or disallowed type or misformatted
+    :raises: :py:class:`psi4.ValidationError` when <500MiB or disallowed type or misformatted
 
     :examples:
 
@@ -184,7 +194,7 @@ def set_memory(inputval, execute=True):
             .format(memory_amount / 1024**2, memory_amount / 1000**2))
 
     if execute:
-        core.set_memory_bytes(memory_amount)
+        core.set_memory_bytes(memory_amount, quiet)
     return memory_amount
 
 
@@ -294,96 +304,3 @@ def copy_file_from_scratch(filename, prefix, namespace, unit, move=False):
     command = ('%s %s/%s %s' % (cp, scratch, target, filename))
 
     os.system(command)
-
-
-def xml2dict(filename=None):
-    """Read XML *filename* into nested OrderedDict-s. *filename* defaults to
-    active CSX file.
-
-    """
-    warnings.warn(
-        "Using `psi4.driver.p4util.xml2dict` is deprecated (silently in 1.2), and in 1.3 it will stop working\n",
-        category=FutureWarning,
-        stacklevel=2)
-
-    import xmltodict as xd
-    if filename is None:
-        csx = os.path.splitext(core.outfile_name())[0] + '.csx'
-    else:
-        csx = filename
-    with open(csx, 'r') as handle:
-        csxdict = xd.parse(handle)
-
-    return csxdict
-
-
-def getFromDict(dataDict, mapList):
-    warnings.warn(
-        "Using `psi4.driver.p4util.getFromDict` is deprecated (silently in 1.2), and in 1.3 it will stop working\n",
-        category=FutureWarning,
-        stacklevel=2)
-
-    return reduce(lambda d, k: d[k], mapList, dataDict)
-
-
-def csx2endict():
-    """Grabs the CSX file as a dictionary, encodes translation of PSI variables
-    to XML blocks, gathers all available energies from CSX file into returned
-    dictionary.
-
-    """
-    warnings.warn(
-        "Using `psi4.driver.p4util.csx2endict` is deprecated (silently in 1.2), and in 1.3 it will stop working\n",
-        category=FutureWarning,
-        stacklevel=2)
-
-    blockprefix = [
-        'chemicalSemantics', 'molecularCalculation', 'quantumMechanics', 'singleReferenceState', 'singleDeterminant'
-    ]
-    blockmidfix = ['energies', 'energy']
-    prefix = 'cs:'
-
-    pv2xml = {
-        'MP2 CORRELATION ENERGY': [['mp2'], 'correlation'],
-        'MP2 SAME-SPIN CORRELATION ENERGY': [['mp2'], 'sameSpin correlation'],
-        'HF TOTAL ENERGY': [['abinitioScf'], 'electronic'],
-        'NUCLEAR REPULSION ENERGY': [['abinitioScf'], 'nuclearRepulsion'],
-        'DFT FUNCTIONAL TOTAL ENERGY': [['dft'], 'dftFunctional'],
-        'DFT TOTAL ENERGY': [['dft'], 'electronic'],
-        'DOUBLE-HYBRID CORRECTION ENERGY': [['dft'], 'doubleHybrid correction'],
-        'DISPERSION CORRECTION ENERGY': [['dft'], 'dispersion correction'],
-    }
-
-    csxdict = xml2dict()
-    enedict = {}
-    for pv, lpv in pv2xml.items():
-        address = blockprefix + lpv[0] + blockmidfix
-        indices = [prefix + bit for bit in address]
-        try:
-            qwer = getFromDict(csxdict, indices)
-        except KeyError:
-            continue
-        for v in qwer:
-            vv = v.values()
-            if vv[0] == prefix + lpv[1]:
-                enedict[pv] = float(vv[1])
-
-    return enedict
-
-
-def compare_csx():
-    """Function to validate energies in CSX files against PSIvariables. Only
-    active if write_csx flag on.
-
-    """
-    warnings.warn(
-        "Using `psi4.driver.p4util.compare_csx` is deprecated (silently in 1.2), and in 1.3 it will stop working\n",
-        category=FutureWarning,
-        stacklevel=2)
-
-    if 'csx4psi' in sys.modules.keys():
-        if core.get_global_option('WRITE_CSX'):
-            enedict = csx2endict()
-            compare_integers(len(enedict) >= 2, True, 'CSX harvested')
-            for pv, en in enedict.items():
-                compare_values(core.variable(pv), en, 6, 'CSX ' + pv + ' ' + str(round(en, 4)))

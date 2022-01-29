@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -36,6 +36,7 @@
 #include "psi4/libqt/qt.h"
 #include "psi4/libmints/matrix.h"
 #include "psi4/libmints/molecule.h"
+#include "psi4/libmints/mintshelper.h"
 #include "occwave.h"
 
 using namespace psi;
@@ -82,6 +83,7 @@ void OCCWave::get_moinfo() {
             virtpiA[h] = nmopi_[h] - doccpi_[h];
             occpiA[h] = doccpi_[h];
         }
+        occpi_ = {{SpinType::Alpha, occpiA}};
 
         // active occ and virt
         adoccpi = init_int_array(nirrep_);
@@ -355,7 +357,7 @@ void OCCWave::get_moinfo() {
         /********************************************************************************************/
         // read orbital coefficients from reference
         Ca_ = SharedMatrix(reference_wavefunction_->Ca());
-        Ca_ref = std::make_shared<Matrix>("Ref alpha MO coefficients", nirrep_, nsopi_, nmopi_);
+        auto Ca_ref = std::make_shared<Matrix>("Ref alpha MO coefficients", nirrep_, nsopi_, nmopi_);
 
         // read orbital coefficients from external files
         if (read_mo_coeff == "TRUE") {
@@ -377,6 +379,8 @@ void OCCWave::get_moinfo() {
 
         // Build Reference MOs
         Ca_ref->copy(Ca_);
+        C_ = {{SpinType::Alpha, Ca_}};
+        C_ref_ = {{SpinType::Alpha, Ca_ref}};
         if (print_ > 2) Ca_->print();
 
     }  // end if (reference_ == "RESTRICTED")
@@ -424,6 +428,7 @@ void OCCWave::get_moinfo() {
             occpiB[h] = doccpi_[h];
             occpiA[h] = doccpi_[h] + soccpi_[h];
         }
+        occpi_ = {{SpinType::Alpha, occpiA}, {SpinType::Beta, occpiB}};
 
         // active occ and virt
         adoccpi = init_int_array(nirrep_);
@@ -697,8 +702,8 @@ void OCCWave::get_moinfo() {
         // read orbital coefficients from reference
         Ca_ = SharedMatrix(reference_wavefunction_->Ca());
         Cb_ = SharedMatrix(reference_wavefunction_->Cb());
-        Ca_ref = std::make_shared<Matrix>("Ref alpha MO coefficients", nirrep_, nsopi_, nmopi_);
-        Cb_ref = std::make_shared<Matrix>("Ref beta MO coefficients", nirrep_, nsopi_, nmopi_);
+        auto Ca_ref = std::make_shared<Matrix>("Ref alpha MO coefficients", nirrep_, nsopi_, nmopi_);
+        auto Cb_ref = std::make_shared<Matrix>("Ref beta MO coefficients", nirrep_, nsopi_, nmopi_);
 
         // read orbital coefficients from external files
         if (read_mo_coeff == "TRUE") {
@@ -733,6 +738,8 @@ void OCCWave::get_moinfo() {
         // Build Reference MOs
         Ca_ref->copy(Ca_);
         Cb_ref->copy(Cb_);
+        C_ = {{SpinType::Alpha, Ca_}, {SpinType::Beta, Cb_}};
+        C_ref_ = {{SpinType::Alpha, Ca_ref}, {SpinType::Beta, Cb_ref}};
 
         if (print_ > 2) {
             Ca_->print();
@@ -744,24 +751,12 @@ void OCCWave::get_moinfo() {
     /********************************************************************************************/
     /************************** Create all required matrice *************************************/
     /********************************************************************************************/
-    // Build Hso
-    Hso = std::make_shared<Matrix>("SO-basis One-electron Ints", nirrep_, nsopi_, nsopi_);
-    Tso = std::make_shared<Matrix>("SO-basis Kinetic Energy Ints", nirrep_, nsopi_, nsopi_);
-    Vso = std::make_shared<Matrix>("SO-basis Potential Energy Ints", nirrep_, nsopi_, nsopi_);
-    Hso->zero();
-    Tso->zero();
-    Vso->zero();
 
     // Read SO-basis one-electron integrals
-    double *so_ints = init_array(ntri_so);
-    IWL::read_one(psio_.get(), PSIF_OEI, PSIF_SO_T, so_ints, ntri_so, 0, 0, "outfile");
-    Tso->set(so_ints);
-    IWL::read_one(psio_.get(), PSIF_OEI, PSIF_SO_V, so_ints, ntri_so, 0, 0, "outfile");
-    Vso->set(so_ints);
-    free(so_ints);
-    Hso->copy(Tso);
+    Tso = SharedMatrix(mintshelper()->so_kinetic()->clone());
+    Vso = SharedMatrix(mintshelper()->so_potential()->clone());
+    Hso = SharedMatrix(Tso->clone());
     Hso->add(Vso);
-    // outfile->Printf("\n get_moinfo is done. \n");
 }
 }
 }  // End Namespaces

@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -127,6 +127,12 @@ PsiReturnType cctransort(SharedWavefunction ref, Options &options) {
                                              : ref->scalar_variable("PCM POLARIZATION ENERGY");
     }
 #endif
+
+    double epe = 0.0;
+    if (options.get_bool("PE")) {
+        epe = ref->reference_wavefunction() ? ref->reference_wavefunction()->scalar_variable("PE ENERGY")
+                                            : ref->scalar_variable("PE ENERGY");
+    }
 
     Dimension nmopi = ref->nmopi();
     Dimension nsopi = ref->nsopi();
@@ -706,7 +712,7 @@ PsiReturnType cctransort(SharedWavefunction ref, Options &options) {
 
     outfile->Printf("\tNuclear Rep. energy          =  %20.14f\n", enuc);
     outfile->Printf("\tSCF energy                   =  %20.14f\n", escf);
-    double eref = scf_check(reference, openpi) + enuc + efzc + epcm;
+    double eref = scf_check(reference, openpi) + enuc + efzc + epcm + epe;
     outfile->Printf("\tReference energy             =  %20.14f\n", eref);
     psio->write_entry(PSIF_CC_INFO, "Reference Energy", (char *)&(eref), sizeof(double));
 

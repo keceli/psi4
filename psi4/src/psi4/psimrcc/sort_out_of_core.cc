@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -39,12 +39,8 @@
 #include "sort.h"
 #include "transform.h"
 
-extern FILE* outfile;
-
 namespace psi {
 namespace psimrcc {
-extern MOInfo* moinfo;
-extern MemoryManager* memory_manager;
 
 /**
  * Builds the integral matrices on disk using an out-of-core algorithm
@@ -58,19 +54,18 @@ void CCSort::build_integrals_out_of_core() {
         efzc += 2.0 * trans->oei(ii, ii);
     }
 
-    MatrixMap matrix_map = blas->get_MatrixMap();
+    MatrixMap matrix_map = wfn_->blas()->get_MatrixMap();
     MatMapIt mat_it = matrix_map.begin();
     MatMapIt mat_end = matrix_map.end();
     int mat_irrep = 0;
     int cycle = 0;
 
-    size_t ccintegrals_memory =
-        static_cast<size_t>(static_cast<double>(memory_manager->get_FreeMemory()) * fraction_of_memory_for_sorting);
+    auto ccintegrals_memory =
+        static_cast<size_t>(static_cast<double>(wfn_->free_memory_) * fraction_of_memory_for_sorting);
 
     outfile->Printf("\n\n  Sorting integrals:");
-    outfile->Printf("\n    Memory available                       = %14lu bytes",
-                    (size_t)memory_manager->get_FreeMemory());
-    outfile->Printf("\n    Memory available for sorting           = %14lu bytes (%.1f%%)", (size_t)ccintegrals_memory,
+    outfile->Printf("\n    Memory available                       = %14lu bytes", wfn_->free_memory_);
+    outfile->Printf("\n    Memory available for sorting           = %14lu bytes (%.1f%%)", ccintegrals_memory,
                     fraction_of_memory_for_sorting * 100.0);
 
     while (mat_it != mat_end) {
@@ -83,11 +78,11 @@ void CCSort::build_integrals_out_of_core() {
         // The one-particle integrals are added at the beginning to avoid interfering with the
         // way the transformation code handles the process
         form_fock_one_out_of_core(to_be_processed);
-        while (last_irrep < moinfo->get_nirreps()) {
+        while (last_irrep < wfn_->moinfo()->get_nirreps()) {
             last_irrep = trans->read_tei_mo_integrals_block(first_irrep);
             if (cycle == 0) frozen_core_energy_out_of_core();
             sort_integrals_out_of_core(first_irrep, last_irrep, to_be_processed);
-            trans->free_tei_mo_integrals_block(first_irrep, last_irrep);
+            trans->free_tei_mo_block(first_irrep, last_irrep);
             first_irrep = last_irrep;
         }
         // Write to disk and free memory
@@ -100,14 +95,14 @@ void CCSort::setup_out_of_core_list(MatMapIt& mat_it, int& mat_irrep, MatMapIt& 
     outfile->Printf("\n    Setting up the matrix list:");
 
     size_t ccintegrals_memory =
-        static_cast<size_t>(static_cast<double>(memory_manager->get_FreeMemory()) * fraction_of_memory_for_sorting);
+        static_cast<size_t>(static_cast<double>(wfn_->free_memory_) * fraction_of_memory_for_sorting);
 
     int blocks_added = 0;
     bool out_of_memory = false;
     while ((mat_it != mat_end) && !out_of_memory) {
         if (mat_it->second->is_integral() || mat_it->second->is_fock()) {
             CCMatrix* Matrix = mat_it->second;
-            while (mat_irrep < moinfo->get_nirreps() && !out_of_memory) {
+            while (mat_irrep < wfn_->moinfo()->get_nirreps() && !out_of_memory) {
                 size_t block_memory = Matrix->get_memorypi2(mat_irrep);
                 if (block_memory < ccintegrals_memory) {
                     to_be_processed.push_back(std::make_pair(Matrix, mat_irrep));
@@ -144,7 +139,7 @@ void CCSort::form_fock_one_out_of_core(MatrixBlks& to_be_processed) {
         CCMatrix* Matrix = block_it->first;
         if (Matrix->is_fock()) {
             int h = block_it->second;
-            double*** matrix = Matrix->get_matrix();
+            auto matrix = Matrix->get_matrix();
             short* pq = new short[2];
 
             for (size_t i = 0; i < Matrix->get_left_pairpi(h); ++i) {
@@ -163,9 +158,9 @@ void CCSort::form_fock_one_out_of_core(MatrixBlks& to_be_processed) {
 void CCSort::form_fock_out_of_core(CCMatrix* Matrix, int h) {
     if (Matrix->is_fock()) {
         std::string label = Matrix->get_label();
-        double*** matrix = Matrix->get_matrix();
+        auto matrix = Matrix->get_matrix();
         auto* pq = new short[2];
-        const intvec& oa2p = moinfo->get_occ_to_mo();
+        const intvec& oa2p = wfn_->moinfo()->get_occ_to_mo();
 
         bool alpha = true;
         if ((label.find("O") != std::string::npos) || (label.find("V") != std::string::npos) ||
@@ -174,8 +169,8 @@ void CCSort::form_fock_out_of_core(CCMatrix* Matrix, int h) {
             alpha = false;
 
         // N.B. Never introduce Matrices/Vectors with O or V in the name before you compute the Fock matrix elements
-        std::vector<int> aocc = moinfo->get_aocc(Matrix->get_reference(), AllRefs);
-        std::vector<int> bocc = moinfo->get_bocc(Matrix->get_reference(), AllRefs);
+        std::vector<int> aocc = wfn_->moinfo()->get_aocc(Matrix->get_reference(), AllRefs);
+        std::vector<int> bocc = wfn_->moinfo()->get_bocc(Matrix->get_reference(), AllRefs);
 
         for (size_t i = 0; i < Matrix->get_left_pairpi(h); ++i)
             for (size_t j = 0; j < Matrix->get_right_pairpi(h); ++j) {
@@ -209,7 +204,7 @@ void CCSort::form_fock_out_of_core(CCMatrix* Matrix, int h) {
 void CCSort::form_two_electron_integrals_out_of_core(CCMatrix* Matrix, int h) {
     if (Matrix->is_integral()) {
         auto* pqrs = new short[4];
-        double*** matrix = Matrix->get_matrix();
+        auto matrix = Matrix->get_matrix();
         bool antisymmetric = Matrix->is_antisymmetric();
         if (Matrix->is_chemist()) {
             for (size_t i = 0; i < Matrix->get_left_pairpi(h); ++i)

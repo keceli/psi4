@@ -1,49 +1,16 @@
 import pytest
-from .addons import hardware_nvidia_gpu, using_dftd3, using_gcp
+from .addons import hardware_nvidia_gpu, using
 
 import json
 
 import qcengine as qcng
-from qcengine.testing import using_mp2d
 
 import psi4
 
-pytestmark = pytest.mark.quick
-
-using_ambit = pytest.mark.skipif(psi4.addons("ambit") is False,
-                                reason="Psi4 not compiled with ambit. Rebuild with -DENABLE_ambit")
-using_cfour = pytest.mark.skipif(psi4.addons("cfour") is False,
-                                reason="Psi4 not detecting CFOUR. Add `xcfour` to envvar PSIPATH or PATH")
-using_chemps2 = pytest.mark.skipif(psi4.addons("chemps2") is False,
-                                reason="Psi4 not compiled with CheMPS2. Rebuild with -DENABLE_CheMPS2")
-using_dkh = pytest.mark.skipif(psi4.addons("dkh") is False,
-                                reason="Psi4 not compiled with dkh. Rebuild with -DENABLE_dkh")
-using_libefp = pytest.mark.skipif(psi4.addons("libefp") is False,
-                                reason="Psi4 not compiled with libefp. Rebuild with -DENABLE_libefp")
-using_erd = pytest.mark.skipif(psi4.addons("erd") is False,
-                                reason="Psi4 not compiled with erd. Rebuild with -DENABLE_erd")
-using_gdma = pytest.mark.skipif(psi4.addons("gdma") is False,
-                                reason="Psi4 not compiled with gdma. Rebuild with -DENABLE_gdma")
-using_mrcc = pytest.mark.skipif(psi4.addons("mrcc") is False,
-                                reason="Psi4 not detecting MRCC. Add `dmrcc` to envvar PSIPATH or PATH")
-using_pcmsolver = pytest.mark.skipif(psi4.addons("pcmsolver") is False,
-                                reason="Psi4 not compiled with PCMSolver. Rebuild with -DENABLE_PCMSolver")
-using_simint = pytest.mark.skipif(psi4.addons("simint") is False,
-                                reason="Psi4 not compiled with simint. Rebuild with -DENABLE_simint")
-using_v2rdm_casscf = pytest.mark.skipif(psi4.addons("v2rdm_casscf") is False,
-                                reason="Psi4 not detecting plugin v2rdm_casscf. Build plugin if necessary and add to envvar PYTHONPATH")
-using_gpu_dfcc = pytest.mark.skipif(psi4.addons("gpu_dfcc") is False,
-                                reason="Psi4 not detecting plugin gpu_dfcc. Build plugin if necessary and add to envvar PYTHONPATH")
-using_forte = pytest.mark.skipif(psi4.addons("forte") is False,
-                                reason="Psi4 not detecting plugin forte. Build plugin if necessary and add to envvar PYTHONPATH")
-using_snsmp2 = pytest.mark.skipif(psi4.addons("snsmp2") is False,
-                                reason="Psi4 not detecting plugin snsmp2. Build plugin if necessary and add to envvar PYTHONPATH (or rebuild Psi with -DENABLE_snsmp2)")
-using_resp = pytest.mark.skipif(psi4.addons("resp") is False,
-                                reason="Psi4 not detecting plugin resp. Build plugin if necessary and add to envvar PYTHONPATH (or rebuild Psi with -DENABLE_resp)")
+pytestmark = [pytest.mark.smoke, pytest.mark.quick]
 
 
-@pytest.mark.smoke
-@using_gdma
+@using("gdma")
 def test_gdma():
     """gdma1"""
     #! Water RHF/cc-pVTZ distributed multipole analysis
@@ -99,8 +66,100 @@ def test_gdma():
     assert psi4.compare_matrices(totvals, ref_tot_mat, 6, "DMA Total Multipoles")
 
 
-@pytest.mark.smoke
-@using_mrcc
+def test_ipi_broker1():
+    """ipi_broker1"""
+
+    water = psi4.geometry("""
+      O -1.216  -0.015  -0.261
+      H -1.946   0.681  -0.378
+      H -1.332  -0.754   0.283
+      units angstrom
+      no_reorient
+      no_com
+    """)
+
+    psi4.set_options({
+        'basis': 'sto-3g',
+        'reference': 'rhf',
+    })
+
+    options = {}
+
+    #ipi_broker(serverdata="inet:localhost:21340", options=options)
+    b = psi4.ipi_broker("ccsd", serverdata=False, options=options)
+
+    refnuc   =   9.05843673637
+    refscf   = -74.9417588868628
+    refccsd  = -0.04895074370294
+    reftotal = -74.9907096305658
+
+    frc = [[ 0.08704801,  0.1067644 , -0.11170374],
+           [-0.02216499, -0.03279655,  0.03215871],
+           [-0.06488302, -0.07396785,  0.07954503]]
+
+    b.calculate_force()
+
+    assert psi4.compare_values(refnuc,   water.nuclear_repulsion_energy(),              3, "Nuclear repulsion energy")
+    assert psi4.compare_values(refscf,   psi4.core.variable("SCF total energy"),        5, "SCF energy")
+    assert psi4.compare_values(refccsd,  psi4.core.variable("CCSD correlation energy"), 4, "CCSD contribution")
+    assert psi4.compare_values(reftotal, psi4.core.variable("Current energy"),          7, "Total energy")
+    assert psi4.compare_values(reftotal, b._potential,                                  7, "Total energy (Broker)")
+    assert psi4.compare_arrays(frc,      b._force,                                      4, "Total force (Broker)")
+
+    water_mirror = psi4.geometry("""
+      O  1.216   0.015   0.261
+      H  1.946  -0.681   0.378
+      H  1.332   0.754  -0.283
+      units angstrom
+      no_reorient
+      no_com
+    """)
+
+    b.calculate_force()
+
+    assert psi4.compare_values(refnuc,   water_mirror.nuclear_repulsion_energy(),    3, "Nuclear repulsion energy")
+    assert psi4.compare_values(refscf,   psi4.core.variable("SCF total energy"),        5, "SCF energy")
+    assert psi4.compare_values(refccsd,  psi4.core.variable("CCSD correlation energy"), 4, "CCSD contribution")
+    assert psi4.compare_values(reftotal, psi4.core.variable("Current energy"),          7, "Total energy")
+    assert psi4.compare_values(reftotal, b._potential,                                  7, "Total energy (Broker)")
+    assert psi4.compare_arrays(frc,     -b._force,                                      4, "Total force (Broker)")
+
+
+def test_ipi_broker2():
+    """ipi_broker2"""
+
+    # DF-BP86-D2 cc-pVDZ frozen core gradient of S22 HCN
+    hcn = psi4.geometry("""
+    0 1
+    N    -0.0034118    3.5353926    0.0000000
+    C     0.0751963    2.3707040    0.0000000
+    H     0.1476295    1.3052847    0.0000000
+    no_reorient
+    symmetry c1
+    """)
+
+    ref = [[  0.000471372941,    -0.006768222864,     0.000000000000],
+           [  0.000447936019,    -0.006988081177,    -0.000000000000],
+           [ -0.000919105947,     0.013753536153,    -0.000000000000]]
+
+    psi4.set_options({
+        'scf_type':             'df',
+        'basis':                'cc-pvdz',
+        'freeze_core':          'true',
+        'dft_radial_points':    99,
+        'dft_spherical_points': 302,
+        'e_convergence':        8,
+        'd_convergence':        8
+    })
+
+    b = psi4.ipi_broker("bp86-d2", serverdata=False)
+
+    b.calculate_force(engine='libdisp')
+
+    assert psi4.compare_arrays(ref, -b._force, 6, "Outsourced dft gradients called by name: libdisp")
+
+
+@using("mrcc")
 def test_mrcc():
     """mrcc/ccsdt"""
     #! CCSDT cc-pVDZ energy for the H2O molecule using MRCC
@@ -124,8 +183,7 @@ def test_mrcc():
     assert psi4.compare_values(-76.239133655413, psi4.variable("CURRENT ENERGY"), 6, 'CCSDT')
 
 
-@pytest.mark.smoke
-@using_chemps2
+@using("chemps2")
 def test_chemps2():
     """chemps2/scf-n2"""
     #! dmrg-scf on N2
@@ -172,8 +230,7 @@ def test_chemps2():
     assert psi4.compare_values(ref_energy, psi4.variable("CURRENT ENERGY"), 6, "DMRG Energy")
 
 
-@pytest.mark.smoke
-@using_mp2d
+@using('mp2d')
 def test_mp2d():
     eneyne = psi4.geometry("""
     C   0.000000  -0.667578  -2.124659
@@ -209,8 +266,7 @@ def test_mp2d():
     assert psi4.compare_values(expected, jrec['extras']['qcvars']['MP2-DMP2 DISPERSION CORRECTION ENERGY'], 7, 'mp2d disp E')
 
 
-@pytest.mark.smoke
-@using_dftd3
+@using("dftd3")
 def test_dftd3():
     """dftd3/energy"""
     #! Exercises the various DFT-D corrections, both through python directly and through c++
@@ -369,8 +425,7 @@ def test_dftd3():
     assert psi4.compare_values(ref_pbe_d2[0], psi4.variable('DISPERSION CORRECTION ENERGY'), 7, 'Ethene-Ethyne -D2 (alias)')
 
 
-@pytest.mark.smoke
-@using_libefp
+@using("libefp")
 def test_libefp():
     """libefp/qchem-qmefp-sp"""
     #! EFP on mixed QM (water) and EFP (water + 2 * ammonia) system.
@@ -428,9 +483,11 @@ def test_libefp():
     psi4.core.print_variables()
 
 
-@pytest.mark.smoke
-@using_pcmsolver
-def test_pcmsolver():
+@using("pcmsolver")
+@pytest.mark.parametrize("how", ["pcm_helper"])
+#@pytest.mark.parametrize("how", ["pcm_helper", "pcm_helper1"])  # fail b/c pcm not restartable
+#@pytest.mark.parametrize("how", ["pcm_helper", "set_options"])  # fail b/c pcm not restartable
+def test_pcmsolver(how, request):
     """pcmsolver/scf"""
     #! pcm
 
@@ -445,8 +502,6 @@ def test_pcmsolver():
     H     -0.9015844116     0.4818470201      1.5615900098
     H      1.8031688251     0.4818470204      0.0000000000
     units bohr
-    no_reorient
-    no_com
     """)
 
     psi4.set_options({
@@ -456,7 +511,7 @@ def test_pcmsolver():
       'pcm_scf_type': 'total',
     })
 
-    psi4.pcm_helper("""
+    pcm_string = """
        Units = Angstrom
        Medium {
        SolverType = IEFPCM
@@ -470,7 +525,12 @@ def test_pcmsolver():
        Area = 0.3
        Mode = Implicit
        }
-    """)
+    """
+
+    if "pcm_helper" in request.node.name:
+        psi4.pcm_helper(pcm_string)
+    elif "set_options" in request.node.name:
+        psi4.set_options({"pcm__input": pcm_string})
 
     print('RHF-PCM, total algorithm')
     energy_scf1, wfn1 = psi4.energy('scf', return_wfn=True)
@@ -670,8 +730,7 @@ def _test_scf5():
     assert psi4.compare_values(Eref_rohf_df, E, 6, 'Triplet DF CUHF energy')
 
 
-@pytest.mark.smoke
-@using_erd
+@using("erd")
 def test_erd():
     """erd/scf5"""
 
@@ -679,15 +738,13 @@ def test_erd():
     _test_scf5()
 
 
-@pytest.mark.smoke
-@using_simint
+@using("simint")
 def test_simint():
     """simint/scf5"""
 
     psi4.set_options({'integral_package': 'simint'})
     _test_scf5()
 
-@pytest.mark.smoke
 def test_json():
     """json/energy"""
 
@@ -723,8 +780,7 @@ def test_json():
         json.dump(json_ret["raw_output"], f)
 
 
-@pytest.mark.smoke
-@using_cfour
+@using("cfour")
 def test_cfour():
     """cfour/sp-rhf-ccsd_t_"""
     #! single-point CCSD(T)/qz2p on water
@@ -757,8 +813,7 @@ def test_cfour():
     assert psi4.compare_values(-0.282969089769, psi4.variable('ccsd(t) correlation energy'), 6, 'CCSD(T) corl')
 
 
-@pytest.mark.smoke
-@using_v2rdm_casscf
+@using("v2rdm_casscf")
 def test_v2rdm_casscf():
     """v2rdm_casscf/tests/v2rdm1"""
     #! cc-pvdz N2 (6,6) active space Test DQG
@@ -810,9 +865,8 @@ def test_v2rdm_casscf():
     assert psi4.compare_values(refv2rdm, psi4.variable("CURRENT ENERGY"), 5, "v2RDM-CASSCF total energy")
 
 
-@pytest.mark.smoke
 @hardware_nvidia_gpu
-@using_gpu_dfcc
+@using("gpu_dfcc")
 def test_gpu_dfcc():
     """gpu_dfcc/tests/gpu_dfcc1"""
     #! cc-pvdz (H2O)2 Test DF-CCSD vs GPU-DF-CCSD
@@ -847,9 +901,8 @@ def test_gpu_dfcc():
 
 
 
-@pytest.mark.smoke
-@using_dftd3
-@using_gcp
+@using("dftd3")
+@using("gcp")
 def test_grimme_3c():
 
     s16di = psi4.geometry("""
@@ -875,8 +928,7 @@ def test_grimme_3c():
     ene = psi4.energy('hf3c/', bsse_type='nocp')
     assert psi4.compare_values(-0.00240232, ene, 6, 'S22-16 HF-3c/minix')
 
-@pytest.mark.smoke
-@using_dkh
+@using("dkh")
 def test_dkh():
     """dkh/molpro-2order"""
 
@@ -897,8 +949,8 @@ def test_dkh():
 
     assert psi4.compare_values(-128.66891610, e, 6, '2nd order vs Molpro')
 
-@using_ambit
-@using_forte
+@using("ambit")
+@using("forte")
 def disabled_test_forte():
     """aci-10: Perform aci on benzyne"""
 
@@ -960,8 +1012,7 @@ def disabled_test_forte():
     assert psi4.compare_values(refacipt2, psi4.variable("ACI+PT2 ENERGY"),8,"ACI+PT2 energy")
 
 
-@pytest.mark.smoke
-@using_snsmp2
+@using("snsmp2")
 def test_snsmp2():
     """snsmp2/he-he"""
 
@@ -977,8 +1028,7 @@ def test_snsmp2():
     assert psi4.compare_values(0.00176708227, psi4.variable('SNS-MP2 TOTAL ENERGY'), 5, "SNS-MP2 IE [Eh]")
 
 
-@pytest.mark.smoke
-@using_resp
+@using("resp")
 def test_resp():
     """resp/tests/test_resp_1"""
     import resp
@@ -994,38 +1044,398 @@ def test_resp():
      O  -0.62675864   1.13160510   0.00000000""")
     mol.update_geometry()
 
-    options = {'N_VDW_LAYERS'       : 4,
-               'VDW_SCALE_FACTOR'   : 1.4,
-               'VDW_INCREMENT'      : 0.2,
+    options = {'VDW_SCALE_FACTORS'  : [1.4, 1.6, 1.8, 2.0],
                'VDW_POINT_DENSITY'  : 1.0,
                'resp_a'             : 0.0005,
                'RESP_B'             : 0.1,
                }
 
     # Call for first stage fit
-    charges1 = resp.resp([mol], [options])
-
+    charges1 = resp.resp([mol], options)
+    print('Electrostatic Potential Charges')
+    print(charges1[0])
+    print('Restrained Electrostatic Potential Charges')
+    print(charges1[1])
     # Reference charges are generated by the R.E.D.-III.5 tools
     # with GAMESS as the quantum chemistry package
     reference_charges1 = np.array([-0.294974,  0.107114,  0.107114,  0.084795,
                                     0.803999, -0.661279,  0.453270, -0.600039])
-    assert np.allclose(charges1[0][1], reference_charges1, atol=5e-4)
+    print('Reference RESP Charges')
+    print(reference_charges1)
+    print('Difference')
+    print(charges1[1]-reference_charges1)
 
+    assert np.allclose(charges1[1], reference_charges1, atol=5e-4)
+
+    # Change the value of the RESP parameter A
     options['resp_a'] = 0.001
 
     # Add constraint for atoms fixed in second stage fit
     constraint_charge = []
     for i in range(4, 8):
-        constraint_charge.append([charges1[0][1][i], [i+1]])
+        constraint_charge.append([charges1[1][i], [i+1]])
     options['constraint_charge'] = constraint_charge
     options['constraint_group'] = [[2, 3, 4]]
-    options['grid'] = '1_%s_grid.dat' %mol.name()
-    options['esp'] = '1_%s_grid_esp.dat' %mol.name()
+    options['grid'] = ['1_%s_grid.dat' %mol.name()]
+    options['esp'] = ['1_%s_grid_esp.dat' %mol.name()]
     mol.set_name('stage2')
 
     # Call for second stage fit
-    charges2 = resp.resp([mol], [options])
+    charges2 = resp.resp([mol], options)
 
+    # Get RESP charges
+    print("\nStage Two:\n")
+    print('RESP Charges')
+    print(charges2[1])
     reference_charges2 = np.array([-0.290893,  0.098314,  0.098314,  0.098314,
                                    0.803999, -0.661279,  0.453270, -0.600039])
-    assert np.allclose(charges2[0][1], reference_charges2, atol=5e-4)
+    print('Reference RESP Charges')
+    print(reference_charges2)
+    print('Difference')
+    print(charges2[1]-reference_charges2)
+
+    assert np.allclose(charges2[1], reference_charges2, atol=5e-4)
+
+@pytest.mark.smoke
+@using("resp")
+def test_resp_2():
+    import resp
+    import numpy as np
+
+    # Initialize two different conformations of ethanol
+    geometry = """C    0.00000000  0.00000000  0.00000000
+    C    1.48805540 -0.00728176  0.39653260
+    O    2.04971655  1.37648153  0.25604810
+    H    3.06429978  1.37151670  0.52641124
+    H    1.58679428 -0.33618761  1.43102358
+    H    2.03441010 -0.68906454 -0.25521028
+    H   -0.40814044 -1.00553466  0.10208540
+    H   -0.54635470  0.68178278  0.65174288
+    H   -0.09873888  0.32890585 -1.03449097
+    """
+    mol1 = psi4.geometry(geometry)
+    mol1.update_geometry()
+    mol1.set_name('conformer1')
+
+    geometry = """C    0.00000000  0.00000000  0.00000000
+    C    1.48013500 -0.00724300  0.39442200
+    O    2.00696300  1.29224100  0.26232800
+    H    2.91547900  1.25572900  0.50972300
+    H    1.61500700 -0.32678000  1.45587700
+    H    2.07197500 -0.68695100 -0.26493400
+    H   -0.32500012  1.02293415 -0.30034094
+    H   -0.18892141 -0.68463906 -0.85893815
+    H   -0.64257065 -0.32709111  0.84987482
+    """
+    mol2 = psi4.geometry(geometry)
+    mol2.update_geometry()
+    mol2.set_name('conformer2')
+
+    molecules = [mol1, mol2]
+
+    # Specify options
+    options = {'VDW_SCALE_FACTORS' : [1.4, 1.6, 1.8, 2.0],
+               'VDW_POINT_DENSITY'  : 1.0,
+               'RESP_A'             : 0.0005,
+               'RESP_B'             : 0.1,
+               'RESTRAINT'          : True,
+               'IHFREE'             : False,
+               'WEIGHT'             : [1, 1],
+               }
+
+    # Call for first stage fit
+    charges1 = resp.resp(molecules, options)
+
+    print("Restrained Electrostatic Potential Charges")
+    print(charges1[1])
+    # Reference Charges are generates with the resp module of Ambertools
+    # Grid and ESP values are from this code with Psi4
+    reference_charges1 = np.array([-0.149134, 0.274292, -0.630868,  0.377965, -0.011016,
+                                   -0.009444,  0.058576,  0.044797,  0.044831])
+    print("Reference RESP Charges")
+    print(reference_charges1)
+    print("Difference")
+    print(charges1[1]-reference_charges1)
+
+    assert np.allclose(charges1[1], reference_charges1, atol=1e-5)
+
+    # Add constraint for atoms fixed in second stage fit
+    options['resp_a'] = 0.001
+    resp.set_stage2_constraint(molecules[0], charges1[1], options)
+
+    options['grid'] = []
+    options['esp'] = []
+    for mol in range(len(molecules)):
+        options['grid'].append('%i_%s_grid.dat' %(mol+1, molecules[mol].name()))
+        options['esp'].append('%i_%s_grid_esp.dat' %(mol+1, molecules[mol].name()))
+
+    # Call for second stage fit
+    print(molecules)
+    print(options)
+    charges2 = resp.resp(molecules, options)
+    print("\nStage Two\n")
+    print("RESP Charges")
+    print(charges2[0][1])
+    reference_charges2 = np.array([-0.079853, 0.253918, -0.630868, 0.377965, -0.007711,
+                                   -0.007711, 0.031420,  0.031420, 0.031420])
+    print("Reference RESP Charges")
+    print(reference_charges2)
+    print("Difference")
+    print(charges2[1]-reference_charges2)
+
+    assert np.allclose(charges2[1], reference_charges2, atol=1e-5)
+
+
+@using("fockci")
+def test_psi4fockci():
+    """psi4fockci/n2"""
+
+    n2 = psi4.geometry("""
+    0 7
+    N 0 0 0
+    N 0 0 2.5
+    symmetry c1
+    """)
+
+    options = {"basis": "cc-pvdz"}
+    wfn = psi4.energy('psi4fockci', new_charge=0, new_multiplicity=1,
+        add_opts=options )
+    assert psi4.compare_values(-108.776024394853295, psi4.core.variable("CI ROOT 0 TOTAL ENERGY"), 7, "3SF Energy")
+
+    wfn = psi4.energy('psi4fockci', new_charge=1, new_multiplicity=2,
+        add_opts=options )
+    assert psi4.compare_values(-108.250639579451, psi4.core.variable("CI ROOT 0 TOTAL ENERGY"), 7, "2SF-IP Energy")
+
+    wfn = psi4.energy('psi4fockci', new_charge=-1, new_multiplicity=2,
+        add_opts=options )
+    assert psi4.compare_values(-108.600832070267, psi4.core.variable("CI ROOT 0 TOTAL ENERGY"), 7, "2SF-EA Energy")
+
+@using("cppe")
+def test_cppe():
+    from .test_cppe import _dump_potential, __geoms
+    #! PE-SCF of PNA in presence of 6 water molecules
+    #! Reference data from Q-Chem calculation
+
+    ref_pe_energy = -0.03424830892844
+    ref_scf_energy = -482.9411084900
+
+    pna = psi4.geometry(__geoms['pna'])
+    potfile = _dump_potential('pna_6w')
+
+    psi4.set_options({
+     'basis': 'sto-3g',
+     'pe': True,
+     'e_convergence': 10,
+     'd_convergence': 10,
+     'scf_type': 'pk',
+     'pe__potfile': potfile,
+    })
+
+    scf_energy, wfn = psi4.energy('scf', return_wfn=True)
+    assert psi4.compare_values(ref_pe_energy, wfn.variable("PE ENERGY"), 6, "PE Energy contribution")
+    assert psi4.compare_values(ref_scf_energy, scf_energy, 6, "Total PE-SCF Energy")
+    psi4.core.print_variables()
+
+
+@using("cct3")
+def test_cct3():
+    import cct3
+
+    psi4.geometry("""
+        units bohr
+        h -2.514213562373  -1.000000000000   0.000000000000
+        h -2.514213562373   1.000000000000   0.000000000000
+        h  2.514213562373  -1.000000000000   0.000000000000
+        h  2.514213562373   1.000000000000   0.000000000000
+        h -1.000000000000  -2.414213562373   0.000000000000
+        h -1.000000000000   2.414213562373   0.000000000000
+        h  1.000000000000  -2.414213562373   0.000000000000
+        h  1.000000000000   2.414213562373   0.000000000000
+        symmetry d2h
+    """)
+
+    def basisspec_psi4_yo__anonymous1234(mol, role):
+        bas = """
+            cartesian
+            ****
+            H   0
+            S   3  1.0000
+                  4.50038     0.0704800
+                  0.681277    0.407890
+                  0.151374    0.647670
+            ****
+        """
+        mol.set_basis_all_atoms("mbs_my", role=role)
+        return {"mbs_my": bas}
+
+    psi4.driver.qcdb.libmintsbasisset.basishorde["ANONYMOUS1234"] = basisspec_psi4_yo__anonymous1234
+
+    psi4.set_options({
+        "cct3__froz": 0,
+        "cct3__act_occ": 1,
+        "cct3__act_unocc": 1,
+        "cct3__etol": 16,
+        "cct3__calc_type": "cct3",
+        "basis": "anonymous1234",
+    })
+
+    ene = psi4.energy("cct3")
+    assert psi4.compare_values(-4.220587742726, ene, 10, "cc(t;3) energy")
+
+
+@pytest.mark.smoke
+@using("psixas")
+def test_psixas():
+    import psixas
+
+    psi4.geometry("""
+      O   0.27681793323501      0.00000014791107      0.00000000000000
+      H   0.86159097690242      0.76505117501585      0.00000000000000
+      H   0.86159108986257     -0.76505132292693      0.00000000000000
+    symmetry c1
+    """)
+
+    psi4.set_options({
+        "basis": "def2-TZVP",
+        "scf__reference": "uks",
+        "scf_type": "MEM_DF",
+        "psixas__prefix": "WATER",
+        "psixas__MODE": "GS+EX+SPEC",
+        "psixas__ORBS": [0  ],
+        "psixas__OCCS": [0.5],
+        "psixas__SPIN": ["b"  ],
+        "psixas__DAMP": 0.8,
+        "psixas__OVL":    ["T"],
+        "psixas__FREEZE": ["T"],
+    })
+    e = psi4.energy('psixas',functional='PBE')
+
+    # not much of a psixas test
+    assert psi4.compare_values(-66.7129145004314, e, 5, "psixas dft")
+
+
+@pytest.mark.smoke
+@using("dftd4")
+def test_dftd4():
+    #! Exercises the various DFT-D corrections, both through python directly and through c++
+    import numpy as np
+
+    ref_d2         = [-0.00390110, -0.00165271, -0.00058118]
+    ref_d3zero     = [-0.00285088, -0.00084340, -0.00031923]
+    ref_d3bj       = [-0.00784595, -0.00394347, -0.00226683]
+    ref_d4bj       = [-0.00625445, -0.00306407, -0.00176150]
+    ref_d4bj_2body = [-0.00625366, -0.00306413, -0.00176146]
+
+    ref_pbe_d2     = [-0.00278650, -0.00118051, -0.00041513]
+    ref_pbe_d3zero = [-0.00175474, -0.00045421, -0.00016839]
+    ref_pbe_d3bj   = [-0.00475937, -0.00235265, -0.00131239]
+    ref_pbe_d4bj   = [-0.00399176, -0.00190682, -0.00108739]
+
+    gref_d4bj = [
+                np.array(
+                    [
+                        [-0.0, -0.000121388195, -0.000285720303],
+                        [0.0, 0.000121388195, -0.000285720303],
+                        [0.000013500589, -0.000035224119, -0.000051913946],
+                        [-0.000013500589, -0.000035224119, -0.000051913946],
+                        [-0.000013500589, 0.000035224119, -0.000051913946],
+                        [0.000013500589, 0.000035224119, -0.000051913946],
+                        [0.0, -0.0, 0.000162779428],
+                        [0.0, -0.0, 0.00042515118],
+                        [0.0, -0.0, 0.000180544011],
+                        [0.0, -0.0, 0.000010621775],
+                    ]
+                ),
+                np.array(
+                    [
+                        [-0.0, -0.000077703214, -0.000000117582],
+                        [0.0, 0.000077703214, -0.000000117582],
+                        [-0.000003720109, -0.000014373039, 0.000000058791],
+                        [0.000003720109, -0.000014373039, 0.000000058791],
+                        [0.000003720109, 0.000014373039, 0.000000058791],
+                        [-0.000003720109, 0.000014373039, 0.000000058791],
+                    ]
+                ),
+                np.array(
+                    [
+                        [0.0, 0.0, 0.000044445504],
+                        [0.0, 0.0, -0.000044316404],
+                        [0.0, 0.0, -0.000011452466],
+                        [0.0, 0.0, 0.000011323366],
+                    ]
+                ),
+    ]
+
+
+    eneyne = psi4.geometry("""
+    C   0.000000  -0.667578  -2.124659
+    C   0.000000   0.667578  -2.124659
+    H   0.923621  -1.232253  -2.126185
+    H  -0.923621  -1.232253  -2.126185
+    H  -0.923621   1.232253  -2.126185
+    H   0.923621   1.232253  -2.126185
+    --
+    C   0.000000   0.000000   2.900503
+    C   0.000000   0.000000   1.693240
+    H   0.000000   0.000000   0.627352
+    H   0.000000   0.000000   3.963929
+    """)
+
+    print('  -D correction from Py-side')
+    eneyne.update_geometry()
+    E, G = eneyne.run_dftd4('b3lyp', 'd4bj')
+    assert psi4.compare_values(ref_d4bj[0], E, 7, 'Ethene-Ethyne -D4 (bj)')
+    mA = eneyne.extract_subsets(1)
+    E, G = mA.run_dftd4('b3lyp', 'd4bj')
+    assert psi4.compare_values(ref_d4bj[1], E, 7, 'Ethene -D4 (bj)')
+    assert psi4.compare_values(gref_d4bj[1], G, 7, 'Ethene -D4 (bj) grad')
+    mB = eneyne.extract_subsets(2)
+    E, G = mB.run_dftd4('b3lyp', 'd4bj')
+    assert psi4.compare_values(ref_d4bj[2], E, 7, 'Ethyne -D4 (bj)')
+
+    psi4.set_options({
+        "basis": "sto-3g",
+        "scf_type": "df",
+        "dft_radial_points": 50,  # use really bad grid for speed since all we want is the -D value
+        "dft_spherical_points": 110,
+    })
+
+    print('  -D correction from C-side')
+    psi4.activate(mA)
+    psi4.gradient('b3lyp-d4bj')
+    assert psi4.compare_values(ref_d4bj[1], psi4.variable('DISPERSION CORRECTION ENERGY'), 7, 'Ethene -D4')
+    assert psi4.compare_values(gref_d4bj[1], psi4.variable('DISPERSION CORRECTION GRADIENT'), 7, 'Ethene -D4 grad')
+
+    mAgB = eneyne.extract_subsets(1, 2)
+    psi4.activate(mAgB)
+    psi4.energy('b3lyp-d4')
+    assert psi4.compare_values(ref_d4bj[1], psi4.variable('DISPERSION CORRECTION ENERGY'), 7, 'Ethene -D4 (alias)')
+
+    print('  non-default -D correction from C-side')
+    psi4.activate(mB)
+    psi4.set_options({"dft_dispersion_parameters": [0.40868035, 4.53807137, 16.0, 1.0, 2.02929367, 1.0]})  # b3lyp-d4
+    psi4.energy('b3lyp-d4(bj)')
+    assert psi4.compare_values(ref_d4bj[2], psi4.variable('DISPERSION CORRECTION ENERGY'), 7, 'Ethene -D4')
+
+    psi4.activate(eneyne)
+    psi4.set_options({"dft_dispersion_parameters": [0.40868035, 4.53807137, 16.0, 1.0, 2.02929367, 0.0]})  # b3lyp-d4-2body
+    psi4.energy('b3lyp-d4(bj)')
+    assert psi4.compare_values(ref_d4bj_2body[0], psi4.variable('DISPERSION CORRECTION ENERGY'), 7, 'Ethene -D4-2body')
+
+    gAmB = eneyne.extract_subsets(2, 1)
+    psi4.activate(gAmB)
+    psi4.set_options({"dft_dispersion_parameters": [0.75]})
+    psi4.energy('b3lyp-d2')
+    assert psi4.compare_values(ref_pbe_d2[2], psi4.variable('DISPERSION CORRECTION ENERGY'), 7, 'Ethene -D2 (alias)')
+
+    psi4.set_options({"dft_dispersion_parameters": [1.0,  0.722, 1.217, 14.0]})
+    psi4.energy('b3lyp-d3')
+    assert psi4.compare_values(ref_pbe_d3zero[2], psi4.variable('DISPERSION CORRECTION ENERGY'), 7, 'Ethene -D4 (alias)')
+
+    psi4.set_options({"dft_dispersion_parameters": [0.38574991, 4.80688534, 16.0, 1.0, 0.95948085, 1.0]})  # pbe-d4
+    psi4.energy('b3lyp-d4')
+    assert psi4.compare_values(ref_pbe_d4bj[2], psi4.variable('DISPERSION CORRECTION ENERGY'), 7, 'Ethene -D4 (alias)')
+    psi4.activate(mA)
+    psi4.set_options({"dft_dispersion_parameters": [1.0]})
+    psi4.energy('wb97x-d')
+    assert psi4.compare_values(-0.000834247063, psi4.variable('DISPERSION CORRECTION ENERGY'), 7, 'Ethene wb97x-d (chg)')

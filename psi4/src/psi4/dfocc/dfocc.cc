@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -51,6 +51,8 @@ void DFOCC::common_init() {
     print_ = options_.get_int("PRINT");
     if (print_ > 0) options_.print();
 
+    module_ = "dfocc";
+
     cc_maxiter = options_.get_int("CC_MAXITER");
     mo_maxiter = options_.get_int("MO_MAXITER");
     num_vecs = options_.get_int("MO_DIIS_NUM_VECS");
@@ -72,7 +74,6 @@ void DFOCC::common_init() {
     e3_scale = options_.get_double("E3_SCALE");
     tol_Eod = options_.get_double("E_CONVERGENCE");
     tol_t2 = options_.get_double("R_CONVERGENCE");
-    tol_pcg = options_.get_double("PCG_CONVERGENCE");
     reg_param = options_.get_double("REG_PARAM");
     tol_ldl = options_.get_double("CHOLESKY_TOLERANCE");
 
@@ -106,15 +107,29 @@ void DFOCC::common_init() {
     triples_iabc_type_ = options_.get_str("TRIPLES_IABC_TYPE");
     do_cd = options_.get_str("CHOLESKY");
 
+    if (!psio_) {
+        throw PSIEXCEPTION("The wavefunction passed in lacks a PSIO object, crashing DFOCC. See GitHub issue #1851.");
+    }
+
     // title
     title();
 
-    //   Tying orbital convergence to the desired e_conv,
-    //   particularly important for the same numerical frequencies by energy
-    //   These have been determined by linear fits to a step fn
-    //   based on e_conv on limited numerical tests.
+    //   Given default conjugate gradient convergence, set the criteria by what shoud
+    //   be necessary to achive the target energy convergence.
+    //   This is based solely on standard suite testing to achieve 1e-6 E & G with default convcrit.
+    if (options_["PCG_CONVERGENCE"].has_changed()) {
+        tol_pcg = options_.get_double("PCG_CONVERGENCE");
+    } else {
+        tol_pcg = 0.01 * tol_t2;
+        outfile->Printf("\tFor this residual convergence, default PCG convergence is: %12.2e\n", tol_pcg);
+    }
+
+    //   Given default orbital convergence, set the criteria by what should
+    //   be necessary to achieve the target energy convergence.
+    //   These formulae are based on experiments and are nothing rigorous.
     //   The printed value from options_.print() will not be accurate
-    //   since newly set orbital conv is not written back to options
+    //   since newly set orbital conv is not written back to options.
+    //   We still want these to be the default values, after all!
     if (orb_opt_ == "TRUE") {
         if (options_["RMS_MOGRAD_CONVERGENCE"].has_changed()) {
             tol_grad = options_.get_double("RMS_MOGRAD_CONVERGENCE");
@@ -126,7 +141,7 @@ void DFOCC::common_init() {
             }
             tol_grad = pow(10.0, -temp);
             // tol_grad = 100.0*tol_Eod;
-            outfile->Printf("\tRMS orbital gradient is changed to : %12.2e\n", tol_grad);
+            outfile->Printf("\tFor this energy convergence, default RMS orbital gradient is: %12.2e\n", tol_grad);
         }
 
         // Determine the MAXIMUM MOGRAD CONVERGENCE
@@ -138,9 +153,9 @@ void DFOCC::common_init() {
             if (temp2 < 3.0) {
                 temp2 = 3.0;
             }
-            mograd_max = pow(10.0, -temp2);
+            mograd_max = pow(10.0, -temp2 - 1);
             // mograd_max = 10.0*tol_grad;
-            outfile->Printf("\tMAX orbital gradient is changed to : %12.2e\n", mograd_max);
+            outfile->Printf("\tFor this energy convergence, default MAX orbital gradient is: %12.2e\n", mograd_max);
         }
     }  // end if (orb_opt_ == "TRUE")
 
@@ -396,25 +411,6 @@ void DFOCC::title() {
         outfile->Printf("                      QCHF   \n");
     outfile->Printf("              Program Written by Ugur Bozkaya\n");
     outfile->Printf("              Latest Revision September 9, 2017\n");
-    outfile->Printf("\n");
-    outfile->Printf(" ============================================================================== \n");
-    outfile->Printf(" ============================================================================== \n");
-    outfile->Printf(" ============================================================================== \n");
-    outfile->Printf("\n");
-
-}  //
-
-void DFOCC::title_grad() {
-    outfile->Printf("\n");
-    outfile->Printf(" ============================================================================== \n");
-    outfile->Printf(" ============================================================================== \n");
-    outfile->Printf(" ============================================================================== \n");
-    outfile->Printf("\n");
-    outfile->Printf("                         DFGRAD   \n");
-    outfile->Printf("            A General Analytic Gradients Code   \n");
-    outfile->Printf("               for Density-Fitted Methods       \n");
-    outfile->Printf("                   by Ugur Bozkaya\n");
-    outfile->Printf("              Latest Revision December 19, 2016\n");
     outfile->Printf("\n");
     outfile->Printf(" ============================================================================== \n");
     outfile->Printf(" ============================================================================== \n");

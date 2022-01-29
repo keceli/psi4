@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -73,8 +73,11 @@ SharedMatrix vertcat(const std::vector<SharedMatrix>& mats);
  * \param transA Transpose the first matrix
  * \param transB Transpose the second matrix
  */
+
 PSI_API
 SharedMatrix doublet(const SharedMatrix& A, const SharedMatrix& B, bool transA = false, bool transB = false);
+
+Matrix doublet(const Matrix& A, const Matrix& B, bool transA = false, bool transB = false);
 
 /** Simple triplet GEMM with on-the-fly allocation
  * \param A The first matrix
@@ -87,6 +90,8 @@ SharedMatrix doublet(const SharedMatrix& A, const SharedMatrix& B, bool transA =
 PSI_API
 SharedMatrix triplet(const SharedMatrix& A, const SharedMatrix& B, const SharedMatrix& C, bool transA = false,
                      bool transB = false, bool transC = false);
+
+Matrix triplet(const Matrix&A, const Matrix& B, const Matrix& C, bool transA = false, bool transB = false, bool transC = false);
 
 namespace detail {
 /*!
@@ -115,9 +120,9 @@ class PSI_API Matrix : public std::enable_shared_from_this<Matrix> {
     double*** matrix_;
     /// Number of irreps
     int nirrep_;
-    /// Rows per irrep array
+    /// Rows per irrep array. Element "h" is associated with matrix block h.
     Dimension rowspi_;
-    /// Columns per irrep array
+    /// Columns per irrep array. Element "h" is associated with matrix block h ^ symmetry_.
     Dimension colspi_;
     /// Name of the matrix
     std::string name_;
@@ -216,8 +221,7 @@ class PSI_API Matrix : public std::enable_shared_from_this<Matrix> {
      *
      * @param inBuf dpdbuf4 object to replicate (must already be initialized).
      */
-    Matrix(dpdbuf4 *inBuf);
-
+    Matrix(dpdbuf4* inBuf);
 
     /**
      * Constructor using Dimension objects to define order and dimensionality.
@@ -282,7 +286,11 @@ class PSI_API Matrix : public std::enable_shared_from_this<Matrix> {
     /// Copies data to the row specified. Assumes data is of correct length.
     void copy_to_row(int h, int row, double const* const data);
 
-    enum SaveType { Full, SubBlocks, LowerTriangle };
+    enum SaveType { Full
+    PSI_DEPRECATED(
+        "Using `Matrix::SaveType::Full` instead of `Matrix::SaveType::SubBlocks` is deprecated, "
+        "and in 1.5 it will stop working"),
+    SubBlocks, LowerTriangle, ThreeIndexLowerTriangle };
 
     /**
      * @{
@@ -478,6 +486,7 @@ class PSI_API Matrix : public std::enable_shared_from_this<Matrix> {
      * @return SharedMatrix object
      */
     SharedMatrix get_block(const Slice& rows, const Slice& cols);
+    SharedMatrix get_block(const Slice& slice);
 
     /**
      * Set a matrix block
@@ -486,7 +495,9 @@ class PSI_API Matrix : public std::enable_shared_from_this<Matrix> {
      * @param cols Columns slice
      * @param block the SharedMatrix object block to set
      */
+    void set_block(const Slice& rows, const Slice& cols, const Matrix& block);
     void set_block(const Slice& rows, const Slice& cols, SharedMatrix block);
+    void set_block(const Slice& slice, const Matrix& block);
 
     /**
      * Returns the double** pointer to the h-th irrep block matrix
@@ -675,7 +686,7 @@ class PSI_API Matrix : public std::enable_shared_from_this<Matrix> {
     /// Returns the trace of this
     double trace();
     /// Creates a new matrix which is the transpose of this
-    SharedMatrix transpose();
+    SharedMatrix transpose() const;
 
     /// In place transposition
     void transpose_this();
@@ -691,11 +702,14 @@ class PSI_API Matrix : public std::enable_shared_from_this<Matrix> {
     void subtract(const Matrix* const);
     /// Subtracts a matrix from this
     void subtract(const SharedMatrix&);
+    void subtract(const Matrix&);
     /// Multiplies the two arguments and adds their result to this
     void accumulate_product(const Matrix* const, const Matrix* const);
     void accumulate_product(const SharedMatrix&, const SharedMatrix&);
     /// Scales this matrix
     void scale(double);
+    /// Takes the square root of this matrix (element-wise)
+    void sqrt_this();
     /// Returns the sum of the squares of this
     double sum_of_squares();
     /// Returns the rms of this
@@ -929,9 +943,18 @@ class PSI_API Matrix : public std::enable_shared_from_this<Matrix> {
     /*! Computes the Cholesky factorization of a real symmetric
      *  positive definite matrix A.
      *
-     *  This is the block version of the algorithm, calling Level 3 BLAS.
+     *  This is the block version of the algorithm, calling Level 3
+     *  BLAS (dpotrf).
      */
     void cholesky_factorize();
+
+    /*! Computes the Cholesky factorization with complete pivoting of
+     * a real symmetric positive semidefinite matrix A.
+     *
+     * This is the block version of the algorithm, calling Level 3
+     * BLAS (dpstrf).
+     */
+    void pivoted_cholesky(double tol, std::vector<std::vector<int>>& pivot);
 
     /*! Computes the inverse of a real symmetric positive definite
      *  matrix A using the Cholesky factorization A = L*L**T
@@ -1074,7 +1097,7 @@ class PSI_API Matrix : public std::enable_shared_from_this<Matrix> {
     void write_to_dpdfile2(dpdfile2* outFile);
 
     /// Writes this to the dpdbuf4 given
-    void write_to_dpdbuf4(dpdbuf4 *outBuf);
+    void write_to_dpdbuf4(dpdbuf4* outBuf);
 
     /// @{
     /// Checks matrix equality.

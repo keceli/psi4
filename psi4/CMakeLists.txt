@@ -1,4 +1,9 @@
-cmake_minimum_required(VERSION 3.8 FATAL_ERROR)
+if(DEFINED ENV{LGTM_SRC})
+    cmake_minimum_required(VERSION 3.12 FATAL_ERROR)
+else()
+    cmake_minimum_required(VERSION 3.15 FATAL_ERROR)
+    cmake_policy(SET CMP0094 NEW)
+endif()
 project(psi4-core
         LANGUAGES C CXX)
 # no Fortran in psi4-core proper, but language needs to be declared
@@ -6,6 +11,11 @@ project(psi4-core
 #   static Fortran add-ons can be linked
 if(${Fortran_ENABLED})
     enable_language(Fortran)
+endif()
+
+if (NOT MSVC)
+  set(CMAKE_C_FLAGS_DEBUG "-g -O0")
+  set(CMAKE_CXX_FLAGS_DEBUG "-g -O0")
 endif()
 
 list(APPEND CMAKE_MODULE_PATH ${PSI4_ROOT}/cmake)
@@ -52,14 +62,14 @@ else()
 endif()
 
 #  <<  Pybind11 & Python  >>
-if(MSVC)
-  set(PYBIND11_CPP_STANDARD "/std:c++${CMAKE_CXX_STANDARD}")
+if(DEFINED ENV{LGTM_SRC})
+    find_package(Python 3.6 COMPONENTS Interpreter Development REQUIRED)
 else()
-  set(PYBIND11_CPP_STANDARD "-std=c++${CMAKE_CXX_STANDARD}")
+    find_package(Python 3.6 COMPONENTS Interpreter Development NumPy REQUIRED)
 endif()
-find_package(pybind11 2.2.3 CONFIG REQUIRED)
-message(STATUS "${Cyan}Using pybind11${ColourReset}: ${pybind11_INCLUDE_DIR} (version ${pybind11_VERSION} for Py${PYTHON_VERSION_STRING} and ${PYBIND11_CPP_STANDARD})")
-message(STATUS "${Cyan}Using Python ${PYTHON_VERSION_MAJOR}.${PYTHON_VERSION_MINOR}${ColourReset}: ${PYTHON_EXECUTABLE}")
+find_package(pybind11 2.6.2 CONFIG REQUIRED)
+message(STATUS "${Cyan}Using pybind11${ColourReset}: ${pybind11_INCLUDE_DIR} (version ${pybind11_VERSION} for Py${Python_VERSION} and ${CMAKE_CXX_STANDARD})")
+message(STATUS "${Cyan}Using Python ${Python_VERSION_MAJOR}.${Python_VERSION_MINOR}${ColourReset}: ${Python_EXECUTABLE}")
 
 find_package(DL)
 
@@ -89,6 +99,15 @@ else()
     message(STATUS "Disabled dkh")
 endif()
 
+if(${ENABLE_ecpint})
+    find_package(ecpint 1.0.6 CONFIG REQUIRED)
+    get_property(_loc TARGET ECPINT::ecpint PROPERTY LOCATION)
+    list(APPEND _addons ${_loc})
+    message(STATUS "${Cyan}Using ecpint${ColourReset}: ${_loc} (version ${ecpint_VERSION})")
+else()
+    message(STATUS "Disabled ecpint")
+endif()
+
 if(${ENABLE_libefp})
     # neither libefp nor pylibefp actually needed c-side; runtime detection would
     #   do just as well. included for completeness and so pylibefp_PYMOD can be
@@ -98,7 +117,7 @@ if(${ENABLE_libefp})
     list(APPEND _addons ${_loc})
     message(STATUS "${Cyan}Using libefp${ColourReset}: ${_loc} (version ${libefp_VERSION})")
 
-    find_package(pylibefp 0.4 CONFIG REQUIRED)
+    find_package(pylibefp 0.6.1 CONFIG REQUIRED)
     get_property(_loc TARGET pylibefp::core PROPERTY LOCATION)
     list(APPEND _addons ${_loc})
     message(STATUS "${Cyan}Using pylibefp${ColourReset}: ${_loc} (version ${pylibefp_VERSION})")
@@ -115,7 +134,7 @@ else()
     message(STATUS "Disabled erd")
 endif()
 
-find_package(gau2grid 1.2 CONFIG REQUIRED COMPONENTS gaussian)
+find_package(gau2grid 2.0 CONFIG REQUIRED)
 get_property(_loc TARGET gau2grid::gg PROPERTY LOCATION)
 list(APPEND _addons ${_loc})
 message(STATUS "${Cyan}Using gau2grid${ColourReset}: ${_loc} (version ${gau2grid_VERSION})")
@@ -129,10 +148,36 @@ else()
     message(STATUS "Disabled gdma")
 endif()
 
+if(${ENABLE_Libint1t})
 find_package(Libint 1.2.0 CONFIG REQUIRED COMPONENTS ${MAX_AM_ERI})
 get_property(_loc TARGET Libint::int PROPERTY LOCATION)
 list(APPEND _addons ${_loc})
 message(STATUS "${Cyan}Using Libint ${Libint_MAX_AM_ERI}${ColourReset}: ${_loc} (version ${Libint_VERSION})")
+endif()
+
+# CHOOSE! this one for `make export` libint2 library (bad caps)
+#find_package(libint2 2.6 CONFIG REQUIRED) # COMPONENTS ${MAX_AM_ERI})
+#get_property(_loc TARGET Libint2::int2 PROPERTY LOCATION)
+
+# CHOOSE! this one for pure cmake libint2 library
+if(DEFINED ENV{LGTM_SRC})
+    find_package(Libint2 CONFIG REQUIRED COMPONENTS gss "e${MAX_AM_ERI}")
+else()
+    find_package(Libint2 CONFIG REQUIRED COMPONENTS gss "e${MAX_AM_ERI}" g2 h2 eri3_e4 eri3_g3 eri3_h3 eri2_e4 eri2_g3 eri2_h3)
+endif()
+get_property(_loc TARGET Libint2::cxx PROPERTY LOCATION)
+
+list(APPEND _addons ${_loc})
+message(STATUS "${Cyan}Using Libint2 ${Libint2_MAX_AM_ERI}${ColourReset}: ${_loc} (version ${Libint2_VERSION})")
+
+if(${ENABLE_mdi})
+    find_package(mdi 1.2.3 CONFIG REQUIRED)
+    get_property(_loc TARGET mdi::mdi PROPERTY LOCATION)
+    list(APPEND _addons ${_loc})
+    message(STATUS "${Cyan}Using mdi${ColourReset}: ${_loc} (version ${mdi_VERSION})")
+else()
+    message(STATUS "Disabled MDI")
+endif ()
 
 if(${ENABLE_PCMSolver})
     find_package(PCMSolver 1.2.1 CONFIG REQUIRED)
@@ -152,7 +197,16 @@ else()
     message(STATUS "Disabled simint")
 endif()
 
-find_package(Libxc 4.3.0 CONFIG REQUIRED)
+if(${ENABLE_BrianQC})
+    find_package(BrianQC 1.1 CONFIG REQUIRED)
+    get_property(_loc TARGET BrianQC::static_wrapper PROPERTY LOCATION)
+    list(APPEND _addons ${_loc})
+    message(STATUS "${Cyan}Using BrianQC${ColourReset}: ${BrianQC_DIR}")
+else()
+    message(STATUS "Disabled BrianQC")
+endif()
+
+find_package(Libxc 5.1.2 CONFIG REQUIRED COMPONENTS C)
 get_property(_loc TARGET Libxc::xc PROPERTY LOCATION)
 list(APPEND _addons ${_loc})
 message(STATUS "${Cyan}Using Libxc${ColourReset}: ${_loc} (version ${Libxc_VERSION})")
@@ -176,13 +230,16 @@ endif()
 include_directories(include)
 include_directories(src)
 add_subdirectory(src)
+if(ENABLE_CYTHONIZE)
+    add_subdirectory(driver)
+endif()
 
 # <<<  Version  >>>
 # * computes version from metadata.py and git info
 # * calls cmake to run write_basic_package_version_file
 
 add_custom_target(update_version ALL
-                  COMMAND ${PYTHON_EXECUTABLE} versioner.py --metaout ${CMAKE_CURRENT_BINARY_DIR}/metadata.py
+                  COMMAND ${Python_EXECUTABLE} versioner.py --metaout ${CMAKE_CURRENT_BINARY_DIR}/metadata.py
                                                             --cmakeout ${CMAKE_CURRENT_BINARY_DIR}/metadata.cmake
                   COMMAND ${CMAKE_COMMAND} -DWTO="${CMAKE_CURRENT_BINARY_DIR}/${CMAKECONFIG_INSTALL_DIR}"
                                            -DPN="psi4"
@@ -207,9 +264,11 @@ if(WIN32)
 endif()
 
     # <<<  install lib/  >>>
-install(DIRECTORY driver
-        DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}${PYMOD_INSTALL_LIBDIR}/psi4
-        FILES_MATCHING PATTERN "*.py")
+if(NOT ENABLE_CYTHONIZE)
+    install(DIRECTORY driver
+            DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}${PYMOD_INSTALL_LIBDIR}/psi4
+            FILES_MATCHING PATTERN "*.py")
+endif()
 
 install(FILES header.py
         DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}${PYMOD_INSTALL_LIBDIR}/psi4)
@@ -220,31 +279,19 @@ install(FILES ${CMAKE_BINARY_DIR}/__init__.py
               ${CMAKE_BINARY_DIR}/extras.py
         DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}${PYMOD_INSTALL_LIBDIR}/psi4)
 
-install(FILES ../tests/pytests/__init__.py
-              ../tests/pytests/conftest.py
-              ../tests/pytests/addons.py
-              ../tests/pytests/utils.py
-              ../tests/pytests/test_psi4.py
-              ../tests/pytests/test_addons.py
-              ../tests/pytests/test_qcel_molparse_to_string.py
-              ../tests/pytests/test_matrix.py
-              ../tests/pytests/test_vector.py
-              ../tests/pytests/test_qcvars.py
-              ../tests/pytests/test_dft_benchmarks.py
-              ../tests/pytests/test_vibanalysis.py
-              ../tests/pytests/test_dftd3.py
-              ../tests/pytests/test_erisieve.py
-              ../tests/pytests/test_fcidump_energy.py
-              ../tests/pytests/test_solvers.py
-              ../tests/pytests/test_tdscf_products.py
-              ../tests/pytests/test_tdscf_excitations.py
-              ../tests/pytests/test_misc.py
-              ../tests/pytests/test_multipole_potential.py
-              ../tests/pytests/test_dertype.py
-              ../tests/pytests/test_mp2.py
-              ../tests/pytests/test_qcng_dftd3_mp2d.py
-              ../tests/pytests/test_mp2d.py
-              ../tests/pytests/test_testing.py
+install(DIRECTORY ../tests/pytests/
+        DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}${PYMOD_INSTALL_LIBDIR}/psi4/tests/
+        FILES_MATCHING
+        PATTERN "test_*.py"
+        PATTERN "__init__.py"
+        PATTERN "addons.py"
+        PATTERN "conftest.py"
+        PATTERN "standard_suite_runner.py"
+        PATTERN "tdscf_reference_data.json"
+        PATTERN "utils.py")
+install(DIRECTORY ../tests/pytests/test_fchk_writer
+                  ../tests/pytests/test_molden_writer
+                  ../tests/pytests/test_psi4_qcschema
         DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}${PYMOD_INSTALL_LIBDIR}/psi4/tests/)
 
     # <<<  install psi4 share/ & include/  >>>

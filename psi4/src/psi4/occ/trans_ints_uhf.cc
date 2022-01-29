@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -735,24 +735,12 @@ void OCCWave::trans_ints_uhf() {
         timer_off("Build Fock");
     }
 
-    else if (orb_opt_ == "FALSE" || reference == "ROHF") {
-        double *mo_ints = init_array(ntri);
-        IWL::read_one(psio_.get(), PSIF_OEI, PSIF_MO_A_FOCK, mo_ints, ntri, 0, 0, "outfile");
-        FockA->set(mo_ints);
-        IWL::read_one(psio_.get(), PSIF_OEI, PSIF_MO_B_FOCK, mo_ints, ntri, 0, 0, "outfile");
-        FockB->set(mo_ints);
-        free(mo_ints);
-    }
-
-    else if (orb_opt_ == "FALSE" && reference != "ROHF") {
-        for (int h = 0; h < nirrep_; ++h) {
-            for (int i = 0; i < occpiA[h]; ++i) FockA->set(h, i, i, epsilon_a_->get(h, i));
-            for (int i = 0; i < occpiB[h]; ++i) FockB->set(h, i, i, epsilon_b_->get(h, i));
-            for (int a = 0; a < virtpiA[h]; ++a)
-                FockA->set(h, a + occpiA[h], a + occpiA[h], epsilon_a_->get(h, a + occpiA[h]));
-            for (int a = 0; a < virtpiB[h]; ++a)
-                FockB->set(h, a + occpiB[h], a + occpiB[h], epsilon_b_->get(h, a + occpiB[h]));
-        }
+    else if (orb_opt_ == "FALSE") {
+        // Assume that the Fock matrix is up-to-date.
+        FockA = Fa_->clone();
+        FockA->transform(Ca_);
+        FockB = Fb_->clone();
+        FockB->transform(Cb_);
     }
 
     timer_on("Build Denominators");
@@ -769,7 +757,7 @@ void OCCWave::trans_ints_uhf() {
 void OCCWave::denominators_uhf() {
     // outfile->Printf("\n denominators is starting... \n");
     dpdbuf4 D;
-    dpdfile2 Fo, Fv;
+    dpdfile2 Fo, Fv, Fd;
 
     auto *aOccEvals = new double[nacooA];
     auto *bOccEvals = new double[nacooB];
@@ -972,6 +960,24 @@ void OCCWave::denominators_uhf() {
         global_dpd_->file2_mat_print(&Fv, "outfile");
         global_dpd_->file2_close(&Fv);
     }
+
+    auto zero = Dimension(nirrep_);
+
+    global_dpd_->file2_init(&Fd, PSIF_LIBTRANS_DPD, 0, ID('O'), ID('O'), "FD <O|O>");
+    FockA->get_block({frzcpi_, nalphapi_}, {frzcpi_, nalphapi_})->write_to_dpdfile2(&Fd);
+    global_dpd_->file2_close(&Fd);
+
+    global_dpd_->file2_init(&Fd, PSIF_LIBTRANS_DPD, 0, ID('o'), ID('o'), "FD <o|o>");
+    FockB->get_block({frzcpi_, nbetapi_}, {frzcpi_, nbetapi_})->write_to_dpdfile2(&Fd);
+    global_dpd_->file2_close(&Fd);
+
+    global_dpd_->file2_init(&Fd, PSIF_LIBTRANS_DPD, 0, ID('V'), ID('V'), "FD <V|V>");
+    FockA->get_block({nalphapi_, nmopi_ - frzvpi_}, {nalphapi_, nmopi_ - frzvpi_})->write_to_dpdfile2(&Fd);
+    global_dpd_->file2_close(&Fd);
+
+    global_dpd_->file2_init(&Fd, PSIF_LIBTRANS_DPD, 0, ID('v'), ID('v'), "FD <v|v>");
+    FockB->get_block({nbetapi_, nmopi_ - frzvpi_}, {nbetapi_, nmopi_ - frzvpi_})->write_to_dpdfile2(&Fd);
+    global_dpd_->file2_close(&Fd);
 
     // outfile->Printf("\n denominators done. \n");
 }  // end denominators

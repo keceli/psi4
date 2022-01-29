@@ -5,7 +5,6 @@ list(APPEND sources
   cepa_iterations.cc
   coord_grad.cc
   corr_tpdm.cc
-  diis.cc
   dpd.cc
   ekt_ea.cc
   ekt_ip.cc
@@ -18,6 +17,7 @@ list(APPEND sources
   gfock_ea.cc
   idp.cc
   idp2.cc
+  iterate_t2o1_amplitudes.cc
   kappa_msd.cc
   kappa_orb_resp.cc
   kappa_orb_resp_iter.cc
@@ -26,18 +26,16 @@ list(APPEND sources
   mograd.cc
   occ_iterations.cc
   occwave.cc
-  ocepa_g_int.cc
   ocepa_response_pdms.cc
-  ocepa_t2_1st_sc.cc
   omp2_ip_poles.cc
   omp2_response_pdms.cc
-  omp2_t2_1st.cc
   omp3_g_int.cc
   omp3_ip_poles.cc
   omp3_response_pdms.cc
-  omp3_t2_1st_general.cc
-  omp3_t2_1st_sc.cc
+  postprocessing.cc
+  second_order_opdm.cc
   semi_canonic.cc
+  set_t2_amplitudes_mp2.cc
   t1_1st.cc
   t2_2nd_general.cc
   t2_2nd_sc.cc
@@ -56,3 +54,5 @@ list(APPEND sources
   z_vector.cc
   )
 psi4_add_module(bin occ sources)
+
+target_link_libraries(occ PUBLIC diis)

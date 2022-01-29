@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -75,7 +75,6 @@ void OCCWave::kappa_msd() {
         // print
         if (print_ > 2) {
             kappaA->print();
-            kappa_barA->print();
         }
 
     }  // end if (reference_ == "RESTRICTED")

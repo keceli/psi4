@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -30,7 +30,6 @@
 #include <cstdio>
 
 #include "blas.h"
-#include "debugging.h"
 #include "matrix.h"
 #include "psi4/psi4-dec.h"
 namespace psi {
@@ -62,6 +61,13 @@ CCOperation::CCOperation(double in_factor, std::string in_assignment, std::strin
       A_Matrix(in_A_Matrix),
       B_Matrix(in_B_Matrix),
       C_Matrix(in_C_Matrix) {
+    if (in_B_Matrix != nullptr && in_A_Matrix->wfn() != in_B_Matrix->wfn()) {
+        throw PSIEXCEPTION("\nError in CCOperation construction. Matrices A and B must have the same wavefunction.");
+    } else if (in_C_Matrix != nullptr && in_A_Matrix->wfn() != in_C_Matrix->wfn()) {
+        throw PSIEXCEPTION("\nError in CCOperation construction. Matrices A and C must have the same wavefunction.");
+    } else {
+        wfn_ = in_A_Matrix->wfn();
+    }
     local_work = work;
     out_of_core_buffer = buffer;
 }
@@ -86,23 +92,6 @@ void CCOperation::print_operation() {
     if (B_Matrix != nullptr) outfile->Printf(" %s", B_Matrix->get_label().c_str());
     outfile->Printf(" %s", operation.c_str());
     if (C_Matrix != nullptr) outfile->Printf(" %s", C_Matrix->get_label().c_str());
-}
-
-void CCOperation::print_timing() {
-    DEBUGGING(1, outfile->Printf("\n-----------------------------------------");
-              outfile->Printf("\nzero_timing             = %f", zero_timing);
-              outfile->Printf("\nnumerical_timing        = %f", numerical_timing);
-              outfile->Printf("\ncontract_timing         = %f", contract_timing);
-              outfile->Printf("\ntensor_timing           = %f", tensor_timing);
-              outfile->Printf("\ndot_timing              = %f", dot_timing);
-              outfile->Printf("\nplus_timing             = %f", plus_timing);
-              outfile->Printf("\nproduct_timing          = %f", product_timing);
-              outfile->Printf("\ndivision_timing         = %f", division_timing);
-              outfile->Printf("\nsort_timing             = %f", sort_timing);
-              outfile->Printf("\nPartA_timing            = %f", PartA_timing);
-              outfile->Printf("\nPartB_timing            = %f", PartB_timing);
-              outfile->Printf("\nPartC_timing            = %f", PartC_timing);
-              outfile->Printf("\n-----------------------------------------\n"););
 }
 
 }  // namespace psimrcc

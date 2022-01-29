@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -224,6 +224,11 @@ class USAPT0 {
     std::shared_ptr<Vector> eps_fvirb_A_;
     // Monomer B eps vector (frozen vir), beta spin
     std::shared_ptr<Vector> eps_fvirb_B_;
+
+    // Convenience flag to check whether or not exchange terms
+    // for each spin should be computed
+    bool alpha_exchange_;
+    bool beta_exchange_;
 
     // Shared matrices (Fock-like)
     std::map<std::string, std::shared_ptr<Matrix> > vars_;

@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -63,7 +63,8 @@ class MatrixBase {
 class BlockMatrix {
    public:
     // Constructor and destructor
-    BlockMatrix(int nirreps, std::vector<size_t>& rows_size_, std::vector<size_t>& cols_size_, int sym);
+    BlockMatrix(std::shared_ptr<PSIMRCCWfn> wfn, std::vector<size_t>& rows_size_, std::vector<size_t>& cols_size_,
+                int sym);
     ~BlockMatrix();
 
     void print();
@@ -98,6 +99,7 @@ class BlockMatrix {
     std::vector<size_t> cols_offset;
     int nirreps;
     int sym;
+    std::shared_ptr<PSIMRCCWfn> wfn_;
 };
 
 class IndexMatrix {

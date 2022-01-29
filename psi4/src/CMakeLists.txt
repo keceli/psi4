@@ -1,6 +1,26 @@
 ### >> Create core target, so we may link modules to it directly <<
 ### >> This allow to propagate dependencies upwards sanely
-pybind11_add_module(core SHARED NO_EXTRAS core.cc)
+add_library(core SHARED core.cc)
+
+include_directories(
+    ${Python_INCLUDE_DIRS}
+)
+target_link_libraries(core
+  PRIVATE
+    Python::Module
+)
+target_link_libraries(core
+  PRIVATE
+    pybind11::module
+    pybind11::lto
+    pybind11::windows_extras
+)
+pybind11_extension(core)
+if(NOT MSVC AND NOT ${CMAKE_BUILD_TYPE} MATCHES Debug|RelWithDebInfo)
+    # Strip unnecessary sections of the binary on Linux/macOS
+    pybind11_strip(core)
+endif()
+set_target_properties(core PROPERTIES CXX_VISIBILITY_PRESET "hidden" VISIBILITY_INLINES_HIDDEN 1)
 
 ### >> Go into psi4 subdirectory to compile libraries and modules <<
 add_subdirectory(psi4)
@@ -15,10 +35,9 @@ target_sources(core
     export_benchmarks.cc
     export_blas_lapack.cc
     export_cubeprop.cc
-    export_diis.cc
+    export_dpd.cc
     export_fock.cc
     export_functional.cc
-    export_mints.cc
     export_misc.cc
     export_oeprop.cc
     export_pcm.cc
@@ -32,12 +51,31 @@ target_sources(core
     python_data_type.cc
   )
 
-set_target_properties(core
-  PROPERTIES
-    CXX_VISIBILITY_PRESET hidden
-    POSITION_INDEPENDENT_CODE 1
-    VISIBILITY_INLINES_HIDDEN 1
+# need to down-standard the Libint2 connection from c++17 for Intel as of 2021.4
+add_library(l2export OBJECT export_mints.cc)
+set_property(TARGET l2export PROPERTY CXX_STANDARD 14)
+set_property(TARGET l2export PROPERTY POSITION_INDEPENDENT_CODE ON)
+target_include_directories(l2export
+  PRIVATE
+    $<TARGET_PROPERTY:Libint2::cxx,INTERFACE_INCLUDE_DIRECTORIES>
   )
+if(MSVC)
+  target_link_libraries(l2export
+    PRIVATE
+      pybind11::headers
+      pybind11::windows_extras
+    )
+endif()
+target_link_libraries(core PRIVATE l2export)
+
+# set_target_properties(core
+   # PROPERTIES
+     # implicit in pybind11_add_module
+     # CXX_VISIBILITY_PRESET hidden
+     # implicit in add_library MODULE called by pybind11_add_module
+     # POSITION_INDEPENDENT_CODE 1
+     # VISIBILITY_INLINES_HIDDEN 1
+   # )
 
 get_property(psi4_binmodules GLOBAL PROPERTY LINKBINLIST)
 get_property(psi4_libmodules GLOBAL PROPERTY LINKLIBLIST)
@@ -51,6 +89,21 @@ target_link_libraries(core
     tgt::lapack # OpenMP flags to core.cc
   )
 
+if(TARGET BrianQC::static_wrapper)
+  target_compile_definitions(core
+    PRIVATE
+      USING_BrianQC
+    )
+  target_include_directories(core
+    PRIVATE
+      $<TARGET_PROPERTY:BrianQC::static_wrapper,INTERFACE_INCLUDE_DIRECTORIES>
+    )
+  target_link_libraries(core
+    PRIVATE
+      BrianQC::static_wrapper
+    )
+endif()
+
 if(Fortran_ENABLED AND CMAKE_Fortran_COMPILER_ID MATCHES Intel)
   # Enable call to for_rtl_init_() which is required if using the
   # Intel fortran compiler
@@ -61,14 +114,16 @@ if(Fortran_ENABLED AND CMAKE_Fortran_COMPILER_ID MATCHES Intel)
 endif()
 
 if(MSVC)
+  # gethostname
   target_link_libraries(core PRIVATE Ws2_32)
-  # Increase the number of addressable sections
-  target_compile_options(core PRIVATE "/bigobj")
+  # Increase the number of addressable sections. Now covered by pybind11_add_module linking with pybind11::windows_extras
+  # target_compile_options(core PRIVATE "/bigobj")
 endif()
 
 target_include_directories(core
   INTERFACE
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+    $<TARGET_PROPERTY:Libint2::cxx,INTERFACE_INCLUDE_DIRECTORIES>
   )
 
 install(TARGETS core
@@ -128,9 +183,11 @@ endforeach()
 list(REMOVE_DUPLICATES psi4_RPATH)
 message(STATUS "Psi4 rpath: ${psi4_RPATH}")
 
-set_target_properties(core PROPERTIES PREFIX "${PYTHON_MODULE_PREFIX}"  # for python module
+set_target_properties(core PROPERTIES
                            OUTPUT_NAME core
                            EXPORT_NAME core
-                           SUFFIX "${PYTHON_MODULE_EXTENSION}" # for python module
+                           # PREFIX/SUFFIX covered by pybind11_extension in pybind11_add_module
+                           # PREFIX "${PYTHON_MODULE_PREFIX}"  # for python module
+                           # SUFFIX "${PYTHON_MODULE_EXTENSION}" # for python module
                            INSTALL_RPATH "${psi4_RPATH}"
                            BUILD_WITH_INSTALL_RPATH ON)

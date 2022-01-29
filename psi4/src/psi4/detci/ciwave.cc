@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -41,6 +41,7 @@
 #include "psi4/detci/slaterd.h"
 #include "psi4/libpsi4util/PsiOutStream.h"
 #include "psi4/libpsi4util/process.h"
+#include "psi4/libpsio/psio.hpp"
 
 #include "psi4/pragma.h"
 PRAGMA_WARNING_PUSH
@@ -65,6 +66,8 @@ CIWavefunction::~CIWavefunction() {
 }
 
 void CIWavefunction::common_init() {
+    psio_ = _default_psio_lib_; // We can't assume the incoming ref_wfn had its own psio
+
     title((options_.get_str("WFN") == "CASSCF") || (options_.get_str("WFN") == "RASSCF"));
 
     // Build and set structs
@@ -121,6 +124,7 @@ void CIWavefunction::common_init() {
     if (Parameters_->bendazzoli) form_ov();
 
     name_ = "CIWavefunction";
+    module_ = "detci";
 
     // Init H0 block
     H0block_init(CIblks_->vectlen);
@@ -379,7 +383,7 @@ void CIWavefunction::convergence_death() {
 }
 SharedMatrix CIWavefunction::get_tpdm(const std::string& spin, bool symmetrize) {
     if (!tpdm_called_) {
-        throw PSIEXCEPTION("CIWavefunction::get_opdm: OPDM was not formed!");
+        throw PSIEXCEPTION("CIWavefunction::get_tpdm: TPDM was not formed!");
     }
 
     if (symmetrize) {
@@ -437,6 +441,14 @@ SharedMatrix CIWavefunction::get_tpdm(const std::string& spin, bool symmetrize) 
         else
             throw PSIEXCEPTION("CIWavefunction::get_tpdm: Spin type must be AA, AB, BB, or SUM.");
     }
+}
+
+void CIWavefunction::reset_ci_H0block() {
+    // Free H0block
+    H0block_free();
+
+    // initialize H0block
+    H0block_init(CIblks_->vectlen);
 }
 
 /*

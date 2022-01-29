@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -34,57 +34,80 @@
 
 namespace psi {
 
-class PSI_API OverlapOrthog {
+/*! \ingroup MINTS
+ *  \class BasisSetOrthogonalization
+ *  \brief Implements methods for orthogonalizing basis sets.
+ */
+class PSI_API BasisSetOrthogonalization {
    public:
     /// An enum for the types of orthogonalization.
-    enum OrthogMethod { Symmetric, Canonical, GramSchmidt };
+    enum OrthogonalizationMethod { Symmetric, Canonical, PartialCholesky, Automatic };
 
    private:
-    int debug_;
+    int print_;
 
-    Dimension dim_;
-    Dimension orthog_dim_;
+    /// Matrix to decompose
+    SharedMatrix overlap_;
+    /// Normalized version of the input matrix
+    SharedMatrix normalized_overlap_;
+    /// Normalization coefficients
+    SharedVector normalization_;
+    /// its eigenvectors
+    SharedMatrix eigvec_;
+    /// and eigenvalues
+    SharedVector eigval_;
 
     /** The tolerance for linearly independent basis functions.
      * The interpretation depends on the orthogonalization
      * method.
      */
     double lindep_tol_;
-    /// The number of linearly dependent functions
-    int nlindep_;
+    /// The Cholesky decomposition threshold
+    double cholesky_tol_;
     /// The orthogonalization method
-    OrthogMethod orthog_method_;
-    // The orthogonalization matrices
-    SharedMatrix orthog_trans_;
-    SharedMatrix orthog_trans_inverse_;
+    OrthogonalizationMethod orthog_method_;
+    /// The orthogonalizing matrix
+    SharedMatrix X_;
+    /// ... and its inverse
+    SharedMatrix Xinv_;
 
-    /// @{
-    /** The minimum and maximum residual from the
-     * orthogonalizationprocedure. The interpretation depends
-     * on the method used. For symmetry and canonical, these
-     * are the min and max overlap eigenvalues. These are the
-     * residuals for the basis functions that actually end
-     * up being used.
-     */
-    double min_orthog_res_;
-    double max_orthog_res_;
+    /// Smallest eigenvalue
+    double min_S_;
+    /// Reciprocal condition number
+    double rcond_;
     /// @}
 
-    void compute_overlap_eig(Matrix& overlap_eigvec, Vector& isqrt_eigval, Vector& sqrt_eigval);
-    void compute_symmetric_orthog();
-    void compute_canonical_orthog();
-    void compute_gs_orthog();
-    void compute_orthog_trans();
+    /** Normalizes the basis set. This is important for the partial
+        Cholesky decomposition, as otherwise the functions with most
+        overlap i.e. the most diffuse ones get handled first by the
+        algorithm, which is exactly the wrong way around.
+    */
+    void normalize();
+    /// Once X has been formed, unroll the normalization into X
+    void unroll_normalization();
 
-    SharedMatrix overlap_;
+    /// Given X, compute Xinv = S*X
+    void compute_inverse();
+    /// Compute eigendecomposition
+    void compute_overlap_eig();
+    /// Symmetric orthogonalization
+    void compute_symmetric_orthog();
+    /// Canonical orthogonalization
+    void compute_canonical_orthog();
+    /// Partial Cholesky orthogonalization
+    void compute_partial_cholesky_orthog();
+    /// Driver routine
+    void compute_orthog_trans();
+    /// Check computed basis is orthonormal
+    void check_orth();
+    /// Sort the basis functions from tight to diffuse
+    std::vector<std::vector<int>> sort_indices() const;
 
    public:
-    OverlapOrthog(OrthogMethod method, SharedMatrix overlap, double lindep_tolerance, int debug = 0);
+    BasisSetOrthogonalization(OrthogonalizationMethod method, SharedMatrix overlap, double lindep_tolerance,
+                              double cholesky_tolerance, int print = 0);
 
-    double min_orthog_res() const { return min_orthog_res_; }
-    double max_orthog_res() const { return max_orthog_res_; }
-
-    OrthogMethod orthog_method() const { return orthog_method_; }
+    OrthogonalizationMethod orthog_method() const { return orthog_method_; }
 
     double lindep_tol() const { return lindep_tol_; }
 
@@ -107,10 +130,15 @@ class PSI_API OverlapOrthog {
     /// Return an $S^{-1}$.
     SharedMatrix overlap_inverse();
 
+    /// Number of basis functions
     Dimension dim();
+    /// Number of orthogonal functions
     Dimension orthog_dim();
 
+    /// Number of independent functions
     int nlindep();
+    /// Number of independent functions in symmetry block h
+    int nlindep(int h);
 };
 
 }  // namespace psi

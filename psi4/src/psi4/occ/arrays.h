@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -94,6 +94,8 @@ class Array1d {
     int dim1() const { return dim1_; }
     // dirprd: A1d_[i] = a[i] * b[i]
     void dirprd(Array1d* a, Array1d* b);
+    std::string name() const { return name_; }
+    const double* array() const { return A1d_; }
 
     friend class Array2d;
     friend class Array3d;

@@ -1,7 +1,14 @@
-import subprocess
-
 import pytest
+
 from qcelemental.util import parse_version, which, which_import
+from qcengine.testing import _programs as _programs_qcng
+
+import psi4
+
+__all__ = [
+    "hardware_nvidia_gpu",
+    "using",
+]
 
 
 def is_psi4_new_enough(version_feature_introduced):
@@ -9,24 +16,6 @@ def is_psi4_new_enough(version_feature_introduced):
         return False
     import psi4
     return parse_version(psi4.__version__) >= parse_version(version_feature_introduced)
-
-
-def is_numpy_new_enough(version_feature_introduced):
-    if not which_import('numpy', return_bool=True):
-        return False
-    import numpy
-    return parse_version(numpy.version.version) >= parse_version(version_feature_introduced)
-
-
-def is_dftd3_new_enough(version_feature_introduced):
-    if not which('dftd3', return_bool=True):
-        return False
-    # Note: anything below v3.2.1 will return the help menu here. but that's fine as version compare evals to False.
-    command = [which('dftd3'), '-version']
-    proc = subprocess.run(command, stdout=subprocess.PIPE)
-    candidate_version = proc.stdout.decode('utf-8').strip()
-
-    return parse_version(candidate_version) >= parse_version(version_feature_introduced)
 
 
 def is_nvidia_gpu_present():
@@ -50,37 +39,61 @@ def is_nvidia_gpu_present():
             return ngpu > 0
 
 
-hardware_nvidia_gpu = pytest.mark.skipif(is_nvidia_gpu_present() is False,
-                                         reason='Psi4 not detecting Nvidia GPU via `nvidia-smi`. Install one')
+# Figure out what is imported
+# * only using psi4.addons for C-linked b/c _programs more responsive to env
+# * `which` not taking PSIPATH into account
+_programs = {
+    # non-QC
+    "memory_profiler": which_import('memory_profiler', return_bool=True),
+    "networkx": which_import("networkx", return_bool=True),
 
-using_memory_profiler = pytest.mark.skipif(
-    which_import('memory_profiler', return_bool=True) is False,
-    reason='Not detecting module memory_profiler. Install package if necessary and add to envvar PYTHONPATH')
+    # QC
+    "adcc": which_import("adcc", return_bool=True),
+    "ambit": psi4.addons("ambit"),
+    "cct3": which_import("cct3", return_bool=True),
+    "chemps2": psi4.addons("chemps2"),
+    "cppe": which_import("cppe", return_bool=True),  # package pycppe, import cppe
+    "dkh": psi4.addons("dkh"),
+    "libefp": which_import("pylibefp", return_bool=True),
+    "erd": psi4.addons("erd"),
+    "fockci": which_import("psi4fockci", return_bool=True),  # package fockci, import psi4fockci
+    "forte": which_import("forte", return_bool=True),
+    "gdma": psi4.addons("gdma"),
+    "gpu_dfcc": which_import("gpu_dfcc", return_bool=True),
+    "ipi": which_import("ipi", return_bool=True),
+    "mrcc": which("dmrcc", return_bool=True),
+    "pcmsolver": psi4.addons("pcmsolver"),
+    "psixas": which_import("psixas", return_bool=True),
+    "resp": which_import("resp", return_bool=True),
+    "simint": psi4.addons("simint"),
+    "snsmp2": which_import("snsmp2", return_bool=True),
+    "v2rdm_casscf": which_import("v2rdm_casscf", return_bool=True),
+    "qcdb": False,  # capabilities of in-psi and out-of-psi qcdb not aligned
+}
 
-using_psi4 = pytest.mark.skipif(
-    False, reason='Not detecting module psi4. Install package if necessary and add to envvar PYTHONPATH')
 
-using_qcdb = pytest.mark.skipif(
-    True, reason='Not detecting common driver. Install package if necessary and add to envvar PYTHONPATH')
+def has_program(name):
+    if name in _programs:
+        return _programs[name]
+    elif name in _programs_qcng:
+        return _programs_qcng[name]
+    else:
+        raise KeyError(f"Program {name} not registered with Psi4 testing.")
 
-using_dftd3 = pytest.mark.skipif(
-    which('dftd3', return_bool=True) is False,
-    reason='Not detecting executable dftd3. Install package if necessary and add to envvar PATH or PSIPATH')
 
-using_dftd3_321 = pytest.mark.skipif(is_dftd3_new_enough("3.2.1") is False,
-                                     reason='DFTD3 does not include 3.2.1 features. Update package and add to PATH')
+_using_cache = {}
 
-using_gcp = pytest.mark.skipif(
-    which("gcp", return_bool=True) is False,
-    reason="Not detecting executable gcp. Install package if necessary and add to envvar PATH")
 
-using_mp2d = pytest.mark.skipif(
-    which('mp2d', return_bool=True) is False,
-    reason='Not detecting executable mp2d. Install package if necessary and add to envvar PATH')
+def using(program):
 
-#using_psi4_libxc = pytest.mark.skipif(is_psi4_new_enough("1.2a1.dev100") is False,
-#                                reason="Psi4 does not include DFT rewrite to use Libxc. Update to development head")
+    if program not in _using_cache:
+        import_message = f"Not detecting module {program}. Install package if necessary to enable tests."
+        skip = pytest.mark.skipif(has_program(program) is False, reason=import_message)
+        _using_cache[program] = skip
 
-using_networkx = pytest.mark.skipif(
-    which_import('networkx', return_bool=True) is False,
-    reason='Not detecting module networkx. Install package if necessary and add to envvar PYTHONPATH')
+    return _using_cache[program]
+
+
+hardware_nvidia_gpu = pytest.mark.skipif(
+    True,  #is_nvidia_gpu_present() is False,
+    reason='Psi4 not detecting Nvidia GPU via `nvidia-smi`. Install one')

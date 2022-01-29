@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -56,12 +56,20 @@ class PSI_API MintsHelper {
     std::shared_ptr<MatrixFactory> factory_;
     std::shared_ptr<Molecule> molecule_;
     std::shared_ptr<IntegralFactory> integral_;
+
+    /// The ORBITAL basis
     std::shared_ptr<BasisSet> basisset_;
+
+    /// DF/RI/F12/etc basis sets
+    std::map<std::string, std::shared_ptr<BasisSet>> basissets_;
+
     std::shared_ptr<SOBasisSet> sobasis_;
     std::shared_ptr<TwoBodyAOInt> eriInts_;
-    std::shared_ptr<BasisSet> rel_basisset_;
+
     int print_;
     int nthread_;
+
+    std::map<std::pair<std::string, bool>, SharedMatrix> cached_oe_ints_;
 
     /// Value which any two-electron integral is below is discarded
     double cutoff_;
@@ -81,15 +89,45 @@ class PSI_API MintsHelper {
 
     void common_init();
 
+    /**
+     * @brief Compute a one-body operator matrix.
+     * 
+     * This function takes in a vector of OneBodyAOInt objects and outputs a matrix
+     * representation of the one-body operator.
+     * 
+     * @param[in] ints Vector of OneBodyAOInt integrals
+     * @param[out] out Matrix containing the one-body operator
+     * @param[in] symm Use symmetry flag
+    */
     void one_body_ao_computer(std::vector<std::shared_ptr<OneBodyAOInt>> ints, SharedMatrix out, bool symm);
     void grad_two_center_computer(std::vector<std::shared_ptr<OneBodyAOInt>> ints, SharedMatrix D, SharedMatrix out);
+    /// Helper function to convert ao integrals to so and cache them
+    void cache_ao_to_so_ints(SharedMatrix ao_ints, const std::string& label, bool include_perturbation);
+    /// Returns true if an integral type is already computed and cached
+    bool are_ints_cached(const std::string& label, bool include_perturbation);
+
+    /// Computes X2C overlap, kinetic, and potential integrals
+    void compute_so_x2c_ints(bool include_perturbations = true);
+    /// Add dipole perturbation to the potential integrals
+    void add_dipole_perturbation(SharedMatrix potential_mat);
+    /// Returns the non-relativistic overlap integrals in the so basis
+    SharedMatrix so_overlap_nr();
+    /// Returns the non-relativistic kinetic integrals in the so basis
+    SharedMatrix so_kinetic_nr();
+    /// Returns the non-relativistic potential integrals in the so basis
+    SharedMatrix so_potential_nr(bool include_perturbations = true);
 
    public:
+    /// Class initialization from Wavefunction
     void init_helper(std::shared_ptr<Wavefunction> wavefunction = std::shared_ptr<Wavefunction>());
-    void init_helper(std::shared_ptr<BasisSet> basis);
+    /// Class initialization from orbital BasisSet and a map of BasisSet objects
+    void init_helper(std::shared_ptr<BasisSet> basis, std::map<std::string, std::shared_ptr<psi::BasisSet>> basissets =
+                                                          std::map<std::string, std::shared_ptr<psi::BasisSet>>());
 
     /// Constructor, using basisset
     MintsHelper(std::shared_ptr<BasisSet> basis, Options& options = Process::environment.options, int print = 0);
+    MintsHelper(std::shared_ptr<BasisSet> basis, std::map<std::string, std::shared_ptr<psi::BasisSet>> basissets,
+                Options& options = Process::environment.options, int print = 0);
 
     /// Constructor, using wavefunction
     MintsHelper(std::shared_ptr<Wavefunction> wavefunction);
@@ -122,7 +160,11 @@ class PSI_API MintsHelper {
     /// Integral factory being used
     std::shared_ptr<IntegralFactory> integral() const;
 
-    void set_rel_basisset(std::shared_ptr<BasisSet> rel_basis) { rel_basisset_ = rel_basis; }
+    /// Getters and setters for other basis sets
+    std::map<std::string, std::shared_ptr<BasisSet>> basissets() const {return basissets_; };
+    std::shared_ptr<BasisSet> get_basisset(std::string label);
+    void set_basisset(std::string label, std::shared_ptr<BasisSet> basis);
+    bool basisset_exists(std::string label);
 
     /// Molecular integrals (just like cints used to do)
     void integrals();
@@ -146,13 +188,23 @@ class PSI_API MintsHelper {
     // Derivatives of OEI in AO and MO basis
     std::vector<SharedMatrix> ao_oei_deriv1(const std::string& oei_type, int atom);
     std::vector<SharedMatrix> ao_oei_deriv2(const std::string& oei_type, int atom1, int atom2);
+    std::vector<SharedMatrix> ao_overlap_half_deriv1(const std::string& half_der_side, int atom);
     std::vector<SharedMatrix> ao_overlap_kinetic_deriv1_helper(const std::string& type, int atom);
+    std::vector<SharedMatrix> ao_overlap_half_deriv1_helper(const std::string& half_der_side, int atom);
     std::vector<SharedMatrix> ao_potential_deriv1_helper(int atom);
     std::vector<SharedMatrix> ao_overlap_kinetic_deriv2_helper(const std::string& type, int atom1, int atom2);
     std::vector<SharedMatrix> ao_potential_deriv2_helper(int atom1, int atom2);
     std::vector<SharedMatrix> mo_oei_deriv1(const std::string& oei_type, int atom, SharedMatrix C1, SharedMatrix C2);
     std::vector<SharedMatrix> mo_oei_deriv2(const std::string& oei_type, int atom1, int atom2, SharedMatrix C1,
                                             SharedMatrix C2);
+    std::vector<SharedMatrix> mo_overlap_half_deriv1(const std::string& half_der_side, int atom, SharedMatrix C1, 
+                                                     SharedMatrix C2);
+
+    // Derivatives of electric dipole moment integrals in AO and MO basis
+    std::vector<SharedMatrix> ao_elec_dip_deriv1(int atom);
+    std::vector<SharedMatrix> ao_elec_dip_deriv1_helper(int atom);
+    std::vector<SharedMatrix> mo_elec_dip_deriv1(int atom, SharedMatrix C1, SharedMatrix C2);
+
     // Derivatives of TEI in AO and MO basis
     std::vector<SharedMatrix> ao_tei_deriv1(int atom, double omega = 0.0, std::shared_ptr<IntegralFactory> = nullptr);
     std::vector<SharedMatrix> ao_tei_deriv2(int atom1, int atom2);
@@ -160,6 +212,8 @@ class PSI_API MintsHelper {
                                             SharedMatrix C4);
     std::vector<SharedMatrix> mo_tei_deriv2(int atom1, int atom2, SharedMatrix C1, SharedMatrix C2, SharedMatrix C3,
                                             SharedMatrix C4);
+    std::vector<SharedMatrix> ao_metric_deriv1(int atom, const std::string& aux_name);
+    std::vector<SharedMatrix> ao_3center_deriv1(int atom, const std::string& aux_name);
 
     /// AO ERF Integrals
     SharedMatrix ao_erf_eri(double omega, std::shared_ptr<IntegralFactory> = nullptr);
@@ -244,19 +298,25 @@ class PSI_API MintsHelper {
     /// Vector AO Traceless Quadrupole Integrals
     std::vector<SharedMatrix> ao_traceless_quadrupole();
     /// AO EFP Multipole Potential Integrals
-    std::vector<SharedMatrix> ao_efp_multipole_potential(const std::vector<double>& origin = {0., 0., 0.}, int deriv = 0);
+    std::vector<SharedMatrix> ao_efp_multipole_potential(const std::vector<double>& origin = {0., 0., 0.},
+                                                         int deriv = 0);
     // AO EFP Multipole Potential Integrals
-    std::vector<SharedMatrix> ao_multipole_potential(const std::vector<double>& origin = {0., 0., 0.}, int max_k = 0, int deriv = 0);
+    std::vector<SharedMatrix> ao_multipole_potential(const std::vector<double>& origin = {0., 0., 0.}, int max_k = 0,
+                                                     int deriv = 0);
     /// Electric Field Integrals
     std::vector<SharedMatrix> electric_field(const std::vector<double>& origin = {0., 0., 0.}, int deriv = 0);
+    /// Induction Operator for dipole moments at given sites
+    SharedMatrix induction_operator(SharedMatrix coords, SharedMatrix moment);
+    /// Electric Field Value at given sites
+    SharedMatrix electric_field_value(SharedMatrix coords, SharedMatrix D);
     /// Vector AO Angular Momentum Integrals
     std::vector<SharedMatrix> ao_angular_momentum();
     /// Vector AO Nabla Integrals
     std::vector<SharedMatrix> ao_nabla();
     /// SO Overlap Integrals
-    SharedMatrix so_overlap();
+    SharedMatrix so_overlap(bool include_perturbations = true);
     /// SO Kinetic Integrals
-    SharedMatrix so_kinetic();
+    SharedMatrix so_kinetic(bool include_perturbations = true);
     /// SO ECP Integrals
     SharedMatrix so_ecp();
     /// SO Potential Integrals
@@ -284,6 +344,10 @@ class PSI_API MintsHelper {
 
     // Computes all "core" gradient terms T + V + perturb
     SharedMatrix core_hamiltonian_grad(SharedMatrix D);
+    // Computes the metric derivative gradient terms for DF methods
+    // Uses a vector of "densities" for methods that decompose the "densities"
+    std::map<std::string, SharedMatrix> metric_grad(std::map<std::string, SharedMatrix>& D, const std::string& aux_name);
+    SharedMatrix three_idx_grad(const std::string& aux_name, const std::string& intermed_name, const std::string& gradient_name);
 
     SharedMatrix kinetic_grad(SharedMatrix D);
     SharedMatrix potential_grad(SharedMatrix D);

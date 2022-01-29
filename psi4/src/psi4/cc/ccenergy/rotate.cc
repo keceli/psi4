@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -126,16 +126,9 @@ int CCEnergyWavefunction::rotate() {
         outfile->Printf("    Rotating orbitals.  Maximum T1 = %15.12f\n", std::fabs(max));
 
     /* grab the SO-basis overlap integrals for later use */
-    auto SO_S = block_matrix(nso, nso);
-    auto ntri = nso * (nso + 1) / 2;
-    auto scratch = init_array(ntri);
-    auto stat = iwl_rdone(PSIF_OEI, PSIF_SO_S, scratch, ntri, 0, 0, "outfile");
-    for (int i = 0, ij = 0; i < nso; i++)
-        for (int j = 0; j <= i; j++, ij++) {
-            SO_S[i][j] = SO_S[j][i] = scratch[ij];
-        }
-    free(scratch);
+    auto SO_S = S_->to_block_matrix();
 
+    int stat = 0;
     if (params_.ref == 0) { /* RHF */
 
         U = block_matrix(nmo, nmo);
@@ -238,8 +231,11 @@ int CCEnergyWavefunction::rotate() {
         Fvv = (double ***)malloc(nirreps * sizeof(double **));
         X = block_matrix(nmo, nmo);
         for (int h = 0; h < nirreps; h++) {
-            /* leave the frozen core orbitals alone */
+            /* leave the frozen orbitals alone */
             for (int i = offset[h]; i < offset[h] + moinfo_.frdocc[h]; i++) X[i][i] = 1.0;
+            for (int end = offset[h] + moinfo_.orbspi[h], start = end - moinfo_.fruocc[h],
+                 i = start; i < end; i++)
+                X[i][i] = 1.0;
 
             Foo[h] = block_matrix(moinfo_.occpi[h], moinfo_.occpi[h]);
             Fvv[h] = block_matrix(moinfo_.virtpi[h], moinfo_.virtpi[h]);
@@ -250,10 +246,9 @@ int CCEnergyWavefunction::rotate() {
                      j++, J++)
                     Foo[h][I][J] = fock[i][j];
 
-            for (int a = offset[h] + moinfo_.frdocc[h] + moinfo_.occpi[h], A = 0; a < offset[h] + moinfo_.orbspi[h];
-                 a++, A++)
-                for (int b = offset[h] + moinfo_.frdocc[h] + moinfo_.occpi[h], B = 0; b < offset[h] + moinfo_.orbspi[h];
-                     b++, B++)
+            for (int start = offset[h] + moinfo_.frdocc[h] + moinfo_.occpi[h],
+                 end = start + moinfo_.virtpi[h], a = start, A = 0; a < end; a++, A++)
+                for (int b = start, B = 0; b < end; b++, B++)
                     Fvv[h][A][B] = fock[a][b];
 
             /*
@@ -303,10 +298,10 @@ int CCEnergyWavefunction::rotate() {
     mat_print(Fvv[h], moinfo.virtpi[h], moinfo.virtpi[h], outfile);
     */
 
-                for (int a = offset[h] + moinfo_.frdocc[h] + moinfo_.occpi[h], A = 0; a < offset[h] + moinfo_.orbspi[h];
-                     a++, A++)
-                    for (int b = offset[h] + moinfo_.frdocc[h] + moinfo_.occpi[h], B = 0;
-                         b < offset[h] + moinfo_.orbspi[h]; b++, B++)
+                for (int start = offset[h] + moinfo_.frdocc[h] + moinfo_.occpi[h],
+                     end = start + moinfo_.virtpi[h],
+                     a = start, A = 0; a < end; a++, A++)
+                    for (int b = start, B = 0; b < end; b++, B++)
                         X[a][b] = Fvv[h][B][A];
             }
 
@@ -546,8 +541,11 @@ int CCEnergyWavefunction::rotate() {
         Fvv = (double ***)malloc(nirreps * sizeof(double **));
         X = block_matrix(nmo, nmo);
         for (int h = 0; h < nirreps; h++) {
-            /* leave the frozen core orbitals alone */
+            /* leave the frozen orbitals alone */
             for (int i = offset[h]; i < offset[h] + moinfo_.frdocc[h]; i++) X[i][i] = 1.0;
+            for (int end = offset[h] + moinfo_.orbspi[h], start = end - moinfo_.fruocc[h],
+                 i = start; i < end; i++)
+                X[i][i] = 1.0;
 
             Foo[h] = block_matrix(moinfo_.aoccpi[h], moinfo_.aoccpi[h]);
             Fvv[h] = block_matrix(moinfo_.avirtpi[h], moinfo_.avirtpi[h]);
@@ -558,10 +556,9 @@ int CCEnergyWavefunction::rotate() {
                      j < offset[h] + moinfo_.frdocc[h] + moinfo_.aoccpi[h]; j++, J++)
                     Foo[h][I][J] = fock_a[i][j];
 
-            for (int a = offset[h] + moinfo_.frdocc[h] + moinfo_.aoccpi[h], A = 0; a < offset[h] + moinfo_.orbspi[h];
-                 a++, A++)
-                for (int b = offset[h] + moinfo_.frdocc[h] + moinfo_.aoccpi[h], B = 0;
-                     b < offset[h] + moinfo_.orbspi[h]; b++, B++)
+            for (int start = offset[h] + moinfo_.frdocc[h] + moinfo_.aoccpi[h],
+                 end = start + moinfo_.avirtpi[h], a = start, A = 0; a < end; a++, A++)
+                for (int b = start, B = 0; b < end; b++, B++)
                     Fvv[h][A][B] = fock_a[a][b];
 
             if (moinfo_.aoccpi[h]) {
@@ -593,10 +590,10 @@ int CCEnergyWavefunction::rotate() {
                 free(evals);
                 free(work);
 
-                for (int a = offset[h] + moinfo_.frdocc[h] + moinfo_.aoccpi[h], A = 0;
-                     a < offset[h] + moinfo_.orbspi[h]; a++, A++)
-                    for (int b = offset[h] + moinfo_.frdocc[h] + moinfo_.aoccpi[h], B = 0;
-                         b < offset[h] + moinfo_.orbspi[h]; b++, B++)
+                for (int start = offset[h] + moinfo_.frdocc[h] + moinfo_.aoccpi[h],
+                     end = start + moinfo_.avirtpi[h],
+                     a = start, A = 0; a < end; a++, A++)
+                    for (int b = start, B = 0; b < end; b++, B++)
                         X[a][b] = Fvv[h][B][A];
             }
 
@@ -651,8 +648,11 @@ int CCEnergyWavefunction::rotate() {
         Fvv = (double ***)malloc(nirreps * sizeof(double **));
         X = block_matrix(nmo, nmo);
         for (int h = 0; h < nirreps; h++) {
-            /* leave the frozen core orbitals alone */
+            /* leave the frozen orbitals alone */
             for (int i = offset[h]; i < offset[h] + moinfo_.frdocc[h]; i++) X[i][i] = 1.0;
+            for (int end = offset[h] + moinfo_.orbspi[h], start = end - moinfo_.fruocc[h],
+                 i = start; i < end; i++)
+                X[i][i] = 1.0;
 
             Foo[h] = block_matrix(moinfo_.boccpi[h], moinfo_.boccpi[h]);
             Fvv[h] = block_matrix(moinfo_.bvirtpi[h], moinfo_.bvirtpi[h]);
@@ -663,10 +663,10 @@ int CCEnergyWavefunction::rotate() {
                      j < offset[h] + moinfo_.frdocc[h] + moinfo_.boccpi[h]; j++, J++)
                     Foo[h][I][J] = fock_b[i][j];
 
-            for (int a = offset[h] + moinfo_.frdocc[h] + moinfo_.boccpi[h], A = 0; a < offset[h] + moinfo_.orbspi[h];
-                 a++, A++)
-                for (int b = offset[h] + moinfo_.frdocc[h] + moinfo_.boccpi[h], B = 0;
-                     b < offset[h] + moinfo_.orbspi[h]; b++, B++)
+            for (int start = offset[h] + moinfo_.frdocc[h] + moinfo_.boccpi[h],
+                 end = start + moinfo_.bvirtpi[h],
+                 a = start, A = 0; a < end; a++, A++)
+                for (int b = start, B = 0; b < end; b++, B++)
                     Fvv[h][A][B] = fock_b[a][b];
 
             if (moinfo_.boccpi[h]) {
@@ -698,10 +698,10 @@ int CCEnergyWavefunction::rotate() {
                 free(evals);
                 free(work);
 
-                for (int a = offset[h] + moinfo_.frdocc[h] + moinfo_.boccpi[h], A = 0;
-                     a < offset[h] + moinfo_.orbspi[h]; a++, A++)
-                    for (int b = offset[h] + moinfo_.frdocc[h] + moinfo_.boccpi[h], B = 0;
-                         b < offset[h] + moinfo_.orbspi[h]; b++, B++)
+                for (int start = offset[h] + moinfo_.frdocc[h] + moinfo_.boccpi[h],
+                     end = start + moinfo_.bvirtpi[h],
+                     a = start, A = 0; a < end; a++, A++)
+                    for (int b = start, B = 0; b < end; b++, B++)
                         X[a][b] = Fvv[h][B][A];
             }
 

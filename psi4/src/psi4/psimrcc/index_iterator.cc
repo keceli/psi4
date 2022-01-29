@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -26,36 +26,36 @@
  * @END LICENSE
  */
 
-#include "psi4/libmoinfo/libmoinfo.h"
-
 #include "blas.h"
 #include "index.h"
 #include "index_iterator.h"
 
 namespace psi {
 namespace psimrcc {
-extern MOInfo* moinfo;
 
-CCIndexIterator::CCIndexIterator(std::string str) {
-    nirreps = moinfo->get_nirreps();
-    ccindex = blas->get_index(str);
+CCIndexIterator::CCIndexIterator(std::shared_ptr<PSIMRCCWfn> wfn, std::string str)
+    : tuples(wfn->blas()->get_index(str)->get_tuples()) {
+    nirreps = wfn->nirrep();
+    ccindex = wfn->blas()->get_index(str);
     startup(0, nirreps);
 }
 
-CCIndexIterator::CCIndexIterator(CCIndex* index_) {
-    nirreps = moinfo->get_nirreps();
+CCIndexIterator::CCIndexIterator(std::shared_ptr<PSIMRCCWfn> wfn, CCIndex* index_) : tuples(index_->get_tuples()) {
+    nirreps = wfn->nirrep();
     ccindex = index_;
     startup(0, nirreps);
 }
 
-CCIndexIterator::CCIndexIterator(std::string str, int select_irrep) {
-    nirreps = moinfo->get_nirreps();
-    ccindex = blas->get_index(str);
+CCIndexIterator::CCIndexIterator(std::shared_ptr<PSIMRCCWfn> wfn, std::string str, int select_irrep)
+    : tuples(wfn->blas()->get_index(str)->get_tuples()) {
+    nirreps = wfn->nirrep();
+    ccindex = wfn->blas()->get_index(str);
     startup(select_irrep, select_irrep + 1);
 }
 
-CCIndexIterator::CCIndexIterator(CCIndex* index_, int select_irrep) {
-    nirreps = moinfo->get_nirreps();
+CCIndexIterator::CCIndexIterator(std::shared_ptr<PSIMRCCWfn> wfn, CCIndex* index_, int select_irrep)
+    : tuples(index_->get_tuples()) {
+    nirreps = wfn->nirrep();
     ccindex = index_;
     startup(select_irrep, select_irrep + 1);
 }
@@ -64,7 +64,6 @@ CCIndexIterator::~CCIndexIterator() {}
 
 void CCIndexIterator::startup(int min_sym, int max_sym) {
     nelements = ccindex->get_nelements();
-    tuples = ccindex->get_tuples();
     element_irrep = ccindex->get_element_irrep();
     min_abs = ccindex->get_first(min_sym);
     max_abs = ccindex->get_last(max_sym - 1);

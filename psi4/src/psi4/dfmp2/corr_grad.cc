@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -37,10 +37,10 @@
 #include "psi4/libpsi4util/process.h"
 #include "psi4/liboptions/liboptions.h"
 
-#include "psi4/libmints/molecule.h"
-#include "psi4/libmints/sieve.h"
-#include "psi4/libmints/matrix.h"
 #include "psi4/libmints/basisset.h"
+#include "psi4/libmints/matrix.h"
+#include "psi4/libmints/mintshelper.h"
+#include "psi4/libmints/molecule.h"
 #include "psi4/libmints/twobody.h"
 #include "psi4/libmints/integral.h"
 #include "psi4/libmints/vector.h"
@@ -54,14 +54,13 @@ using namespace psi;
 namespace psi {
 namespace dfmp2 {
 
-CorrGrad::CorrGrad(std::shared_ptr<BasisSet> primary) : primary_(primary) { common_init(); }
+CorrGrad::CorrGrad(std::shared_ptr<MintsHelper> mints) : mints_(mints), primary_(mints->get_basisset("ORBITAL")) { common_init(); }
 CorrGrad::~CorrGrad() {}
-std::shared_ptr<CorrGrad> CorrGrad::build_CorrGrad(std::shared_ptr<BasisSet> primary,
-                                                   std::shared_ptr<BasisSet> auxiliary) {
+std::shared_ptr<CorrGrad> CorrGrad::build_CorrGrad(std::shared_ptr<MintsHelper> mints) {
     Options& options = Process::environment.options;
 
     if (options.get_str("SCF_TYPE").find("DF") != std::string::npos) {
-        DFCorrGrad* jk = new DFCorrGrad(primary, auxiliary);
+        DFCorrGrad* jk = new DFCorrGrad(mints);
 
         if (options["INTS_TOLERANCE"].has_changed()) jk->set_cutoff(options.get_double("INTS_TOLERANCE"));
         if (options["PRINT"].has_changed()) jk->set_print(options.get_int("PRINT"));
@@ -90,8 +89,8 @@ void CorrGrad::common_init() {
 
     cutoff_ = 0.0;
 }
-DFCorrGrad::DFCorrGrad(std::shared_ptr<BasisSet> primary, std::shared_ptr<BasisSet> auxiliary)
-    : CorrGrad(primary), auxiliary_(auxiliary) {
+DFCorrGrad::DFCorrGrad(std::shared_ptr<MintsHelper> mints)
+    : CorrGrad(mints), auxiliary_(mints->get_basisset("DF_BASIS_SCF")) {
     common_init();
 }
 DFCorrGrad::~DFCorrGrad() {}
@@ -128,9 +127,6 @@ void DFCorrGrad::compute_gradient() {
     gradients_.clear();
     gradients_["Coulomb"] = std::make_shared<Matrix>("Coulomb Gradient", natom, 3);
     gradients_["Exchange"] = std::make_shared<Matrix>("Exchange Gradient", natom, 3);
-
-    // => Build ERI Sieve <= //
-    sieve_ = std::make_shared<ERISieve>(primary_, cutoff_);
 
     // => Open temp files <= //
     psio_->open(unit_a_, PSIO_OPEN_NEW);
@@ -184,7 +180,14 @@ void DFCorrGrad::build_Amn_terms() {
 
     bool restricted = (Ca_ == Cb_);
 
-    const std::vector<std::pair<int, int> >& shell_pairs = sieve_->shell_pairs();
+    // => Integrals <= //
+
+    auto rifactory = std::make_shared<IntegralFactory>(auxiliary_, BasisSet::zero_ao_basis_set(), primary_, primary_);
+    std::vector<std::shared_ptr<TwoBodyAOInt> > eri;
+    for (int t = 0; t < df_ints_num_threads_; t++) {
+        eri.push_back(std::shared_ptr<TwoBodyAOInt>(rifactory->eri()));
+    }
+    const std::vector<std::pair<int, int> >& shell_pairs = eri[0]->shell_pairs();
     int npairs = shell_pairs.size();
 
     // => Memory Constraints <= //
@@ -283,14 +286,6 @@ void DFCorrGrad::build_Amn_terms() {
     next_Ailb = PSIO_ZERO;
     next_Aira = PSIO_ZERO;
     next_Airb = PSIO_ZERO;
-
-    // => Integrals <= //
-
-    auto rifactory = std::make_shared<IntegralFactory>(auxiliary_, BasisSet::zero_ao_basis_set(), primary_, primary_);
-    std::vector<std::shared_ptr<TwoBodyAOInt> > eri;
-    for (int t = 0; t < df_ints_num_threads_; t++) {
-        eri.push_back(std::shared_ptr<TwoBodyAOInt>(rifactory->eri()));
-    }
 
     // => Master Loop <= //
 
@@ -576,141 +571,30 @@ void DFCorrGrad::UV_helper(SharedMatrix V, double c, size_t file, const std::str
     }
 }
 void DFCorrGrad::build_AB_x_terms() {
-    // => Sizing <= //
+    auto naux = auxiliary_->nbf();
 
-    int natom = primary_->molecule()->natom();
-    int nso = primary_->nbf();
-    int naux = auxiliary_->nbf();
-
-    // => Forcing Terms/Gradients <= //
-    SharedMatrix V;
-    SharedMatrix W;
-    SharedVector c;
-    SharedVector d;
-
-    double** Vp;
-    double** Wp;
-    double* cp;
-    double* dp;
-
-    c = std::make_shared<Vector>("c", naux);
-    cp = c->pointer();
+    auto c = std::make_shared<Vector>("c", naux);
+    auto cp = c->pointer();
     psio_->read_entry(unit_c_, "c", (char*)cp, sizeof(double) * naux);
-    // c->print();
-
-    d = std::make_shared<Vector>("d", naux);
-    dp = d->pointer();
+    auto d = std::make_shared<Vector>("d", naux);
+    auto dp = d->pointer();
     psio_->read_entry(unit_c_, "d", (char*)dp, sizeof(double) * naux);
-    // d->print();
+    auto J = std::make_shared<Matrix>("J", naux, naux);
+    auto Jp = J->pointer();
+    C_DGER(naux, naux, 1, cp, 1, dp, 1, Jp[0], naux);
+    J->hermitivitize();
 
-    V = std::make_shared<Matrix>("V", naux, naux);
-    Vp = V->pointer();
-    psio_->read_entry(unit_c_, "V", (char*)Vp[0], sizeof(double) * naux * naux);
+    auto K = std::make_shared<Matrix>("K", naux, naux);
+    auto Kp = K->pointer();
+    psio_->read_entry(unit_c_, "V", (char*)Kp[0], sizeof(double) * naux * naux);
 
-    // => Integrals <= //
+    std::map<std::string, SharedMatrix> densities = {{"Coulomb", J}, {"Exchange", K}};
+ 
+    auto results = mints_->metric_grad(densities, "DF_BASIS_SCF");
 
-    auto rifactory = std::make_shared<IntegralFactory>(auxiliary_, BasisSet::zero_ao_basis_set(), auxiliary_,
-                                                       BasisSet::zero_ao_basis_set());
-    std::vector<std::shared_ptr<TwoBodyAOInt> > Jint;
-    for (int t = 0; t < df_ints_num_threads_; t++) {
-        Jint.push_back(std::shared_ptr<TwoBodyAOInt>(rifactory->eri(1)));
+    for (const auto& kv: results) {
+        gradients_[kv.first] = kv.second;
     }
-
-    // => Temporary Gradients <= //
-
-    std::vector<SharedMatrix> Jtemps;
-    std::vector<SharedMatrix> Ktemps;
-    for (int t = 0; t < df_ints_num_threads_; t++) {
-        Jtemps.push_back(std::make_shared<Matrix>("Jtemp", natom, 3));
-        Ktemps.push_back(std::make_shared<Matrix>("Ktemp", natom, 3));
-    }
-
-    std::vector<std::pair<int, int> > PQ_pairs;
-    for (int P = 0; P < auxiliary_->nshell(); P++) {
-        for (int Q = 0; Q <= P; Q++) {
-            PQ_pairs.push_back(std::pair<int, int>(P, Q));
-        }
-    }
-
-#pragma omp parallel for schedule(dynamic) num_threads(df_ints_num_threads_)
-    for (long int PQ = 0L; PQ < PQ_pairs.size(); PQ++) {
-        int P = PQ_pairs[PQ].first;
-        int Q = PQ_pairs[PQ].second;
-
-        int thread = 0;
-#ifdef _OPENMP
-        thread = omp_get_thread_num();
-#endif
-
-        Jint[thread]->compute_shell_deriv1(P, 0, Q, 0);
-        const double* buffer = Jint[thread]->buffer();
-
-        int nP = auxiliary_->shell(P).nfunction();
-        int cP = auxiliary_->shell(P).ncartesian();
-        int aP = auxiliary_->shell(P).ncenter();
-        int oP = auxiliary_->shell(P).function_index();
-
-        int nQ = auxiliary_->shell(Q).nfunction();
-        int cQ = auxiliary_->shell(Q).ncartesian();
-        int aQ = auxiliary_->shell(Q).ncenter();
-        int oQ = auxiliary_->shell(Q).function_index();
-
-        int ncart = cP * cQ;
-        const double* Px = buffer + 0 * ncart;
-        const double* Py = buffer + 1 * ncart;
-        const double* Pz = buffer + 2 * ncart;
-        const double* Qx = buffer + 3 * ncart;
-        const double* Qy = buffer + 4 * ncart;
-        const double* Qz = buffer + 5 * ncart;
-
-        double perm = (P == Q ? 1.0 : 2.0);
-
-        double** grad_Jp;
-        double** grad_Kp;
-
-        grad_Jp = Jtemps[thread]->pointer();
-        grad_Kp = Ktemps[thread]->pointer();
-
-        for (int p = 0; p < nP; p++) {
-            for (int q = 0; q < nQ; q++) {
-                double Uval = 0.5 * perm * (0.5 * (cp[p + oP] * dp[q + oQ] + cp[q + oQ] * dp[p + oP]));
-                grad_Jp[aP][0] -= Uval * (*Px);
-                grad_Jp[aP][1] -= Uval * (*Py);
-                grad_Jp[aP][2] -= Uval * (*Pz);
-                grad_Jp[aQ][0] -= Uval * (*Qx);
-                grad_Jp[aQ][1] -= Uval * (*Qy);
-                grad_Jp[aQ][2] -= Uval * (*Qz);
-
-                double Vval = 0.5 * perm * Vp[p + oP][q + oQ];
-                grad_Kp[aP][0] -= Vval * (*Px);
-                grad_Kp[aP][1] -= Vval * (*Py);
-                grad_Kp[aP][2] -= Vval * (*Pz);
-                grad_Kp[aQ][0] -= Vval * (*Qx);
-                grad_Kp[aQ][1] -= Vval * (*Qy);
-                grad_Kp[aQ][2] -= Vval * (*Qz);
-
-                Px++;
-                Py++;
-                Pz++;
-                Qx++;
-                Qy++;
-                Qz++;
-            }
-        }
-    }
-
-    // => Temporary Gradient Reduction <= //
-
-    // gradients_["Coulomb"]->zero();
-    // gradients_["Exchange"]->zero();
-
-    for (int t = 0; t < df_ints_num_threads_; t++) {
-        gradients_["Coulomb"]->add(Jtemps[t]);
-        gradients_["Exchange"]->add(Ktemps[t]);
-    }
-
-    // gradients_["Coulomb"]->print();
-    // gradients_["Exchange"]->print();
 }
 void DFCorrGrad::build_Amn_x_terms() {
     // => Sizing <= //
@@ -733,7 +617,14 @@ void DFCorrGrad::build_Amn_x_terms() {
 
     bool restricted = (Ca_ == Cb_);
 
-    const std::vector<std::pair<int, int> >& shell_pairs = sieve_->shell_pairs();
+    // => Integrals <= //
+
+    auto rifactory = std::make_shared<IntegralFactory>(auxiliary_, BasisSet::zero_ao_basis_set(), primary_, primary_);
+    std::vector<std::shared_ptr<TwoBodyAOInt> > eri;
+    for (int t = 0; t < df_ints_num_threads_; t++) {
+        eri.push_back(std::shared_ptr<TwoBodyAOInt>(rifactory->eri(1)));
+    }
+    const std::vector<std::pair<int, int> >& shell_pairs = eri[0]->shell_pairs();
     int npairs = shell_pairs.size();
 
     // => Memory Constraints <= //
@@ -807,14 +698,6 @@ void DFCorrGrad::build_Amn_x_terms() {
     psio_address next_Ailb = PSIO_ZERO;
     psio_address next_Aira = PSIO_ZERO;
     psio_address next_Airb = PSIO_ZERO;
-
-    // => Integrals <= //
-
-    auto rifactory = std::make_shared<IntegralFactory>(auxiliary_, BasisSet::zero_ao_basis_set(), primary_, primary_);
-    std::vector<std::shared_ptr<TwoBodyAOInt> > eri;
-    for (int t = 0; t < df_ints_num_threads_; t++) {
-        eri.push_back(std::shared_ptr<TwoBodyAOInt>(rifactory->eri(1)));
-    }
 
     // => Temporary Gradients <= //
 
@@ -941,15 +824,16 @@ void DFCorrGrad::build_Amn_x_terms() {
             int oN = primary_->shell(N).function_index();
 
             int ncart = cP * cM * cN;
-            const double* Px = buffer + 0 * ncart;
-            const double* Py = buffer + 1 * ncart;
-            const double* Pz = buffer + 2 * ncart;
-            const double* Mx = buffer + 3 * ncart;
-            const double* My = buffer + 4 * ncart;
-            const double* Mz = buffer + 5 * ncart;
-            const double* Nx = buffer + 6 * ncart;
-            const double* Ny = buffer + 7 * ncart;
-            const double* Nz = buffer + 8 * ncart;
+            const auto & buffers = eri[thread]->buffers();
+            const double* Px = buffers[0];
+            const double* Py = buffers[1];
+            const double* Pz = buffers[2];
+            const double* Mx = buffers[3];
+            const double* My = buffers[4];
+            const double* Mz = buffers[5];
+            const double* Nx = buffers[6];
+            const double* Ny = buffers[7];
+            const double* Nz = buffers[8];
 
             double perm = (M == N ? 1.0 : 2.0);
 

@@ -5,7 +5,7 @@
 #
 # Psi4: an open-source quantum chemistry software package
 #
-# Copyright (c) 2007-2019 The Psi4 Developers.
+# Copyright (c) 2007-2022 The Psi4 Developers.
 #
 # The copyrights for code used from other parties are included in
 # the corresponding files.
@@ -74,7 +74,8 @@ for pyfile in glob.glob(DriverPath + '../../psi4/driver/qcdb/cfour.py'):
 
 for pv in sorted(psivars):
     pvsquashed = pv.replace(' ', '')
-    fdriver.write('   * :psivar:`%s <%s>`\n\n' % (pv, pvsquashed))
+    fdriver.write(f'   * :psivar:`{pv}`\n\n')
+    #fdriver.write('   * :psivar:`%s <%s>`\n\n' % (pv, pvsquashed))
 
 fdriver.write('\n')
 fdriver.close()

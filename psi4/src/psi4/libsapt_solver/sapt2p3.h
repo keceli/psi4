@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -55,6 +55,7 @@ class SAPT2p3 : public SAPT2p {
     double e_sapt2p3_;
     double e_sapt2pp3_ccd_;
     double e_sapt2p3_ccd_;
+    double e_ind30_vsasb_term_;
 
     void Y3(int, const char *, const char *, const char *, int, const char *, const char *, const char *, const char *,
             const char *, const char *, size_t, size_t, size_t, double *, size_t, const char *);

@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -145,11 +145,8 @@ Molecule::Molecule()
       full_pg_(PG_C1),
       full_pg_n_(1),
       nunique_(0),
-      nequiv_(nullptr),
-      equiv_(nullptr),
       zmat_(false),
       cart_(false),
-      atom_to_unique_(nullptr),
       // old_symmetry_frame_(0)
       reinterpret_coordentries_(true),
       lock_frame_(false) {}
@@ -186,9 +183,6 @@ Molecule &Molecule::operator=(const Molecule &other) {
     // These are symmetry related variables, and are filled in by the following functions
     pg_ = std::shared_ptr<PointGroup>();
     nunique_ = 0;
-    nequiv_ = nullptr;
-    equiv_ = nullptr;
-    atom_to_unique_ = nullptr;
     symmetry_from_input_ = other.symmetry_from_input_;
     form_symmetry_information();
     full_pg_ = other.full_pg_;
@@ -2085,39 +2079,30 @@ void Molecule::symmetrize(double tol, bool suppress_mol_print_in_exc) {
 }
 
 void Molecule::release_symmetry_information() {
-    for (int i = 0; i < nunique_; ++i) {
-        delete[] equiv_[i];
-    }
-    delete[] equiv_;
-    delete[] nequiv_;
-    delete[] atom_to_unique_;
+    nequiv_.clear();
     nunique_ = 0;
-    equiv_ = 0;
-    nequiv_ = 0;
-    atom_to_unique_ = 0;
+    equiv_.clear();
+    atom_to_unique_.clear();
 }
 
 void Molecule::form_symmetry_information(double tol) {
-    if (equiv_) release_symmetry_information();
+    if (equiv_.size()) release_symmetry_information();
 
     if (natom() == 0) {
-        nunique_ = 0;
-        equiv_ = 0;
-        nequiv_ = 0;
-        atom_to_unique_ = 0;
+        release_symmetry_information();
         // outfile->Printf( "No atoms detected, returning\n");
         return;
     }
 
-    nequiv_ = new int[natom()];
-    atom_to_unique_ = new int[natom()];
-    equiv_ = new int *[natom()];
+    nequiv_ = std::vector<int>(natom());
+    atom_to_unique_ = std::vector<int>(natom());
+    equiv_ = std::vector<std::vector<int>>(natom());
 
     if (point_group()->symbol() == "c1") {
         nunique_ = natom();
         for (int i = 0; i < natom(); ++i) {
             nequiv_[i] = 1;
-            equiv_[i] = new int[1];
+            equiv_[i] = std::vector<int>(1);
             equiv_[i][0] = i;
             atom_to_unique_[i] = i;
         }
@@ -2127,7 +2112,7 @@ void Molecule::form_symmetry_information(double tol) {
     // The first atom is always unique
     nunique_ = 1;
     nequiv_[0] = 1;
-    equiv_[0] = new int[1];
+    equiv_[0] = std::vector<int>(1);
     equiv_[0][0] = 0;
     atom_to_unique_[0] = 0;
 
@@ -2166,16 +2151,11 @@ void Molecule::form_symmetry_information(double tol) {
         }
         if (i_is_unique) {
             nequiv_[nunique_] = 1;
-            equiv_[nunique_] = new int[1];
-            equiv_[nunique_][0] = i;
+            equiv_[nunique_] = {i};
             atom_to_unique_[i] = nunique_;
             nunique_++;
         } else {
-            int *tmp = new int[nequiv_[i_equiv] + 1];
-            memcpy(tmp, equiv_[i_equiv], nequiv_[i_equiv] * sizeof(int));
-            delete[] equiv_[i_equiv];
-            equiv_[i_equiv] = tmp;
-            equiv_[i_equiv][nequiv_[i_equiv]] = i;
+            equiv_[i_equiv].push_back(i);
             nequiv_[i_equiv]++;
             atom_to_unique_[i] = i_equiv;
         }
@@ -2221,47 +2201,109 @@ std::vector<std::string> Molecule::irrep_labels() {
     return irreplabel;
 }
 
-Vector3 Molecule::xyz(int atom) const { return input_units_to_au_ * atoms_[atom]->compute(); }
+void Molecule::check_atom_(int atom, bool full) const {
+    if (full && atom >= full_atoms_.size()) {
+        throw std::runtime_error("Requested atom doesn't exist in full atoms list.");
+    }
+    if (not full && atom >= atoms_.size()) {
+        throw std::runtime_error("Requested atom doesn't exist in atoms list.");
+    }
+}
 
-Vector3 Molecule::fxyz(int atom) const { return input_units_to_au_ * full_atoms_[atom]->compute(); }
+Vector3 Molecule::xyz(int atom) const {
+    check_atom_(atom, false);
+    return input_units_to_au_ * atoms_[atom]->compute();
+}
 
-double Molecule::xyz(int atom, int _xyz) const { return input_units_to_au_ * atoms_[atom]->compute()[_xyz]; }
+Vector3 Molecule::fxyz(int atom) const {
+    check_atom_(atom, true);
+    return input_units_to_au_ * full_atoms_[atom]->compute();
+}
 
-const double &Molecule::Z(int atom) const { return atoms_[atom]->Z(); }
+double Molecule::xyz(int atom, int _xyz) const {
+    check_atom_(atom, false);
+    return input_units_to_au_ * atoms_[atom]->compute()[_xyz];
+}
 
-double Molecule::fZ(int atom) const { return full_atoms_[atom]->Z(); }
+const double &Molecule::Z(int atom) const {
+    check_atom_(atom, false);
+    return atoms_[atom]->Z();
+}
 
-double Molecule::x(int atom) const { return input_units_to_au_ * atoms_[atom]->compute()[0]; }
+double Molecule::fZ(int atom) const {
+    check_atom_(atom, true);
+    return full_atoms_[atom]->Z();
+}
 
-double Molecule::y(int atom) const { return input_units_to_au_ * atoms_[atom]->compute()[1]; }
+double Molecule::x(int atom) const {
+    check_atom_(atom, false);
+    return input_units_to_au_ * atoms_[atom]->compute()[0];
+}
 
-double Molecule::z(int atom) const { return input_units_to_au_ * atoms_[atom]->compute()[2]; }
+double Molecule::y(int atom) const {
+    check_atom_(atom, false);
+    return input_units_to_au_ * atoms_[atom]->compute()[1];
+}
 
-double Molecule::fx(int atom) const { return input_units_to_au_ * full_atoms_[atom]->compute()[0]; }
+double Molecule::z(int atom) const {
+    check_atom_(atom, false);
+    return input_units_to_au_ * atoms_[atom]->compute()[2];
+}
 
-double Molecule::fy(int atom) const { return input_units_to_au_ * full_atoms_[atom]->compute()[1]; }
+double Molecule::fx(int atom) const {
+    check_atom_(atom, true);
+    return input_units_to_au_ * full_atoms_[atom]->compute()[0];
+}
 
-double Molecule::fz(int atom) const { return input_units_to_au_ * full_atoms_[atom]->compute()[2]; }
+double Molecule::fy(int atom) const {
+    check_atom_(atom, true);
+    return input_units_to_au_ * full_atoms_[atom]->compute()[1];
+}
 
-double Molecule::charge(int atom) const { return atoms_[atom]->charge(); }
+double Molecule::fz(int atom) const {
+    check_atom_(atom, true);
+    return input_units_to_au_ * full_atoms_[atom]->compute()[2];
+}
 
-double Molecule::fcharge(int atom) const { return full_atoms_[atom]->charge(); }
+double Molecule::charge(int atom) const {
+    check_atom_(atom, false);
+    return atoms_[atom]->charge();
+}
 
-int Molecule::mass_number(int atom) const { return atoms_[atom]->A(); }
+double Molecule::fcharge(int atom) const {
+    check_atom_(atom, true);
+    return full_atoms_[atom]->charge();
+}
 
-int Molecule::fmass_number(int atom) const { return full_atoms_[atom]->A(); }
+int Molecule::mass_number(int atom) const {
+    check_atom_(atom, false);
+    return atoms_[atom]->A();
+}
 
-void Molecule::set_nuclear_charge(int atom, double newZ) { atoms_[atom]->set_nuclear_charge(newZ); }
+int Molecule::fmass_number(int atom) const {
+    check_atom_(atom, true);
+    return full_atoms_[atom]->A();
+}
 
-const std::string &Molecule::basis_on_atom(int atom) const { return atoms_[atom]->basisset(); }
+void Molecule::set_nuclear_charge(int atom, double newZ) {
+    check_atom_(atom, false);
+    atoms_[atom]->set_nuclear_charge(newZ);
+}
+
+const std::string &Molecule::basis_on_atom(int atom) const {
+    check_atom_(atom, false);
+    return atoms_[atom]->basisset();
+}
 
 int Molecule::true_atomic_number(int atom) const {
+    check_atom_(atom, false);
     Element_to_Z Z;
     Z.load_values();
     return (int)Z[atoms_[atom]->symbol()];
 }
 
 int Molecule::ftrue_atomic_number(int atom) const {
+    check_atom_(atom, true);
     Element_to_Z Z;
     Z.load_values();
     return (int)Z[full_atoms_[atom]->symbol()];
@@ -2301,11 +2343,20 @@ void Molecule::set_shell_by_label(const std::string &label, const std::string &n
     }
 }
 
-const std::shared_ptr<CoordEntry> &Molecule::atom_entry(int atom) const { return atoms_[atom]; }
+const std::shared_ptr<CoordEntry> &Molecule::atom_entry(int atom) const {
+    check_atom_(atom, false);
+    return atoms_[atom];
+}
 
-double Molecule::fmass(int atom) const { return full_atoms_[atom]->mass(); }
+double Molecule::fmass(int atom) const {
+    check_atom_(atom, true);
+    return full_atoms_[atom]->mass();
+}
 
-std::string Molecule::flabel(int atom) const { return full_atoms_[atom]->label(); }
+std::string Molecule::flabel(int atom) const {
+    check_atom_(atom, true);
+    return full_atoms_[atom]->label();
+}
 
 int Molecule::get_anchor_atom(const std::string &str, const std::string &line) {
     if (std::regex_match(str, reMatches_, integerNumber_)) {

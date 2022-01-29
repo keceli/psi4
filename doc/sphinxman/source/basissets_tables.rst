@@ -3,7 +3,7 @@
 .. #
 .. # Psi4: an open-source quantum chemistry software package
 .. #
-.. # Copyright (c) 2007-2019 The Psi4 Developers.
+.. # Copyright (c) 2007-2022 The Psi4 Developers.
 .. #
 .. # The copyrights for code used from other parties are included in
 .. # the corresponding files.
@@ -57,7 +57,7 @@ approximations. JKFIT sets are appropriate for fitting :math:`(oo|`\ -type produ
 such as encountered in SCF theory and the electrostatics/exchange terms of SAPT.
 RI sets are appropriate for fitting :math:`(ov|`\ -type products, such as encountered in
 MP2 and most SAPT terms.  Citations for basis sets can be found in their
-definition files at :source:`share/basis` in the source.  For basis set availability by
+definition files at :source:`psi4/share/psi4/basis` in the source.  For basis set availability by
 element and the default value for keyword |globals__puream|, consult
 Appendix :ref:`apdx:basisElement`.
 

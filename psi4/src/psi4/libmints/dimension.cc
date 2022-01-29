@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -44,10 +44,6 @@ Dimension::Dimension(int n, const std::string& name) : name_(name), blocks_(n, 0
 
 Dimension::Dimension(const std::vector<int>& v) : blocks_(v) {}
 
-Dimension::Dimension(const Dimension& other) : name_(other.name_), blocks_(other.blocks_) {}
-
-Dimension::~Dimension() {}
-
 void Dimension::init(int n, const std::string& name) {
     name_ = name;
     blocks_.assign(n, 0);
@@ -67,12 +63,6 @@ void Dimension::print() const {
         outfile->Printf("%d  ", ni);
     }
     outfile->Printf("\n");
-}
-
-Dimension& Dimension::operator=(const Dimension& other) {
-    name_ = other.name_;
-    blocks_ = other.blocks_;
-    return *this;
 }
 
 Dimension& Dimension::operator=(const int* other) {

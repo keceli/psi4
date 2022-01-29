@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -950,9 +950,10 @@ void CIWavefunction::set_ras_parameters() {
         }
         if (j > 0) nras2alp += j;
         if (j > CalcInfo_->ras_opi[1][i]) {
-            outfile->Printf("(set_ras_parms): detecting %d electrons ", j - CalcInfo_->ras_opi[1][i]);
+            outfile->Printf("(set_ras_parms): detecting %d alpha electrons ", j - CalcInfo_->ras_opi[1][i]);
             outfile->Printf("in RAS III for irrep %d.\n", i);
             outfile->Printf("Some parts of DETCI assume all elec in I and II\n");
+            throw PSIEXCEPTION("DETCI: electrons detected outside of active space.\n");
         }
     }
     /* beta electrons */
@@ -968,9 +969,10 @@ void CIWavefunction::set_ras_parameters() {
         }
         if (j > 0) nras2bet += j;
         if (j > CalcInfo_->ras_opi[1][i]) {
-            outfile->Printf("(set_ras_parms): detecting %d electrons ", j - CalcInfo_->ras_opi[1][i]);
+            outfile->Printf("(set_ras_parms): detecting %d beta electrons ", j - CalcInfo_->ras_opi[1][i]);
             outfile->Printf("in RAS III for irrep %d.\n", i);
             outfile->Printf("Some parts of DETCI assume all elec in I and II\n");
+            throw PSIEXCEPTION("DETCI: electrons detected outside of active space.\n");
         }
     }
 

@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -45,6 +45,7 @@
 #include "psi4/psi4-dec.h"
 #include "psi4/libpsi4util/PsiOutStream.h"
 #include "psi4/libpsi4util/process.h"
+#include "electricfield.h"
 
 #include <cstdlib>
 #include <cstdio>
@@ -68,6 +69,21 @@
 extern "C" {
 void F_DKH(double *S, double *V, double *T, double *pVp, int *nbf, int *dkh_order);
 }
+#endif
+
+#ifdef USING_BrianQC
+
+#include <use_brian_wrapper.h>
+#include <brian_macros.h>
+#include <brian_common.h>
+#include <brian_scf.h>
+#include <brian_geom_opt.h>
+
+extern void checkBrian();
+extern BrianCookie brianCookie;
+extern bool brianEnable;
+extern brianInt brianRestrictionType;
+
 #endif
 
 namespace psi {
@@ -121,6 +137,12 @@ MintsHelper::MintsHelper(std::shared_ptr<BasisSet> basis, Options &options, int 
     init_helper(basis);
 }
 
+MintsHelper::MintsHelper(std::shared_ptr<BasisSet> basis,
+                         std::map<std::string, std::shared_ptr<psi::BasisSet>> basissets, Options &options, int print)
+    : options_(options), print_(print) {
+    init_helper(basis, basissets);
+}
+
 MintsHelper::MintsHelper(std::shared_ptr<Wavefunction> wavefunction)
     : options_(wavefunction->options()), print_(wavefunction->get_print()) {
     init_helper(wavefunction);
@@ -136,6 +158,7 @@ void MintsHelper::init_helper(std::shared_ptr<Wavefunction> wavefunction) {
 
     psio_ = wavefunction->psio();
     basisset_ = wavefunction->basisset();
+    basissets_ = wavefunction->basissets();
     molecule_ = basisset_->molecule();
 
     // Make sure molecule is valid.
@@ -144,8 +167,10 @@ void MintsHelper::init_helper(std::shared_ptr<Wavefunction> wavefunction) {
     common_init();
 }
 
-void MintsHelper::init_helper(std::shared_ptr<BasisSet> basis) {
+void MintsHelper::init_helper(std::shared_ptr<BasisSet> basis,
+                              std::map<std::string, std::shared_ptr<psi::BasisSet>> basissets) {
     basisset_ = basis;
+    basissets_ = basissets;
     molecule_ = basis->molecule();
     psio_ = _default_psio_lib_;
 
@@ -198,6 +223,32 @@ std::shared_ptr<PetiteList> MintsHelper::petite_list(bool val) const {
 std::shared_ptr<BasisSet> MintsHelper::basisset() const { return basisset_; }
 
 std::shared_ptr<SOBasisSet> MintsHelper::sobasisset() const { return sobasis_; }
+
+std::shared_ptr<BasisSet> MintsHelper::get_basisset(std::string label) {
+    // This may be slightly confusing, but better than changing this in 800 other places
+    if (label == "ORBITAL") {
+        return basisset_;
+    } else if (not basisset_exists(label)) {
+        outfile->Printf("Could not find requested basisset (%s).", label.c_str());
+        throw PSIEXCEPTION("MintsHelper::get_basisset: Requested basis set (" + label + ") was not set!\n");
+    } else {
+        return basissets_[label];
+    }
+}
+void MintsHelper::set_basisset(std::string label, std::shared_ptr<BasisSet> basis) {
+    if (label == "ORBITAL") {
+        throw PSIEXCEPTION("Cannot set the ORBITAL basis after the Wavefunction is built!");
+    } else {
+        basissets_[label] = basis;
+    }
+}
+
+bool MintsHelper::basisset_exists(std::string label) {
+    if (basissets_.count(label) == 0)
+        return false;
+    else
+        return true;
+}
 
 std::shared_ptr<MatrixFactory> MintsHelper::factory() const { return factory_; }
 
@@ -331,56 +382,6 @@ void MintsHelper::integrals_erfc(double w) {
 }
 
 void MintsHelper::one_electron_integrals() {
-    //    outfile->Printf( " OEINTS: Wrapper to libmints.\n   by Justin Turney\n\n");
-    //
-    //    // Print out some useful information
-    //    outfile->Printf( "   Calculation information:\n");
-    //    outfile->Printf( "      Number of atoms:                %4d\n", molecule_->natom());
-    //    outfile->Printf( "      Number of AO shells:            %4d\n", basisset_->nshell());
-    //    outfile->Printf( "      Number of SO shells:            %4d\n", sobasis_->nshell());
-    //    outfile->Printf( "      Number of primitives:           %4d\n", basisset_->nprimitive());
-    //    outfile->Printf( "      Number of atomic orbitals:      %4d\n", basisset_->nao());
-    //    outfile->Printf( "      Number of basis functions:      %4d\n\n", basisset_->nbf());
-    //    outfile->Printf( "      Number of irreps:               %4d\n", sobasis_->nirrep());
-    //    outfile->Printf( "      Number of functions per irrep: [");
-    //    for (int i=0; i<sobasis_->nirrep(); ++i) {
-    //        outfile->Printf( "%4d ", sobasis_->nfunction_in_irrep(i));
-    //    }
-    //    outfile->Printf( "]\n\n");
-
-    // Compute and dump one-electron SO integrals.
-
-    if (options_.get_str("RELATIVISTIC") == "NO" || options_.get_str("RELATIVISTIC") == "DKH") {
-        // Overlap
-        so_overlap()->save(psio_, PSIF_OEI);
-
-        // Kinetic
-        so_kinetic()->save(psio_, PSIF_OEI);
-
-        // Potential -- DKH perturbation added to potential integrals if needed.
-        so_potential()->save(psio_, PSIF_OEI);
-    } else if (options_.get_str("RELATIVISTIC") == "X2C") {
-        outfile->Printf(" OEINTS: Using relativistic (X2C) overlap, kinetic, and potential integrals.\n");
-
-        if (!rel_basisset_) {
-            throw PSIEXCEPTION("OEINTS: X2C requested, but relativistic basis was not set.");
-        }
-        X2CInt x2cint;
-        SharedMatrix so_overlap_x2c = so_overlap();
-        SharedMatrix so_kinetic_x2c = so_kinetic();
-        SharedMatrix so_potential_x2c = so_potential();
-        x2cint.compute(basisset_, rel_basisset_, so_overlap_x2c, so_kinetic_x2c, so_potential_x2c);
-
-        // Overlap
-        so_overlap_x2c->save(psio_, PSIF_OEI);
-
-        // Kinetic
-        so_kinetic_x2c->save(psio_, PSIF_OEI);
-
-        // Potential
-        so_potential_x2c->save(psio_, PSIF_OEI);
-    }
-
     // Dipoles
     std::vector<SharedMatrix> dipole_mats = so_dipole();
     for (SharedMatrix m : dipole_mats) {
@@ -414,7 +415,7 @@ void MintsHelper::one_body_ao_computer(std::vector<std::shared_ptr<OneBodyAOInt>
     std::shared_ptr<BasisSet> bs1 = ints[0]->basis1();
     std::shared_ptr<BasisSet> bs2 = ints[0]->basis2();
 
-    // Limit to the number of incoming onbody ints
+    // Limit to the number of incoming onebody ints
     size_t nthread = nthread_;
     if (nthread > ints.size()) {
         nthread = ints.size();
@@ -593,10 +594,19 @@ SharedMatrix MintsHelper::ao_overlap() {
         ints_vec.push_back(std::shared_ptr<OneBodyAOInt>(integral_->ao_overlap()));
     }
     auto overlap_mat = std::make_shared<Matrix>(PSIF_AO_S, basisset_->nbf(), basisset_->nbf());
+    
+#ifdef USING_BrianQC
+    if (brianEnable) {
+        brianInt integralType = BRIAN_INTEGRAL_TYPE_OVERLAP;
+        brianSCFBuild1e(&brianCookie, &integralType, overlap_mat->get_pointer());
+        checkBrian();
+        
+        return overlap_mat;
+    }
+#endif
+    
     one_body_ao_computer(ints_vec, overlap_mat, true);
 
-    // Is this needed?
-    //    overlap_mat->save(psio_, PSIF_OEI);
     return overlap_mat;
 }
 
@@ -619,6 +629,17 @@ SharedMatrix MintsHelper::ao_kinetic() {
         ints_vec.push_back(std::shared_ptr<OneBodyAOInt>(integral_->ao_kinetic()));
     }
     auto kinetic_mat = std::make_shared<Matrix>("AO-basis Kinetic Ints", basisset_->nbf(), basisset_->nbf());
+    
+#ifdef USING_BrianQC
+    if (brianEnable) {
+        brianInt integralType = BRIAN_INTEGRAL_TYPE_KINETIC;
+        brianSCFBuild1e(&brianCookie, &integralType, kinetic_mat->get_pointer());
+        checkBrian();
+        
+        return kinetic_mat;
+    }
+#endif
+    
     one_body_ao_computer(ints_vec, kinetic_mat, true);
     return kinetic_mat;
 }
@@ -641,6 +662,17 @@ SharedMatrix MintsHelper::ao_potential() {
     }
     SharedMatrix potential_mat =
         std::make_shared<Matrix>("AO-basis Potential Ints", basisset_->nbf(), basisset_->nbf());
+    
+#ifdef USING_BrianQC
+    if (brianEnable) {
+        brianInt integralType = BRIAN_INTEGRAL_TYPE_NUCLEAR;
+        brianSCFBuild1e(&brianCookie, &integralType, potential_mat->get_pointer());
+        checkBrian();
+        
+        return potential_mat;
+    }
+#endif
+    
     one_body_ao_computer(ints_vec, potential_mat, true);
     return potential_mat;
 }
@@ -689,7 +721,7 @@ SharedMatrix MintsHelper::ao_pvp() {
 
 SharedMatrix MintsHelper::ao_dkh(int dkh_order) {
 #ifdef USING_dkh
-    MintsHelper decon(rel_basisset_);
+    MintsHelper decon(get_basisset("BASIS_RELATIVISTIC"));
     SharedMatrix S = decon.ao_overlap();
     SharedMatrix T = decon.ao_kinetic();
     SharedMatrix Torig = T->clone();
@@ -709,7 +741,7 @@ SharedMatrix MintsHelper::ao_dkh(int dkh_order) {
 
     outfile->Printf("    Computing %d-order Douglas-Kroll-Hess integrals.\n", dkh_order);
 
-    int nbf = rel_basisset_->nbf();
+    int nbf = get_basisset("BASIS_RELATIVISTIC")->nbf();
     //    rel_basisset_->print_detail();
 
     // Call DKH code from Markus Reiher
@@ -728,7 +760,7 @@ SharedMatrix MintsHelper::ao_dkh(int dkh_order) {
     SharedMatrix S_inv = S->clone();
     S_inv->general_invert();
 
-    SharedMatrix S_cd = ao_overlap(basisset_, rel_basisset_);
+    SharedMatrix S_cd = ao_overlap(basisset_, get_basisset("BASIS_RELATIVISTIC"));
     //    S_cd->print();
 
     auto D = std::make_shared<Matrix>("D", nbf, basisset_->nbf());
@@ -765,13 +797,13 @@ SharedMatrix MintsHelper::ao_helper(const std::string &label, std::shared_ptr<Tw
 
     auto I = std::make_shared<Matrix>(label, nbf1 * nbf2, nbf3 * nbf4);
     double **Ip = I->pointer();
-    const double *buffer = ints->buffer();
 
     for (int M = 0; M < bs1->nshell(); M++) {
         for (int N = 0; N < bs2->nshell(); N++) {
             for (int P = 0; P < bs3->nshell(); P++) {
                 for (int Q = 0; Q < bs4->nshell(); Q++) {
                     ints->compute_shell(M, N, P, Q);
+                    const double *buffer = ints->buffer();
 
                     for (int m = 0, index = 0; m < bs1->shell(M).nfunction(); m++) {
                         for (int n = 0; n < bs2->shell(N).nfunction(); n++) {
@@ -804,9 +836,9 @@ SharedMatrix MintsHelper::ao_shell_getter(const std::string &label, std::shared_
     int qfxn = basisset_->shell(Q).nfunction();
     auto I = std::make_shared<Matrix>(label, mfxn * nfxn, pfxn * qfxn);
     double **Ip = I->pointer();
-    const double *buffer = ints->buffer();
 
     ints->compute_shell(M, N, P, Q);
+    const double *buffer = ints->buffer();
 
     for (int m = 0, index = 0; m < mfxn; m++) {
         for (int n = 0; n < nfxn; n++) {
@@ -915,12 +947,12 @@ SharedMatrix MintsHelper::ao_3coverlap_helper(const std::string &label, std::sha
 
     auto I = std::make_shared<Matrix>(label, nbf1 * nbf2, nbf3);
     double **Ip = I->pointer();
-    const double *buffer = ints->buffer();
 
     for (int M = 0; M < bs1->nshell(); M++) {
         for (int N = 0; N < bs2->nshell(); N++) {
             for (int P = 0; P < bs3->nshell(); P++) {
                 ints->compute_shell(M, N, P);
+                const double *buffer = ints->buffer();
                 int Mfi = bs1->shell(M).function_index();
                 int Nfi = bs2->shell(N).function_index();
                 int Pfi = bs3->shell(P).function_index();
@@ -1214,57 +1246,57 @@ SharedMatrix MintsHelper::mo_spin_eri_helper(SharedMatrix Iso, int n1, int n2) {
     return Ispin;
 }
 
-SharedMatrix MintsHelper::so_overlap() {
+bool MintsHelper::are_ints_cached(const std::string &label, bool include_perturbation) {
+    auto it = cached_oe_ints_.find(std::make_pair(label, include_perturbation));
+    return it != cached_oe_ints_.end();
+}
+
+void MintsHelper::cache_ao_to_so_ints(SharedMatrix ao_ints, const std::string &label, bool include_perturbation) {
+    auto p = std::make_pair(label, include_perturbation);
     if (factory_->nirrep() == 1) {
-        SharedMatrix ret = ao_overlap();
-        ret->set_name(PSIF_SO_S);
-        return ret;
+        cached_oe_ints_[p] = ao_ints;
     } else {
-        SharedMatrix overlap_mat(factory_->create_matrix(PSIF_SO_S));
+        SharedMatrix so_ints_sym(factory_->create_matrix(label));
+        so_ints_sym->apply_symmetry(ao_ints, petite_list()->aotoso());
+        cached_oe_ints_[p] = so_ints_sym;
+    }
+}
+
+SharedMatrix MintsHelper::so_overlap_nr() {
+    std::string label(PSIF_SO_S);
+    SharedMatrix overlap_mat;
+    if (factory_->nirrep() == 1) {
+        overlap_mat = ao_overlap();
+        overlap_mat->set_name(label);
+    } else {
+        overlap_mat = factory_->create_shared_matrix(label);
         overlap_mat->apply_symmetry(ao_overlap(), petite_list()->aotoso());
-        return overlap_mat;
     }
+    return overlap_mat;
 }
 
-SharedMatrix MintsHelper::so_kinetic() {
+SharedMatrix MintsHelper::so_kinetic_nr() {
+    std::string label(PSIF_SO_T);
+    SharedMatrix kinetic_mat;
     if (factory_->nirrep() == 1) {
-        SharedMatrix ret = ao_kinetic();
-        ret->set_name(PSIF_SO_T);
-        return ret;
+        kinetic_mat = ao_kinetic();
+        kinetic_mat->set_name(label);
     } else {
-        SharedMatrix kinetic_mat(factory_->create_matrix(PSIF_SO_T));
+        kinetic_mat = factory_->create_shared_matrix(label);
         kinetic_mat->apply_symmetry(ao_kinetic(), petite_list()->aotoso());
-        return kinetic_mat;
     }
+    return kinetic_mat;
 }
 
-SharedMatrix MintsHelper::so_ecp() {
-    if (!basisset_->has_ECP()) {
-        SharedMatrix ecp_mat = factory_->create_shared_matrix("SO Basis ECP");
-        ecp_mat->zero();
-        outfile->Printf("\n\tWarning! ECP integrals requested, but no ECP basis detected.  Returning zeros.\n");
-        return ecp_mat;
-    }
-
-    if (factory_->nirrep() == 1) {
-        SharedMatrix ecp_mat(ao_ecp());
-        ecp_mat->set_name("AO Basis ECP");
-        return ecp_mat;
-    } else {
-        SharedMatrix ecp_mat = factory_->create_shared_matrix("SO Basis ECP");
-        ecp_mat->apply_symmetry(ao_ecp(), petite_list()->aotoso());
-        return ecp_mat;
-    }
-}
-
-SharedMatrix MintsHelper::so_potential(bool include_perturbations) {
+SharedMatrix MintsHelper::so_potential_nr(bool include_perturbations) {
+    std::string label(PSIF_SO_V);
     // No symmetry
     SharedMatrix potential_mat;
     if (factory_->nirrep() == 1) {
         potential_mat = ao_potential();
-        potential_mat->set_name(PSIF_SO_V);
+        potential_mat->set_name(label);
     } else {
-        potential_mat = factory_->create_shared_matrix(PSIF_SO_V);
+        potential_mat = factory_->create_shared_matrix(label);
         potential_mat->apply_symmetry(ao_potential(), petite_list()->aotoso());
     }
 
@@ -1276,9 +1308,147 @@ SharedMatrix MintsHelper::so_potential(bool include_perturbations) {
     // Handle addition of any perturbations here and not in SCF code.
     if (include_perturbations) {
         if (options_.get_bool("PERTURB_H")) {
-            std::string perturb_with = options_.get_str("PERTURB_WITH");
-            Vector3 lambda(0.0, 0.0, 0.0);
+            add_dipole_perturbation(potential_mat);
+        }
+    }
 
+    return potential_mat;
+}
+
+SharedMatrix MintsHelper::so_overlap(bool include_perturbations) {
+    std::string label(PSIF_SO_S);
+    auto p = std::make_pair(label, include_perturbations);
+    if (!are_ints_cached(label, include_perturbations)) {
+        if (options_.get_str("RELATIVISTIC") == "X2C") {
+            // generate so_overlap, so_kinetic, so_potential and cache them
+            compute_so_x2c_ints(include_perturbations);
+        } else {
+            cached_oe_ints_[p] = so_overlap_nr();
+        }
+    }
+    return cached_oe_ints_[p];
+}
+
+SharedMatrix MintsHelper::so_kinetic(bool include_perturbations) {
+    std::string label(PSIF_SO_T);
+    auto p = std::make_pair(label, include_perturbations);
+    if (!are_ints_cached(label, include_perturbations)) {
+        if (options_.get_str("RELATIVISTIC") == "X2C") {
+            // generate so_overlap, so_kinetic, so_potential and cache them
+            compute_so_x2c_ints(include_perturbations);
+        } else {
+            cached_oe_ints_[p] = so_kinetic_nr();
+        }
+    }
+    return cached_oe_ints_[p];
+}
+
+SharedMatrix MintsHelper::so_ecp() {
+    std::string label(PSIF_SO_ECP);
+    if (!basisset_->has_ECP()) {
+        SharedMatrix ecp_mat = factory_->create_shared_matrix(label);
+        ecp_mat->zero();
+        outfile->Printf("\n\tWarning! ECP integrals requested, but no ECP basis detected.  Returning zeros.\n");
+        return ecp_mat;
+    }
+    if (!are_ints_cached(label, false)) {
+        cache_ao_to_so_ints(ao_ecp(), label, false);
+    }
+    auto p = std::make_pair(label, false);
+    return cached_oe_ints_[p];
+}
+
+SharedMatrix MintsHelper::so_potential(bool include_perturbations) {
+    std::string label(PSIF_SO_V);
+    auto p = std::make_pair(label, include_perturbations);
+    if (!are_ints_cached(label, include_perturbations)) {
+        if (options_.get_str("RELATIVISTIC") == "X2C") {
+            // generate so_overlap, so_kinetic, so_potential and cache them
+            compute_so_x2c_ints(include_perturbations);
+        } else {
+            cached_oe_ints_[p] = so_potential_nr(include_perturbations);
+            // Add DKH correction if requested
+            if (options_.get_str("RELATIVISTIC") == "DKH") {
+                if (include_perturbations) {
+                    int dkh_order = options_.get_int("DKH_ORDER");
+                    SharedMatrix dkh = so_dkh(dkh_order);
+                    outfile->Printf("    Adding Douglas-Kroll-Hess corrections to the potential integrals.\n");
+                    cached_oe_ints_[p]->add(dkh);
+                }
+            }
+        }
+    }
+    return cached_oe_ints_[p];
+}
+
+void MintsHelper::add_dipole_perturbation(SharedMatrix potential_mat) {
+    std::string perturb_with = options_.get_str("PERTURB_WITH");
+    Vector3 lambda(0.0, 0.0, 0.0);
+
+    if (perturb_with == "DIPOLE_X")
+        lambda[0] = options_.get_double("PERTURB_MAGNITUDE");
+    else if (perturb_with == "DIPOLE_Y")
+        lambda[1] = options_.get_double("PERTURB_MAGNITUDE");
+    else if (perturb_with == "DIPOLE_Z")
+        lambda[2] = options_.get_double("PERTURB_MAGNITUDE");
+    else if (perturb_with == "DIPOLE") {
+        if (options_["PERTURB_DIPOLE"].size() != 3)
+            throw PSIEXCEPTION("The PERTURB dipole should have exactly three floating point numbers.");
+        for (int n = 0; n < 3; ++n) lambda[n] = options_["PERTURB_DIPOLE"][n].to_double();
+    } else {
+        outfile->Printf("  MintsHelper doesn't understand the requested perturbation, might be done in SCF.");
+    }
+
+    OperatorSymmetry msymm(1, molecule_, integral_, factory_);
+    std::vector<SharedMatrix> dipoles = msymm.create_matrices("Dipole");
+    OneBodySOInt *so_dipole = integral_->so_dipole();
+    so_dipole->compute(dipoles);
+
+    if (lambda[0] != 0.0) {
+        if (msymm.component_symmetry(0) != 0) {
+            outfile->Printf("  WARNING: Requested mu(x) perturbation, but mu(x) is not symmetric.\n");
+        } else {
+            outfile->Printf("  Perturbing V by %f mu(x).\n", lambda[0]);
+            dipoles[0]->scale(lambda[0]);
+            potential_mat->add(dipoles[0]);
+        }
+    }
+    if (lambda[1] != 0.0) {
+        if (msymm.component_symmetry(1) != 0) {
+            outfile->Printf("  WARNING: Requested mu(y) perturbation, but mu(y) is not symmetric.\n");
+        } else {
+            outfile->Printf("  Perturbing V by %f mu(y).\n", lambda[1]);
+            dipoles[1]->scale(lambda[1]);
+            potential_mat->add(dipoles[1]);
+        }
+    }
+    if (lambda[2] != 0.0) {
+        if (msymm.component_symmetry(2) != 0) {
+            outfile->Printf("  WARNING: Requested mu(z) perturbation, but mu(z) is not symmetric.\n");
+        } else {
+            outfile->Printf("  Perturbing V by %f mu(z).\n", lambda[2]);
+            dipoles[2]->scale(lambda[2]);
+            potential_mat->add(dipoles[2]);
+        }
+    }
+}
+
+void MintsHelper::compute_so_x2c_ints(bool include_perturbations) {
+    outfile->Printf(" OEINTS: Using relativistic (X2C) overlap, kinetic, and potential integrals.\n");
+
+    if (!basisset_exists("BASIS_RELATIVISTIC")) {
+        throw PSIEXCEPTION("OEINTS: X2C requested, but relativistic basis (BASIS_RELATIVISTIC) was not set.");
+    }
+    SharedMatrix so_overlap_x2c = so_overlap_nr();
+    SharedMatrix so_kinetic_x2c = so_kinetic_nr();
+    SharedMatrix so_potential_x2c = so_potential_nr(include_perturbations);
+
+    std::vector<double> lambda(3, 0.0);
+
+    if (include_perturbations) {
+        if (options_.get_bool("PERTURB_H")) {
+            std::string perturb_with = options_.get_str("PERTURB_WITH");
+            outfile->Printf("\n  perturb_with = %s", perturb_with.c_str());
             if (perturb_with == "DIPOLE_X")
                 lambda[0] = options_.get_double("PERTURB_MAGNITUDE");
             else if (perturb_with == "DIPOLE_Y")
@@ -1292,52 +1462,17 @@ SharedMatrix MintsHelper::so_potential(bool include_perturbations) {
             } else {
                 outfile->Printf("  MintsHelper doesn't understand the requested perturbation, might be done in SCF.");
             }
-
-            OperatorSymmetry msymm(1, molecule_, integral_, factory_);
-            std::vector<SharedMatrix> dipoles = msymm.create_matrices("Dipole");
-            OneBodySOInt *so_dipole = integral_->so_dipole();
-            so_dipole->compute(dipoles);
-
-            if (lambda[0] != 0.0) {
-                if (msymm.component_symmetry(0) != 0) {
-                    outfile->Printf("  WARNING: Requested mu(x) perturbation, but mu(x) is not symmetric.\n");
-                } else {
-                    outfile->Printf("  Perturbing V by %f mu(x).\n", lambda[0]);
-                    dipoles[0]->scale(lambda[0]);
-                    potential_mat->add(dipoles[0]);
-                }
-            }
-            if (lambda[1] != 0.0) {
-                if (msymm.component_symmetry(1) != 0) {
-                    outfile->Printf("  WARNING: Requested mu(y) perturbation, but mu(y) is not symmetric.\n");
-                } else {
-                    outfile->Printf("  Perturbing V by %f mu(y).\n", lambda[1]);
-                    dipoles[1]->scale(lambda[1]);
-                    potential_mat->add(dipoles[1]);
-                }
-            }
-            if (lambda[2] != 0.0) {
-                if (msymm.component_symmetry(2) != 0) {
-                    outfile->Printf("  WARNING: Requested mu(z) perturbation, but mu(z) is not symmetric.\n");
-                } else {
-                    outfile->Printf("  Perturbing V by %f mu(z).\n", lambda[2]);
-                    dipoles[2]->scale(lambda[2]);
-                    potential_mat->add(dipoles[2]);
-                }
-            }
-        }
-
-        if (options_.get_str("RELATIVISTIC") == "DKH") {
-            int dkh_order = options_.get_int("DKH_ORDER");
-            SharedMatrix dkh = so_dkh(dkh_order);
-
-            outfile->Printf("    Adding Douglas-Kroll-Hess corrections to the potential integrals.\n");
-
-            potential_mat->add(dkh);
         }
     }
 
-    return potential_mat;
+    X2CInt x2cint;
+    x2cint.compute(molecule_, basisset_, get_basisset("BASIS_RELATIVISTIC"), so_overlap_x2c, so_kinetic_x2c,
+                   so_potential_x2c, lambda);
+
+    // Overwrite cached integrals
+    cached_oe_ints_[std::make_pair(PSIF_SO_S, include_perturbations)] = so_overlap_x2c;
+    cached_oe_ints_[std::make_pair(PSIF_SO_T, include_perturbations)] = so_kinetic_x2c;
+    cached_oe_ints_[std::make_pair(PSIF_SO_V, include_perturbations)] = so_potential_x2c;
 }
 
 std::vector<SharedMatrix> MintsHelper::so_dipole() {
@@ -1562,6 +1697,45 @@ std::vector<SharedMatrix> MintsHelper::electric_field(const std::vector<double> 
     return field;
 }
 
+SharedMatrix MintsHelper::induction_operator(SharedMatrix coords, SharedMatrix moments) {
+    SharedMatrix mat = std::make_shared<Matrix>("Induction operator", basisset_->nao(), basisset_->nao());
+    ContractOverDipolesFunctor dipfun(moments, mat);
+    auto field_integrals_ = static_cast<ElectricFieldInt *>(integral_->electric_field());
+    field_integrals_->compute_with_functor(dipfun, coords);
+    mat->scale(-1.0);
+
+    PetiteList petite(basisset_, integral_, true);
+    auto my_aotoso_ = petite.aotoso();
+
+    SharedMatrix pure_mat;
+    if (basisset_->has_puream()) {
+        pure_mat = std::make_shared<Matrix>("Induction operator pure", basisset_->nbf(), basisset_->nbf());
+        pure_mat->transform(mat, my_aotoso_);
+        mat = pure_mat;
+    }
+    return mat;
+}
+
+SharedMatrix MintsHelper::electric_field_value(SharedMatrix coords, SharedMatrix D) {
+    auto field_integrals_ = static_cast<ElectricFieldInt *>(integral_->electric_field());
+    PetiteList petite(basisset_, integral_, true);
+    auto my_aotoso_ = petite.aotoso();
+
+    SharedMatrix D_carts;
+    if (basisset_->has_puream()) {
+        D_carts = std::make_shared<Matrix>("D carts", basisset_->nao(), basisset_->nao());
+        D_carts->back_transform(D, my_aotoso_);
+    } else {
+        D_carts = D;
+    }
+
+    SharedMatrix efields = std::make_shared<Matrix>("efields", coords->nrow(), 3);
+    auto fieldfun = ContractOverDensityFieldFunctor(efields, D_carts);
+    field_integrals_->compute_with_functor(fieldfun, coords);
+
+    return efields;
+}
+
 std::vector<SharedMatrix> MintsHelper::ao_nabla() {
     // Create a vector of matrices with the proper symmetry
     std::vector<SharedMatrix> nabla;
@@ -1752,6 +1926,30 @@ SharedMatrix MintsHelper::potential_grad(SharedMatrix D) {
     // Potential derivs
     int natom = basisset_->molecule()->natom();
     auto V = std::make_shared<Matrix>("Potential Gradient", natom, 3);
+#ifdef USING_BrianQC
+    if (brianEnable) {
+        int densityCount = (brianRestrictionType == BRIAN_RESTRICTION_TYPE_RHF) ? 1 : 2;
+        
+        SharedMatrix dummyInput, dummyOutput;
+        if (densityCount > 1) {
+            dummyInput = std::make_shared<Matrix>("dummy", basisset_->nbf(), basisset_->nbf());
+            dummyOutput = std::make_shared<Matrix>("dummy", basisset_->molecule()->natom(), 3);
+        }
+        
+        brianInt integralType = BRIAN_INTEGRAL_TYPE_NUCLEAR;
+        brianOPTBuildGradient1eDeriv(&brianCookie,
+            &integralType,
+            D->get_pointer(),
+            (densityCount > 1 ? dummyInput->get_pointer() : nullptr),
+            nullptr,
+            nullptr,
+            V->get_pointer(),
+            (densityCount > 1 ? dummyOutput->get_pointer() : nullptr)
+        );
+        
+        return V;
+    }
+#endif
 
     // Build temps
     std::vector<std::shared_ptr<OneBodyAOInt>> ints_vec;
@@ -1819,22 +2017,70 @@ SharedMatrix MintsHelper::potential_grad(SharedMatrix D) {
 }
 
 SharedMatrix MintsHelper::kinetic_grad(SharedMatrix D) {
-    // Overlap
+    // Kinetic
+    SharedMatrix kinetic_mat(new Matrix("Kinetic Gradient", basisset_->molecule()->natom(), 3));
+#ifdef USING_BrianQC
+    if (brianEnable) {
+        int densityCount = (brianRestrictionType == BRIAN_RESTRICTION_TYPE_RHF) ? 1 : 2;
+        
+        SharedMatrix dummyInput, dummyOutput;
+        if (densityCount > 1) {
+            dummyInput = std::make_shared<Matrix>("dummy", basisset_->nbf(), basisset_->nbf());
+            dummyOutput = std::make_shared<Matrix>("dummy", basisset_->molecule()->natom(), 3);
+        }
+        
+        brianInt integralType = BRIAN_INTEGRAL_TYPE_KINETIC;
+        brianOPTBuildGradient1eDeriv(&brianCookie,
+            &integralType,
+            D->get_pointer(),
+            (densityCount > 1 ? dummyInput->get_pointer() : nullptr),
+            nullptr,
+            nullptr,
+            kinetic_mat->get_pointer(),
+            (densityCount > 1 ? dummyOutput->get_pointer() : nullptr)
+        );
+        
+        return kinetic_mat;
+    }
+#endif
     std::vector<std::shared_ptr<OneBodyAOInt>> ints_vec;
     for (size_t i = 0; i < nthread_; i++) {
         ints_vec.push_back(std::shared_ptr<OneBodyAOInt>(integral_->ao_kinetic(1)));
     }
-    SharedMatrix kinetic_mat(new Matrix("Kinetic Gradient", basisset_->molecule()->natom(), 3));
     grad_two_center_computer(ints_vec, D, kinetic_mat);
     return kinetic_mat;
 }
 SharedMatrix MintsHelper::overlap_grad(SharedMatrix D) {
     // Overlap
+    SharedMatrix overlap_mat(new Matrix("Overlap Gradient", basisset_->molecule()->natom(), 3));
+#ifdef USING_BrianQC
+    if (brianEnable) {
+        int densityCount = (brianRestrictionType == BRIAN_RESTRICTION_TYPE_RHF) ? 1 : 2;
+        
+        SharedMatrix dummyInput, dummyOutput;
+        if (densityCount > 1) {
+            dummyInput = std::make_shared<Matrix>("dummy", basisset_->nbf(), basisset_->nbf());
+            dummyOutput = std::make_shared<Matrix>("dummy", basisset_->molecule()->natom(), 3);
+        }
+        
+        brianInt integralType = BRIAN_INTEGRAL_TYPE_OVERLAP;
+        brianOPTBuildGradient1eDeriv(&brianCookie,
+            &integralType,
+            nullptr,
+            nullptr,
+            D->get_pointer(),
+            (densityCount > 1 ? dummyInput->get_pointer() : nullptr),
+            overlap_mat->get_pointer(),
+            (densityCount > 1 ? dummyOutput->get_pointer() : nullptr)
+        );
+        
+        return overlap_mat;
+    }
+#endif
     std::vector<std::shared_ptr<OneBodyAOInt>> ints_vec;
     for (size_t i = 0; i < nthread_; i++) {
         ints_vec.push_back(std::shared_ptr<OneBodyAOInt>(integral_->ao_overlap(1)));
     }
-    SharedMatrix overlap_mat(new Matrix("Overlap Gradient", basisset_->molecule()->natom(), 3));
     grad_two_center_computer(ints_vec, D, overlap_mat);
     return overlap_mat;
 }
@@ -2048,15 +2294,283 @@ SharedMatrix MintsHelper::core_hamiltonian_grad(SharedMatrix D) {
     return ret;
 }
 
+std::map<std::string, SharedMatrix> MintsHelper::metric_grad(std::map<std::string, SharedMatrix>& D, const std::string& aux_name) {
+    // Construct integral factory.
+    auto auxiliary = get_basisset(aux_name);
+    auto rifactory = std::make_shared<IntegralFactory>(auxiliary, BasisSet::zero_ao_basis_set(), auxiliary, BasisSet::zero_ao_basis_set());
+    std::vector<std::shared_ptr<TwoBodyAOInt> > Jint;
+    for (int t = 0; t < nthread_; t++) {
+        Jint.push_back(std::shared_ptr<TwoBodyAOInt>(rifactory->eri(1)));
+    }
+
+    // Construct temporary matrices for each thread
+    int natom = basisset_->molecule()->natom();
+    std::map<std::string, std::vector<SharedMatrix>> temps;
+    for (auto kv: D) {
+        temps[kv.first] = std::vector<SharedMatrix>();
+        auto& temp = temps[kv.first];
+        for (int j = 0; j < nthread_; j++) {
+            temp.push_back(std::make_shared<Matrix>("temp", natom, 3));
+        }
+    }
+
+    // Construct pairs of aux AO shells
+    std::vector<std::pair<int, int>> PQ_pairs;
+    for (int P = 0; P < auxiliary->nshell(); P++) {
+        for (auto Q = 0; Q <= P; Q++) {
+            PQ_pairs.push_back(std::pair<int, int>(P, Q));
+        }
+    }
+
+   // Perform threading contraction of "densities" against metric derivative integrals.
+#pragma omp parallel for schedule(dynamic) num_threads(nthread_)
+    for (long int PQ = 0L; PQ < PQ_pairs.size(); PQ++) {
+        auto P = PQ_pairs[PQ].first;
+        auto Q = PQ_pairs[PQ].second;
+        int thread = 0;
+#ifdef _OPENMP
+        thread = omp_get_thread_num();
+#endif
+        Jint[thread]->compute_shell_deriv1(P, 0, Q, 0);
+        const auto buffers = Jint[thread]->buffers();
+
+        int nP = auxiliary->shell(P).nfunction();
+        int cP = auxiliary->shell(P).ncartesian();
+        int aP = auxiliary->shell(P).ncenter();
+        int oP = auxiliary->shell(P).function_index();
+
+        int nQ = auxiliary->shell(Q).nfunction();
+        int cQ = auxiliary->shell(Q).ncartesian();
+        int aQ = auxiliary->shell(Q).ncenter();
+        int oQ = auxiliary->shell(Q).function_index();
+
+        int ncart = cP * cQ;
+        const double *Px = buffers[0];
+        const double *Py = buffers[1];
+        const double *Pz = buffers[2];
+        const double *Qx = buffers[3];
+        const double *Qy = buffers[4];
+        const double *Qz = buffers[5];
+
+        double perm = (P == Q ? 1.0 : 2.0);
+
+        std::vector<std::pair<double**, double**>> read_write_pairs;
+        for (auto kv: D) {
+            auto temp1 = D[kv.first]->pointer();
+            auto temp2 = temps[kv.first][thread]->pointer();
+            auto pair = std::make_pair(temp1, temp2);
+            read_write_pairs.push_back(pair);
+        }
+
+        for (int p = 0; p < nP; p++) {
+            for (int q = 0; q < nQ; q++) {
+                for (auto& pair : read_write_pairs) {
+                    double val = 0.5 * perm * pair.first[p+oP][q+oQ];
+                    auto grad_mat = pair.second;
+                    grad_mat[aP][0] -= val * (*Px);
+                    grad_mat[aP][1] -= val * (*Py);
+                    grad_mat[aP][2] -= val * (*Pz);
+                    grad_mat[aQ][0] -= val * (*Qx);
+                    grad_mat[aQ][1] -= val * (*Qy);
+                    grad_mat[aQ][2] -= val * (*Qz);
+                }
+
+                Px++;
+                Py++;
+                Pz++;
+                Qx++;
+                Qy++;
+                Qz++;
+            }
+        }
+    }
+
+    // Sum results across the various threads
+    std::map<std::string, SharedMatrix> gradient_contributions;
+    for (auto kv: temps) {
+        auto gradient_contribution = std::make_shared<Matrix>(kv.first + " Gradient", natom, 3);
+        for (auto thread_matrix: kv.second) {
+            gradient_contribution->add(thread_matrix);
+        }
+        gradient_contributions[kv.first] = gradient_contribution;
+    }
+    return gradient_contributions;
+}
+
+// TODO: DFMP2 might be able to use this, if we resolve the following:
+//  1. Should we move density back transform into this loop?
+//  2. Should we explicitly hermitivitize during contraction against derivative integral?
+//  3. Can we force a relation between intermed_name and gradient_name, to simplify the argument list?
+SharedMatrix MintsHelper::three_idx_grad(const std::string& aux_name, const std::string& intermed_name, const std::string& gradient_name) {
+    // Construct integral factory.
+    auto primary = get_basisset("ORBITAL");
+    auto auxiliary = get_basisset(aux_name);
+    auto rifactory = std::make_shared<IntegralFactory>(auxiliary, BasisSet::zero_ao_basis_set(), primary, primary);
+    std::vector<std::shared_ptr<TwoBodyAOInt> > Jint;
+    for (int t = 0; t < nthread_; t++) {
+        Jint.push_back(std::shared_ptr<TwoBodyAOInt>(rifactory->eri(1)));
+    }
+
+    const auto &shell_pairs = Jint[0]->shell_pairs();
+    int npairs = shell_pairs.size(); // Number of pairs of primary orbital shells
+
+    // => Memory Constraints <= //
+    const auto nprim = primary->nbf();
+    const auto naux = auxiliary->nbf();
+    const auto ntri = (nprim * (nprim + 1)) / 2;
+    auto row_cost = sizeof(double) * (nprim * nprim + ntri);
+    // Assume we can devote 80% of Psi's memory to this. 80% was pulled from a hat.
+    auto max_rows = 0.8 * Process::environment.get_memory() / row_cost;
+
+    // => Block Sizing <= //
+    std::vector<int> Pstarts;
+    int counter = 0;
+    Pstarts.push_back(0);
+    for (int P = 0; P < auxiliary->nshell(); P++) {
+        int nP = auxiliary->shell(P).nfunction();
+        if (counter + nP > max_rows) {
+            counter = 0;
+            Pstarts.push_back(P);
+        }
+        counter += nP;
+    }
+    Pstarts.push_back(auxiliary->nshell());
+
+    // Construct temporary matrices for each thread
+    int natom = basisset_->molecule()->natom();
+    std::vector<SharedMatrix> temps;
+    for (int j = 0; j < nthread_; j++) {
+        temps.push_back(std::make_shared<Matrix>("temp", natom, 3));
+    }
+
+    psio_address next_Pmn = PSIO_ZERO;
+    // Individual block reads may very well not use all of this memory.
+    auto temp = std::vector<double>(static_cast<size_t>(max_rows) * ntri);
+    auto data = temp.data();
+
+    // Perform threaded contraction of "densities" against 3-index derivative integrals.
+    // Loop over blocks. Each block is all (P|mn) belonging to certain aux. orbital shells.
+    // Large aux. basis sets may require multiple blocks.
+    for (int block = 0; block < Pstarts.size() - 1; block++) {
+        int Pstart = Pstarts[block];
+        int Pstop = Pstarts[block + 1];
+        int NP = Pstop - Pstart;
+
+        int pstart = auxiliary->shell(Pstart).function_index();
+        int pstop = (Pstop == auxiliary->nshell() ? naux : auxiliary->shell(Pstop).function_index());
+        int np = pstop - pstart;
+
+        // Read values from disk. We assume that only the "lower triangle" of (P|mn) is stored.
+        psio_->read(PSIF_AO_TPDM, intermed_name.c_str(), (char*)temp.data(), sizeof(double) * np * ntri, next_Pmn, &next_Pmn);
+
+        // Now get them into a matrix, not just the lower triangle.
+        // This is the price of only storing the lower triangle on disk.
+        auto idx3_matrix = std::make_shared<Matrix>(np, nprim * nprim);
+        auto idx3p = idx3_matrix->pointer();
+#pragma omp parallel for
+        for (int aux = 0; aux < np; aux++) {
+            auto elt = &data[ntri * aux];
+            for (int p = 0; p < nprim; p++) {
+                for (int q = 0; q <= p; q++) {
+                    idx3p[aux][p * nprim + q] = *elt;
+                    idx3p[aux][q * nprim + p] = *elt;
+                    elt++;
+                }
+            }
+        }
+
+        // For each block, loop over aux. shell, then primary shell pairs
+#pragma omp parallel for schedule(dynamic) num_threads(nthread_)
+        for (long int PMN = 0L; PMN < static_cast<long int>(NP) * npairs; PMN++) {
+            int thread = 0;
+#ifdef _OPENMP
+            thread = omp_get_thread_num();
+#endif
+
+            int P = PMN / npairs + Pstart;
+            int MN = PMN % npairs;
+            int M = shell_pairs[MN].first;
+            int N = shell_pairs[MN].second;
+
+            Jint[thread]->compute_shell_deriv1(P, 0, M, N);
+
+            const auto& buffers = Jint[thread]->buffers();
+
+            int nP = auxiliary->shell(P).nfunction();
+            int cP = auxiliary->shell(P).ncartesian();
+            int aP = auxiliary->shell(P).ncenter();
+            int oP = auxiliary->shell(P).function_index() - pstart;
+
+            int nM = primary->shell(M).nfunction();
+            int cM = primary->shell(M).ncartesian();
+            int aM = primary->shell(M).ncenter();
+            int oM = primary->shell(M).function_index();
+
+            int nN = primary->shell(N).nfunction();
+            int cN = primary->shell(N).ncartesian();
+            int aN = primary->shell(N).ncenter();
+            int oN = primary->shell(N).function_index();
+
+            int ncart = cP * cM * cN;
+            const double *Px = buffers[0];
+            const double *Py = buffers[1];
+            const double *Pz = buffers[2];
+            const double *Mx = buffers[3];
+            const double *My = buffers[4];
+            const double *Mz = buffers[5];
+            const double *Nx = buffers[6];
+            const double *Ny = buffers[7];
+            const double *Nz = buffers[8];
+
+            double perm = (M == N ? 1.0 : 2.0);
+
+            auto grad_Jp = temps[thread]->pointer();
+
+            // Within each of those, then loop over each function in the shell. 
+            for (int p = 0; p < nP; p++) {
+                for (int m = 0; m < nM; m++) {
+                    for (int n = 0; n < nN; n++) {
+                        double Ival = 1.0 * perm * idx3p[p + oP][(m + oM) * nprim + (n + oN)];
+                        grad_Jp[aP][0] += Ival * (*Px);
+                        grad_Jp[aP][1] += Ival * (*Py);
+                        grad_Jp[aP][2] += Ival * (*Pz);
+                        grad_Jp[aM][0] += Ival * (*Mx);
+                        grad_Jp[aM][1] += Ival * (*My);
+                        grad_Jp[aM][2] += Ival * (*Mz);
+                        grad_Jp[aN][0] += Ival * (*Nx);
+                        grad_Jp[aN][1] += Ival * (*Ny);
+                        grad_Jp[aN][2] += Ival * (*Nz);
+
+                        Px++;
+                        Py++;
+                        Pz++;
+                        Mx++;
+                        My++;
+                        Mz++;
+                        Nx++;
+                        Ny++;
+                        Nz++;
+                    }
+                }
+            }
+        }
+    }
+
+    // Sum results across the various threads
+    auto idx3_grad = std::make_shared<Matrix>(intermed_name + " Gradient", natom, 3);
+    for (const auto& thread_contribution : temps) {
+        idx3_grad->add(thread_contribution);
+    }
+
+    return idx3_grad;
+}
+
 void MintsHelper::play() {}
 
 /* 1st and 2nd derivatives of OEI in AO basis  */
 
 std::vector<SharedMatrix> MintsHelper::ao_overlap_kinetic_deriv1_helper(const std::string &type, int atom) {
-    std::vector<std::string> cartcomp;
-    cartcomp.push_back("X");
-    cartcomp.push_back("Y");
-    cartcomp.push_back("Z");
+    std::array<std::string, 3> cartcomp{ {"X", "Y", "Z"} };
 
     std::shared_ptr<OneBodyAOInt> GInt;
 
@@ -2078,7 +2592,7 @@ std::vector<SharedMatrix> MintsHelper::ao_overlap_kinetic_deriv1_helper(const st
     for (int p = 0; p < 3; p++) {
         std::stringstream sstream;
         sstream << "ao_" << type << "_deriv1_" << atom << cartcomp[p];
-        grad.push_back(SharedMatrix(new Matrix(sstream.str(), nbf1, nbf2)));
+        grad.push_back(std::make_shared<Matrix>(sstream.str(), nbf1, nbf2));
     }
 
     const double *buffer = GInt->buffer();
@@ -2161,10 +2675,7 @@ std::vector<SharedMatrix> MintsHelper::ao_overlap_kinetic_deriv1_helper(const st
 }
 
 std::vector<SharedMatrix> MintsHelper::ao_potential_deriv1_helper(int atom) {
-    std::vector<std::string> cartcomp;
-    cartcomp.push_back("X");
-    cartcomp.push_back("Y");
-    cartcomp.push_back("Z");
+    std::array<std::string, 3> cartcomp{ {"X", "Y", "Z"} };
 
     std::shared_ptr<OneBodyAOInt> Vint(integral_->ao_potential(1));
 
@@ -2180,7 +2691,7 @@ std::vector<SharedMatrix> MintsHelper::ao_potential_deriv1_helper(int atom) {
     for (int p = 0; p < 3; p++) {
         std::stringstream sstream;
         sstream << "ao_potential_deriv1_" << atom << cartcomp[p];
-        grad.push_back(SharedMatrix(new Matrix(sstream.str(), nbf1, nbf2)));
+        grad.push_back(std::make_shared<Matrix>(sstream.str(), nbf1, nbf2));
     }
 
     const double *buffer = Vint->buffer();
@@ -2211,11 +2722,106 @@ std::vector<SharedMatrix> MintsHelper::ao_potential_deriv1_helper(int atom) {
     return grad;
 }
 
+std::vector<SharedMatrix> MintsHelper::ao_overlap_half_deriv1_helper(const std::string &half_der_side, int atom) {
+    std::array<std::string, 3> cartcomp{ {"X", "Y", "Z"} };
+
+    std::shared_ptr<OneBodyAOInt> GInt(integral_->ao_overlap(1));
+
+    std::shared_ptr<BasisSet> bs1 = GInt->basis1();
+    std::shared_ptr<BasisSet> bs2 = GInt->basis2();
+
+    int nbf1 = bs1->nbf();
+    int nbf2 = bs2->nbf();
+
+    std::vector<SharedMatrix> grad;
+    for (int p = 0; p < 3; p++) {
+        std::stringstream sstream;
+        sstream << "ao_overlap_half_deriv1_" << atom << cartcomp[p];
+        grad.push_back(std::make_shared<Matrix>(sstream.str(), nbf1, nbf2));
+    }
+
+    const double *buffer = GInt->buffer();
+
+    for (int P = 0; P < bs1->nshell(); P++)
+        for (int Q = 0; Q < bs2->nshell(); Q++) {
+            int nP = basisset_->shell(P).nfunction();
+            int oP = basisset_->shell(P).function_index();
+            int aP = basisset_->shell(P).ncenter();
+
+            int nQ = basisset_->shell(Q).nfunction();
+            int oQ = basisset_->shell(Q).function_index();
+            int aQ = basisset_->shell(Q).ncenter();
+
+            if (aP != atom && aQ != atom) continue;
+
+            GInt->compute_shell_deriv1(P, Q);
+            int offset = 0;
+
+            if (aP == atom && half_der_side == "LEFT") {
+                // Px
+                for (int p = 0; p < nP; p++) {
+                    for (int q = 0; q < nQ; q++) {
+                        grad[0]->add(p + oP, q + oQ, buffer[p * nQ + q + offset]);
+                    }
+                }
+                offset += nP * nQ;
+
+                // Py
+                for (int p = 0; p < nP; p++) {
+                    for (int q = 0; q < nQ; q++) {
+                        grad[1]->add(p + oP, q + oQ, buffer[p * nQ + q + offset]);
+                    }
+                }
+                offset += nP * nQ;
+
+                // Pz
+                for (int p = 0; p < nP; p++) {
+                    for (int q = 0; q < nQ; q++) {
+                        grad[2]->add(p + oP, q + oQ, buffer[p * nQ + q + offset]);
+                    }
+                }
+                offset += nP * nQ;
+            } else {
+                offset += 3 * nP * nQ;
+            }
+
+            if (aQ == atom && half_der_side == "RIGHT") {
+                // Qx
+                for (int p = 0; p < nP; p++) {
+                    for (int q = 0; q < nQ; q++) {
+                        grad[0]->add(p + oP, q + oQ, buffer[p * nQ + q + offset]);
+                    }
+                }
+                offset += nP * nQ;
+
+                // Qy
+                for (int p = 0; p < nP; p++) {
+                    for (int q = 0; q < nQ; q++) {
+                        grad[1]->add(p + oP, q + oQ, buffer[p * nQ + q + offset]);
+                    }
+                }
+                offset += nP * nQ;
+
+                // Qz
+                for (int p = 0; p < nP; p++) {
+                    for (int q = 0; q < nQ; q++) {
+                        grad[2]->add(p + oP, q + oQ, buffer[p * nQ + q + offset]);
+                    }
+                }
+                offset += nP * nQ;
+            }
+
+            else {
+                offset += 3 * nP * nQ;
+            }
+        }
+
+    return grad;
+}
+
 std::vector<SharedMatrix> MintsHelper::ao_potential_deriv2_helper(int atom1, int atom2) {
-    std::vector<std::string> cartcomp;
-    cartcomp.push_back("x");
-    cartcomp.push_back("y");
-    cartcomp.push_back("z");
+    /* NOTE: the x, y, and z in this vector must remain lowercase for this function */
+    std::array<std::string, 3> cartcomp{ {"x", "y", "z"} };
 
     std::shared_ptr<OneBodyAOInt> Vint(integral_->ao_potential(2));
 
@@ -2231,7 +2837,7 @@ std::vector<SharedMatrix> MintsHelper::ao_potential_deriv2_helper(int atom1, int
         for (int b = 0; b < 3; b++, ab++) {
             std::stringstream sstream;
             sstream << "ao_potential_deriv2_" << atom1 << atom2 << cartcomp[a] << cartcomp[b];
-            grad.push_back(SharedMatrix(new Matrix(sstream.str(), nbf1, nbf2)));
+            grad.push_back(std::make_shared<Matrix>(sstream.str(), nbf1, nbf2));
             grad[ab]->zero();
         }
 
@@ -2446,10 +3052,7 @@ std::vector<SharedMatrix> MintsHelper::ao_potential_deriv2_helper(int atom1, int
 }
 
 std::vector<SharedMatrix> MintsHelper::ao_overlap_kinetic_deriv2_helper(const std::string &type, int atom1, int atom2) {
-    std::vector<std::string> cartcomp;
-    cartcomp.push_back("X");
-    cartcomp.push_back("Y");
-    cartcomp.push_back("Z");
+    std::array<std::string, 3> cartcomp{ {"X", "Y", "Z"} };
 
     std::shared_ptr<OneBodyAOInt> GInt;
 
@@ -2472,7 +3075,7 @@ std::vector<SharedMatrix> MintsHelper::ao_overlap_kinetic_deriv2_helper(const st
         for (int q = 0; q < 3; q++) {
             std::stringstream sstream;
             sstream << "ao_" << type << "_deriv2_" << atom1 << atom2 << cartcomp[p] << cartcomp[q];
-            grad.push_back(SharedMatrix(new Matrix(sstream.str(), nbf1, nbf2)));
+            grad.push_back(std::make_shared<Matrix>(sstream.str(), nbf1, nbf2));
         }
 
     const double *buffer = GInt->buffer();
@@ -2556,14 +3159,66 @@ std::vector<SharedMatrix> MintsHelper::ao_overlap_kinetic_deriv2_helper(const st
     return grad;
 }
 
+/* 1st derivatives of electric dipole integrals in the AO basis */
+std::vector<SharedMatrix> MintsHelper::ao_elec_dip_deriv1_helper(int atom) {
+    std::array<std::string, 3> cartcomp{ {"X", "Y", "Z"} };
+
+    std::shared_ptr<OneBodyAOInt> Dint(integral_->ao_dipole(1));
+
+    std::shared_ptr<BasisSet> bs1 = Dint->basis1();
+    std::shared_ptr<BasisSet> bs2 = Dint->basis2();
+
+    int nbf1 = bs1->nbf();
+    int nbf2 = bs2->nbf();
+
+    std::vector<SharedMatrix> grad;
+    for (int p = 0; p < 3; p++) {
+        std::stringstream sstream;
+        sstream << "ao_mu" << cartcomp[p] << "_deriv1_";
+        for (int q = 0; q < 3; q++) {
+            sstream << atom << cartcomp[q];
+            grad.push_back(std::make_shared<Matrix>(sstream.str(), nbf1, nbf2));
+        }
+    }
+
+    const double *buffer = Dint->buffer();
+
+    for (int P = 0; P < bs1->nshell(); P++) {
+        for (int Q = 0; Q < bs2->nshell(); Q++) {
+            int nP = basisset_->shell(P).nfunction();
+            int oP = basisset_->shell(P).function_index();
+            int aP = basisset_->shell(P).ncenter();
+
+            int nQ = basisset_->shell(Q).nfunction();
+            int oQ = basisset_->shell(Q).function_index();
+            int aQ = basisset_->shell(Q).ncenter();
+
+            if (aP != atom && aQ != atom) continue;
+
+            Dint->compute_shell_deriv1(P, Q);
+
+            for (int mu_cart = 0; mu_cart < 3; mu_cart++) {
+                for (int atom_cart = 0; atom_cart < 3; atom_cart++) {
+                    int offset = (6 * mu_cart * nP * nQ) + (atom_cart * nP * nQ) + (3 * (atom == aQ) * nP * nQ);
+                    for (int p = 0; p < nP; p++) {
+                        for (int q = 0; q < nQ; q++) {
+                            if (aP == aQ) grad[3 * mu_cart + atom_cart]->add(p + oP, q + oQ, buffer[p * nQ + q + offset - (3 * nP * nQ)]);
+                            grad[3 * mu_cart + atom_cart]->add(p + oP, q + oQ, buffer[p * nQ + q + offset]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return grad;
+}
+
 /* 1st and 2nd derivatives of TEI in AO basis  */
 
 std::vector<SharedMatrix> MintsHelper::ao_tei_deriv1(int atom, double omega,
                                                      std::shared_ptr<IntegralFactory> input_factory) {
-    std::vector<std::string> cartcomp;
-    cartcomp.push_back("X");
-    cartcomp.push_back("Y");
-    cartcomp.push_back("Z");
+    std::array<std::string, 3> cartcomp{ {"X", "Y", "Z"} };
 
     std::shared_ptr<IntegralFactory> factory;
     if (input_factory) {
@@ -2595,11 +3250,11 @@ std::vector<SharedMatrix> MintsHelper::ao_tei_deriv1(int atom, double omega,
     for (int p = 0; p < 3; p++) {
         std::stringstream sstream;
         sstream << "ao_tei_deriv1_" << atom << cartcomp[p];
-        grad.push_back(SharedMatrix(new Matrix(sstream.str(), nbf1 * nbf2, nbf3 * nbf4)));
+        grad.push_back(std::make_shared<Matrix>(sstream.str(), nbf1 * nbf2, nbf3 * nbf4));
     }
 
-    const double *buffer = ints->buffer();
 
+    const auto &buffers = ints->buffers();
     for (int P = 0; P < bs1->nshell(); P++) {
         for (int Q = 0; Q < bs2->nshell(); Q++) {
             for (int R = 0; R < bs3->nshell(); R++) {
@@ -2624,7 +3279,6 @@ std::vector<SharedMatrix> MintsHelper::ao_tei_deriv1(int atom, double omega,
                     int Rcenter = bs3->shell(R).ncenter();
                     int Scenter = bs4->shell(S).ncenter();
 
-                    size_t stride = Pncart * Qncart * Rncart * Sncart;
                     size_t delta;
 
                     delta = 0L;
@@ -2648,19 +3302,18 @@ std::vector<SharedMatrix> MintsHelper::ao_tei_deriv1(int atom, double omega,
                                     int i = (Poff + p) * nbf2 + Qoff + q;
                                     int j = (Roff + r) * nbf4 + Soff + s;
 
-                                    Ax = buffer[0 * stride + delta];
-                                    Ay = buffer[1 * stride + delta];
-                                    Az = buffer[2 * stride + delta];
-                                    Cx = buffer[3 * stride + delta];
-                                    Cy = buffer[4 * stride + delta];
-                                    Cz = buffer[5 * stride + delta];
-                                    Dx = buffer[6 * stride + delta];
-                                    Dy = buffer[7 * stride + delta];
-                                    Dz = buffer[8 * stride + delta];
-
-                                    Bx = -(Ax + Cx + Dx);
-                                    By = -(Ay + Cy + Dy);
-                                    Bz = -(Az + Cz + Dz);
+                                    Ax = buffers[0][delta];
+                                    Ay = buffers[1][delta];
+                                    Az = buffers[2][delta];
+                                    Bx = buffers[3][delta];
+                                    By = buffers[4][delta];
+                                    Bz = buffers[5][delta];
+                                    Cx = buffers[6][delta];
+                                    Cy = buffers[7][delta];
+                                    Cz = buffers[8][delta];
+                                    Dx = buffers[9][delta];
+                                    Dy = buffers[10][delta];
+                                    Dz = buffers[11][delta];
 
                                     if (Pcenter == atom) {
                                         X += Ax;
@@ -2708,11 +3361,202 @@ std::vector<SharedMatrix> MintsHelper::ao_tei_deriv1(int atom, double omega,
     return grad;
 }
 
+/* 1st and 2nd derivatives of metric in AO basis  */
+
+std::vector<SharedMatrix> MintsHelper::ao_metric_deriv1(int atom, const std::string& aux_name) {
+    std::array<std::string, 3> cartcomp{ {"X", "Y", "Z"} };
+
+    auto aux = get_basisset(aux_name);
+    auto factory = std::make_shared<IntegralFactory>(aux, BasisSet::zero_ao_basis_set(), aux, BasisSet::zero_ao_basis_set());
+
+    auto ints = std::shared_ptr<TwoBodyAOInt>(factory->eri(1));
+    auto naux = aux->nbf();
+    int natom = basisset_->molecule()->natom();
+
+    std::vector<SharedMatrix> grad;
+    for (int p = 0; p < 3; p++) {
+        std::stringstream sstream;
+        sstream << "ao_metric_deriv1_" << atom << cartcomp[p];
+        grad.push_back(std::make_shared<Matrix>(sstream.str(), naux, naux));
+    }
+
+
+    const auto &buffers = ints->buffers();
+    for (int P = 0; P < aux->nshell(); P++) {
+        for (int Q = 0; Q < aux->nshell(); Q++) {
+            int Psize = aux->shell(P).nfunction();
+            int Qsize = aux->shell(Q).nfunction();
+
+            int Poff = aux->shell(P).function_index();
+            int Qoff = aux->shell(Q).function_index();
+
+            int Pcenter = aux->shell(P).ncenter();
+            int Qcenter = aux->shell(Q).ncenter();
+
+            size_t delta;
+
+            delta = 0L;
+
+            if (Pcenter != atom && Qcenter != atom) continue;
+
+            if (Pcenter == atom && Qcenter == atom) continue;
+
+            ints->compute_shell_deriv1(P, 0, Q, 0);
+
+            double Ax, Ay, Az;
+            double Bx, By, Bz;
+            double X = 0, Y = 0, Z = 0;
+
+            for (int p = 0; p < Psize; p++) {
+                for (int q = 0; q < Qsize; q++) {
+                    int i = p + Poff;
+                    int j = q + Qoff;
+
+                    Ax = buffers[0][delta];
+                    Ay = buffers[1][delta];
+                    Az = buffers[2][delta];
+                    Bx = buffers[3][delta];
+                    By = buffers[4][delta];
+                    Bz = buffers[5][delta];
+
+                    if (Pcenter == atom) {
+                        X += Ax;
+                        Y += Ay;
+                        Z += Az;
+                    }
+
+                    if (Qcenter == atom) {
+                        X += Bx;
+                        Y += By;
+                        Z += Bz;
+                    }
+
+                    grad[0]->set(i, j, X);
+                    grad[1]->set(i, j, Y);
+                    grad[2]->set(i, j, Z);
+
+                    X = 0, Y = 0, Z = 0;
+                    delta++;
+                }
+            }
+        }
+    }
+
+    return grad;
+}
+
+/* 1st and 2nd derivatives of TEI in AO basis  */
+
+std::vector<SharedMatrix> MintsHelper::ao_3center_deriv1(int atom, const std::string& aux_name) {
+    std::array<std::string, 3> cartcomp{ {"X", "Y", "Z"} };
+
+    auto aux = get_basisset(aux_name);
+    auto factory = std::make_shared<IntegralFactory>(aux, BasisSet::zero_ao_basis_set(), basisset_, basisset_);
+
+    auto ints = std::shared_ptr<TwoBodyAOInt>(factory->eri(1));
+    auto naux = aux->nbf();
+    int natom = basisset_->molecule()->natom();
+
+    std::vector<SharedMatrix> grad;
+    for (int p = 0; p < 3; p++) {
+        std::stringstream sstream;
+        sstream << "ao_3center_deriv1_" << atom << cartcomp[p];
+        grad.push_back(std::make_shared<Matrix>(sstream.str(), naux, nbf() * nbf()));
+    }
+
+
+    const auto &buffers = ints->buffers();
+    for (int P = 0; P < aux->nshell(); P++) {
+        for (int Q = 0; Q < basisset_->nshell(); Q++) {
+            for (int R = 0; R < basisset_->nshell(); R++) {
+                int Psize = aux->shell(P).nfunction();
+                int Qsize = basisset_->shell(Q).nfunction();
+                int Rsize = basisset_->shell(R).nfunction();
+
+                int Pncart = aux->shell(P).ncartesian();
+                int Qncart = basisset_->shell(Q).ncartesian();
+                int Rncart = basisset_->shell(R).ncartesian();
+
+                int Poff = aux->shell(P).function_index();
+                int Qoff = basisset_->shell(Q).function_index();
+                int Roff = basisset_->shell(R).function_index();
+
+                int Pcenter = aux->shell(P).ncenter();
+                int Qcenter = basisset_->shell(Q).ncenter();
+                int Rcenter = basisset_->shell(R).ncenter();
+
+                size_t delta;
+
+                delta = 0L;
+
+                if (Pcenter != atom && Qcenter != atom && Rcenter != atom) continue;
+
+                if (Pcenter == atom && Qcenter == atom && Rcenter == atom) continue;
+
+                ints->compute_shell_deriv1(P, 0, Q, R);
+
+                double Ax, Ay, Az;
+                double Bx, By, Bz;
+                double Cx, Cy, Cz;
+                double X = 0, Y = 0, Z = 0;
+
+                for (int p = 0; p < Psize; p++) {
+                    for (int q = 0; q < Qsize; q++) {
+                        for (int r = 0; r < Rsize; r++) {
+                            int i = Poff + p;
+                            int j = (Qoff + q) * nbf() + Roff + r;
+
+                            Ax = buffers[0][delta];
+                            Ay = buffers[1][delta];
+                            Az = buffers[2][delta];
+                            Bx = buffers[3][delta];
+                            By = buffers[4][delta];
+                            Bz = buffers[5][delta];
+                            Cx = buffers[6][delta];
+                            Cy = buffers[7][delta];
+                            Cz = buffers[8][delta];
+
+                            if (Pcenter == atom) {
+                                X += Ax;
+                                Y += Ay;
+                                Z += Az;
+                            }
+
+                            if (Qcenter == atom) {
+                                X += Bx;
+                                Y += By;
+                                Z += Bz;
+                            }
+
+                            if (Rcenter == atom) {
+                                X += Cx;
+                                Y += Cy;
+                                Z += Cz;
+                            }
+
+                            grad[0]->set(i, j, X);
+                            grad[1]->set(i, j, Y);
+                            grad[2]->set(i, j, Z);
+
+                            X = 0, Y = 0, Z = 0;
+                            delta++;
+                    }
+                    }
+                }
+            }
+        }
+    }
+
+    // Build numpy and final matrix shape
+    std::vector<int> nshape{naux, nbf(), nbf()};
+    for (int p = 0; p < 3; p++) grad[p]->set_numpy_shape(nshape);
+
+    return grad;
+}
+
 std::vector<SharedMatrix> MintsHelper::ao_tei_deriv2(int atom1, int atom2) {
-    std::vector<std::string> cartcomp;
-    cartcomp.push_back("x");
-    cartcomp.push_back("y");
-    cartcomp.push_back("z");
+    /* NOTE: the x, y, and z in this vector must remain lowercase for this function */
+    std::array<std::string, 3> cartcomp{ {"x", "y", "z"} };
 
     int nthreads = 1;
 #ifdef _OPENMP
@@ -2737,7 +3581,7 @@ std::vector<SharedMatrix> MintsHelper::ao_tei_deriv2(int atom1, int atom2) {
         for (int q = 0; q < 3; q++) {
             std::stringstream sstream;
             sstream << "ao_tei_deriv2_" << atom1 << atom2 << cartcomp[p] << cartcomp[q];
-            grad.push_back(SharedMatrix(new Matrix(sstream.str(), nbf1 * nbf2, nbf3 * nbf4)));
+            grad.push_back(std::make_shared<Matrix>(sstream.str(), nbf1 * nbf2, nbf3 * nbf4));
         }
 
     std::vector<std::vector<int>> shell_quartets;
@@ -2782,7 +3626,6 @@ std::vector<SharedMatrix> MintsHelper::ao_tei_deriv2(int atom1, int atom2) {
         int Rcenter = bs3->shell(R).ncenter();
         int Scenter = bs4->shell(S).ncenter();
 
-        size_t stride = Pncart * Qncart * Rncart * Sncart;
         size_t delta;
 
         delta = 0L;
@@ -2835,8 +3678,8 @@ std::vector<SharedMatrix> MintsHelper::ao_tei_deriv2(int atom1, int atom2) {
 #endif
 
         ints[thread]->compute_shell_deriv2(P, Q, R, S);
+        const auto& buffers = ints[thread]->buffers();
 
-        const double *buffer = ints[thread]->buffer();
         std::unordered_map<std::string, double> hess_map;
 
         for (int p = 0; p < Psize; p++) {
@@ -2845,119 +3688,94 @@ std::vector<SharedMatrix> MintsHelper::ao_tei_deriv2(int atom1, int atom2) {
                     for (int s = 0; s < Ssize; s++) {
                         int i = (Poff + p) * nbf2 + Qoff + q;
                         int j = (Roff + r) * nbf4 + Soff + s;
-
-                        hess_map["AxAx"] = buffer[9 * stride + delta];
-                        hess_map["AxAy"] = buffer[10 * stride + delta];
-                        hess_map["AxAz"] = buffer[11 * stride + delta];
-                        hess_map["AxCx"] = buffer[12 * stride + delta];
-                        hess_map["AxCy"] = buffer[13 * stride + delta];
-                        hess_map["AxCz"] = buffer[14 * stride + delta];
-                        hess_map["AxDx"] = buffer[15 * stride + delta];
-                        hess_map["AxDy"] = buffer[16 * stride + delta];
-                        hess_map["AxDz"] = buffer[17 * stride + delta];
-                        hess_map["AyAy"] = buffer[18 * stride + delta];
-                        hess_map["AyAz"] = buffer[19 * stride + delta];
-                        hess_map["AyCx"] = buffer[20 * stride + delta];
-                        hess_map["AyCy"] = buffer[21 * stride + delta];
-                        hess_map["AyCz"] = buffer[22 * stride + delta];
-                        hess_map["AyDx"] = buffer[23 * stride + delta];
-                        hess_map["AyDy"] = buffer[24 * stride + delta];
-                        hess_map["AyDz"] = buffer[25 * stride + delta];
-                        hess_map["AzAz"] = buffer[26 * stride + delta];
-                        hess_map["AzCx"] = buffer[27 * stride + delta];
-                        hess_map["AzCy"] = buffer[28 * stride + delta];
-                        hess_map["AzCz"] = buffer[29 * stride + delta];
-                        hess_map["AzDx"] = buffer[30 * stride + delta];
-                        hess_map["AzDy"] = buffer[31 * stride + delta];
-                        hess_map["AzDz"] = buffer[32 * stride + delta];
-                        hess_map["CxCx"] = buffer[33 * stride + delta];
-                        hess_map["CxCy"] = buffer[34 * stride + delta];
-                        hess_map["CxCz"] = buffer[35 * stride + delta];
-                        hess_map["CxDx"] = buffer[36 * stride + delta];
-                        hess_map["CxDy"] = buffer[37 * stride + delta];
-                        hess_map["CxDz"] = buffer[38 * stride + delta];
-                        hess_map["CyCy"] = buffer[39 * stride + delta];
-                        hess_map["CyCz"] = buffer[40 * stride + delta];
-                        hess_map["CyDx"] = buffer[41 * stride + delta];
-                        hess_map["CyDy"] = buffer[42 * stride + delta];
-                        hess_map["CyDz"] = buffer[43 * stride + delta];
-                        hess_map["CzCz"] = buffer[44 * stride + delta];
-                        hess_map["CzDx"] = buffer[45 * stride + delta];
-                        hess_map["CzDy"] = buffer[46 * stride + delta];
-                        hess_map["CzDz"] = buffer[47 * stride + delta];
-                        hess_map["DxDx"] = buffer[48 * stride + delta];
-                        hess_map["DxDy"] = buffer[49 * stride + delta];
-                        hess_map["DxDz"] = buffer[50 * stride + delta];
-                        hess_map["DyDy"] = buffer[51 * stride + delta];
-                        hess_map["DyDz"] = buffer[52 * stride + delta];
-                        hess_map["DzDz"] = buffer[53 * stride + delta];
-
-                        // Translational invariance relationships
-
-                        hess_map["AxBx"] = -(hess_map["AxAx"] + hess_map["AxCx"] + hess_map["AxDx"]);
-                        hess_map["AxBy"] = -(hess_map["AxAy"] + hess_map["AxCy"] + hess_map["AxDy"]);
-                        hess_map["AxBz"] = -(hess_map["AxAz"] + hess_map["AxCz"] + hess_map["AxDz"]);
-                        hess_map["AyBx"] = -(hess_map["AxAy"] + hess_map["AyCx"] + hess_map["AyDx"]);
-                        hess_map["AyBy"] = -(hess_map["AyAy"] + hess_map["AyCy"] + hess_map["AyDy"]);
-                        hess_map["AyBz"] = -(hess_map["AyAz"] + hess_map["AyCz"] + hess_map["AyDz"]);
-                        hess_map["AzBx"] = -(hess_map["AxAz"] + hess_map["AzCx"] + hess_map["AzDx"]);
-                        hess_map["AzBy"] = -(hess_map["AyAz"] + hess_map["AzCy"] + hess_map["AzDy"]);
-                        hess_map["AzBz"] = -(hess_map["AzAz"] + hess_map["AzCz"] + hess_map["AzDz"]);
-                        hess_map["BxCx"] = -(hess_map["AxCx"] + hess_map["CxCx"] + hess_map["CxDx"]);
-                        hess_map["BxCy"] = -(hess_map["AxCy"] + hess_map["CxCy"] + hess_map["CyDx"]);
-                        hess_map["BxCz"] = -(hess_map["AxCz"] + hess_map["CxCz"] + hess_map["CzDx"]);
-                        hess_map["ByCx"] = -(hess_map["AyCx"] + hess_map["CxCy"] + hess_map["CxDy"]);
-                        hess_map["ByCy"] = -(hess_map["AyCy"] + hess_map["CyCy"] + hess_map["CyDy"]);
-                        hess_map["ByCz"] = -(hess_map["AyCz"] + hess_map["CyCz"] + hess_map["CzDy"]);
-                        hess_map["BzCx"] = -(hess_map["AzCx"] + hess_map["CxCz"] + hess_map["CxDz"]);
-                        hess_map["BzCy"] = -(hess_map["AzCy"] + hess_map["CyCz"] + hess_map["CyDz"]);
-                        hess_map["BzCz"] = -(hess_map["AzCz"] + hess_map["CzCz"] + hess_map["CzDz"]);
-                        hess_map["BxDx"] = -(hess_map["AxDx"] + hess_map["CxDx"] + hess_map["DxDx"]);
-                        hess_map["BxDy"] = -(hess_map["AxDy"] + hess_map["CxDy"] + hess_map["DxDy"]);
-                        hess_map["BxDz"] = -(hess_map["AxDz"] + hess_map["CxDz"] + hess_map["DxDz"]);
-                        hess_map["ByDx"] = -(hess_map["AyDx"] + hess_map["CyDx"] + hess_map["DxDy"]);
-                        hess_map["ByDy"] = -(hess_map["AyDy"] + hess_map["CyDy"] + hess_map["DyDy"]);
-                        hess_map["ByDz"] = -(hess_map["AyDz"] + hess_map["CyDz"] + hess_map["DyDz"]);
-                        hess_map["BzDx"] = -(hess_map["AzDx"] + hess_map["CzDx"] + hess_map["DxDz"]);
-                        hess_map["BzDy"] = -(hess_map["AzDy"] + hess_map["CzDy"] + hess_map["DyDz"]);
-                        hess_map["BzDz"] = -(hess_map["AzDz"] + hess_map["CzDz"] + hess_map["DzDz"]);
-
-                        hess_map["BxBx"] = hess_map["AxAx"] + hess_map["AxCx"] + hess_map["AxDx"] + hess_map["AxCx"] +
-                                           hess_map["CxCx"] + hess_map["CxDx"] + hess_map["AxDx"] + hess_map["CxDx"] +
-                                           hess_map["DxDx"];
-
-                        hess_map["ByBy"] = hess_map["AyAy"] + hess_map["AyCy"] + hess_map["AyDy"] + hess_map["AyCy"] +
-                                           hess_map["CyCy"] + hess_map["CyDy"] + hess_map["AyDy"] + hess_map["CyDy"] +
-                                           hess_map["DyDy"];
-
-                        hess_map["BzBz"] = hess_map["AzAz"] + hess_map["AzCz"] + hess_map["AzDz"] + hess_map["AzCz"] +
-                                           hess_map["CzCz"] + hess_map["CzDz"] + hess_map["AzDz"] + hess_map["CzDz"] +
-                                           hess_map["DzDz"];
-
-                        hess_map["BxBy"] = hess_map["AxAy"] + hess_map["AxCy"] + hess_map["AxDy"] + hess_map["AyCx"] +
-                                           hess_map["CxCy"] + hess_map["CxDy"] + hess_map["AyDx"] + hess_map["CyDx"] +
-                                           hess_map["DxDy"];
-
-                        hess_map["BxBz"] = hess_map["AxAz"] + hess_map["AxCz"] + hess_map["AxDz"] + hess_map["AzCx"] +
-                                           hess_map["CxCz"] + hess_map["CxDz"] + hess_map["AzDx"] + hess_map["CzDx"] +
-                                           hess_map["DxDz"];
-
-                        hess_map["ByBz"] = hess_map["AyAz"] + hess_map["AyCz"] + hess_map["AyDz"] + hess_map["AzCy"] +
-                                           hess_map["CyCz"] + hess_map["CyDz"] + hess_map["AzDy"] + hess_map["CzDy"] +
-                                           hess_map["DyDz"];
+                        hess_map["AxAx"] = buffers[0][delta];
+                        hess_map["AxAy"] = buffers[1][delta];
+                        hess_map["AxAz"] = buffers[2][delta];
+                        hess_map["AxBx"] = buffers[3][delta];
+                        hess_map["AxBy"] = buffers[4][delta];
+                        hess_map["AxBz"] = buffers[5][delta];
+                        hess_map["AxCx"] = buffers[6][delta];
+                        hess_map["AxCy"] = buffers[7][delta];
+                        hess_map["AxCz"] = buffers[8][delta];
+                        hess_map["AxDx"] = buffers[9][delta];
+                        hess_map["AxDy"] = buffers[10][delta];
+                        hess_map["AxDz"] = buffers[11][delta];
+                        hess_map["AyAy"] = buffers[12][delta];
+                        hess_map["AyAz"] = buffers[13][delta];
+                        hess_map["AyBx"] = buffers[14][delta];
+                        hess_map["AyBy"] = buffers[15][delta];
+                        hess_map["AyBz"] = buffers[16][delta];
+                        hess_map["AyCx"] = buffers[17][delta];
+                        hess_map["AyCy"] = buffers[18][delta];
+                        hess_map["AyCz"] = buffers[19][delta];
+                        hess_map["AyDx"] = buffers[20][delta];
+                        hess_map["AyDy"] = buffers[21][delta];
+                        hess_map["AyDz"] = buffers[22][delta];
+                        hess_map["AzAz"] = buffers[23][delta];
+                        hess_map["AzBx"] = buffers[24][delta];
+                        hess_map["AzBy"] = buffers[25][delta];
+                        hess_map["AzBz"] = buffers[26][delta];
+                        hess_map["AzCx"] = buffers[27][delta];
+                        hess_map["AzCy"] = buffers[28][delta];
+                        hess_map["AzCz"] = buffers[29][delta];
+                        hess_map["AzDx"] = buffers[30][delta];
+                        hess_map["AzDy"] = buffers[31][delta];
+                        hess_map["AzDz"] = buffers[32][delta];
+                        hess_map["BxBx"] = buffers[33][delta];
+                        hess_map["BxBy"] = buffers[34][delta];
+                        hess_map["BxBz"] = buffers[35][delta];
+                        hess_map["BxCx"] = buffers[36][delta];
+                        hess_map["BxCy"] = buffers[37][delta];
+                        hess_map["BxCz"] = buffers[38][delta];
+                        hess_map["BxDx"] = buffers[39][delta];
+                        hess_map["BxDy"] = buffers[40][delta];
+                        hess_map["BxDz"] = buffers[41][delta];
+                        hess_map["ByBy"] = buffers[42][delta];
+                        hess_map["ByBz"] = buffers[43][delta];
+                        hess_map["ByCx"] = buffers[44][delta];
+                        hess_map["ByCy"] = buffers[45][delta];
+                        hess_map["ByCz"] = buffers[46][delta];
+                        hess_map["ByDx"] = buffers[47][delta];
+                        hess_map["ByDy"] = buffers[48][delta];
+                        hess_map["ByDz"] = buffers[49][delta];
+                        hess_map["BzBz"] = buffers[50][delta];
+                        hess_map["BzCx"] = buffers[51][delta];
+                        hess_map["BzCy"] = buffers[52][delta];
+                        hess_map["BzCz"] = buffers[53][delta];
+                        hess_map["BzDx"] = buffers[54][delta];
+                        hess_map["BzDy"] = buffers[55][delta];
+                        hess_map["BzDz"] = buffers[56][delta];
+                        hess_map["CxCx"] = buffers[57][delta];
+                        hess_map["CxCy"] = buffers[58][delta];
+                        hess_map["CxCz"] = buffers[59][delta];
+                        hess_map["CxDx"] = buffers[60][delta];
+                        hess_map["CxDy"] = buffers[61][delta];
+                        hess_map["CxDz"] = buffers[62][delta];
+                        hess_map["CyCy"] = buffers[63][delta];
+                        hess_map["CyCz"] = buffers[64][delta];
+                        hess_map["CyDx"] = buffers[65][delta];
+                        hess_map["CyDy"] = buffers[66][delta];
+                        hess_map["CyDz"] = buffers[67][delta];
+                        hess_map["CzCz"] = buffers[68][delta];
+                        hess_map["CzDx"] = buffers[69][delta];
+                        hess_map["CzDy"] = buffers[70][delta];
+                        hess_map["CzDz"] = buffers[71][delta];
+                        hess_map["DxDx"] = buffers[72][delta];
+                        hess_map["DxDy"] = buffers[73][delta];
+                        hess_map["DxDz"] = buffers[74][delta];
+                        hess_map["DyDy"] = buffers[75][delta];
+                        hess_map["DyDz"] = buffers[76][delta];
+                        hess_map["DzDz"] = buffers[77][delta];
 
                         hess_map["AyAx"] = hess_map["AxAy"];
                         hess_map["AzAx"] = hess_map["AxAz"];
                         hess_map["AzAy"] = hess_map["AyAz"];
-
                         hess_map["ByBx"] = hess_map["BxBy"];
                         hess_map["BzBx"] = hess_map["BxBz"];
                         hess_map["BzBy"] = hess_map["ByBz"];
-
                         hess_map["CyCx"] = hess_map["CxCy"];
                         hess_map["CzCx"] = hess_map["CxCz"];
                         hess_map["CzCy"] = hess_map["CyCz"];
-
                         hess_map["DyDx"] = hess_map["DxDy"];
                         hess_map["DzDx"] = hess_map["DxDz"];
                         hess_map["DzDy"] = hess_map["DyDz"];
@@ -3012,6 +3830,17 @@ std::vector<SharedMatrix> MintsHelper::ao_oei_deriv1(const std::string &oei_type
     return ao_grad;
 }
 
+std::vector<SharedMatrix> MintsHelper::ao_overlap_half_deriv1(const std::string &half_der_side, int atom) {
+    std::vector<SharedMatrix> ao_grad;
+
+    if (half_der_side == "LEFT" || half_der_side == "RIGHT")
+        ao_grad = ao_overlap_half_deriv1_helper(half_der_side, atom);
+    else
+        throw PSIEXCEPTION("Not a valid choice of half derivative side: must be LEFT or RIGHT");
+
+    return ao_grad;
+}
+
 std::vector<SharedMatrix> MintsHelper::ao_oei_deriv2(const std::string &oei_type, int atom1, int atom2) {
     std::vector<SharedMatrix> ao_grad_12;
     std::vector<SharedMatrix> ao_grad_21;
@@ -3047,10 +3876,7 @@ std::vector<SharedMatrix> MintsHelper::ao_oei_deriv2(const std::string &oei_type
 
 std::vector<SharedMatrix> MintsHelper::mo_oei_deriv1(const std::string &oei_type, int atom, SharedMatrix C1,
                                                      SharedMatrix C2) {
-    std::vector<std::string> cartcomp;
-    cartcomp.push_back("X");
-    cartcomp.push_back("Y");
-    cartcomp.push_back("Z");
+    std::array<std::string, 3> cartcomp{ {"X", "Y", "Z"} };
 
     std::vector<SharedMatrix> ao_grad;
     ao_grad = ao_oei_deriv1(oei_type, atom);
@@ -3063,7 +3889,7 @@ std::vector<SharedMatrix> MintsHelper::mo_oei_deriv1(const std::string &oei_type
     for (int p = 0; p < 3; p++) {
         std::stringstream sstream;
         sstream << "mo_" << oei_type << "_deriv1_" << atom << cartcomp[p];
-        SharedMatrix temp(new Matrix(sstream.str(), nbf1, nbf2));
+        auto temp = std::make_shared<Matrix>(sstream.str(), nbf1, nbf2);
         temp->transform(C1, ao_grad[p], C2);
         mo_grad.push_back(temp);
     }
@@ -3072,10 +3898,7 @@ std::vector<SharedMatrix> MintsHelper::mo_oei_deriv1(const std::string &oei_type
 
 std::vector<SharedMatrix> MintsHelper::mo_oei_deriv2(const std::string &oei_type, int atom1, int atom2, SharedMatrix C1,
                                                      SharedMatrix C2) {
-    std::vector<std::string> cartcomp;
-    cartcomp.push_back("X");
-    cartcomp.push_back("Y");
-    cartcomp.push_back("Z");
+    std::array<std::string, 3> cartcomp{ {"X", "Y", "Z"} };
 
     std::vector<SharedMatrix> ao_grad;
     ao_grad = ao_oei_deriv2(oei_type, atom1, atom2);
@@ -3089,10 +3912,60 @@ std::vector<SharedMatrix> MintsHelper::mo_oei_deriv2(const std::string &oei_type
         for (int q = 0; q < 3; q++, pq++) {
             std::stringstream sstream;
             sstream << "mo_" << oei_type << "_deriv2_" << atom1 << atom2 << cartcomp[p] << cartcomp[q];
-            SharedMatrix temp(new Matrix(sstream.str(), nbf1, nbf2));
+            auto temp = std::make_shared<Matrix>(sstream.str(), nbf1, nbf2);
             temp->transform(C1, ao_grad[pq], C2);
             mo_grad.push_back(temp);
         }
+    return mo_grad;
+}
+
+std::vector<SharedMatrix> MintsHelper::mo_overlap_half_deriv1(const std::string &half_der_side, int atom, SharedMatrix C1, SharedMatrix C2) {
+    std::array<std::string, 3> cartcomp{ {"X", "Y", "Z"} };
+
+    std::vector<SharedMatrix> ao_grad;
+    ao_grad = ao_overlap_half_deriv1(half_der_side, atom);
+
+    // Assuming C1 symmetry
+    int nbf1 = ao_grad[0]->rowdim();
+    int nbf2 = ao_grad[0]->coldim();
+
+    std::vector<SharedMatrix> mo_grad;
+    for (int p = 0; p < 3; p++) {
+        std::stringstream sstream;
+        sstream << "mo_overlap_half_deriv1_" << atom << cartcomp[p];
+        auto temp = std::make_shared<Matrix>(sstream.str(), nbf1, nbf2);
+        temp->transform(C1, ao_grad[p], C2);
+        mo_grad.push_back(temp);
+    }
+    return mo_grad;
+}
+
+/* Electric dipole moment derivatives in both AO and MO basis */
+
+std::vector<SharedMatrix> MintsHelper::ao_elec_dip_deriv1(int atom) {
+    std::vector<SharedMatrix> ao_grad = ao_elec_dip_deriv1_helper(atom);
+
+    return ao_grad;
+}
+
+std::vector<SharedMatrix> MintsHelper::mo_elec_dip_deriv1(int atom, SharedMatrix C1, SharedMatrix C2) {
+    std::array<std::string, 3> cartcomp{ {"X", "Y", "Z"} };
+
+    std::vector<SharedMatrix> ao_grad = ao_elec_dip_deriv1(atom);
+
+    // Assuming C1 symmetry
+    int nbf1 = ao_grad[0]->rowdim();
+    int nbf2 = ao_grad[0]->coldim();
+
+    std::vector<SharedMatrix> mo_grad;
+    for (int p = 0; p < 9; p++) {
+        std::stringstream sstream;
+        sstream << "mo_elec_dip_deriv1_" << atom << cartcomp[p];
+        auto temp = std::make_shared<Matrix>(sstream.str(), nbf1, nbf2);
+        temp->transform(C1, ao_grad[p], C2);
+        mo_grad.push_back(temp);
+    }
+
     return mo_grad;
 }
 
@@ -3100,10 +3973,7 @@ std::vector<SharedMatrix> MintsHelper::mo_oei_deriv2(const std::string &oei_type
 
 std::vector<SharedMatrix> MintsHelper::mo_tei_deriv1(int atom, SharedMatrix C1, SharedMatrix C2, SharedMatrix C3,
                                                      SharedMatrix C4) {
-    std::vector<std::string> cartcomp;
-    cartcomp.push_back("X");
-    cartcomp.push_back("Y");
-    cartcomp.push_back("Z");
+    std::array<std::string, 3> cartcomp{ {"X", "Y", "Z"} };
 
     std::vector<SharedMatrix> ao_grad = ao_tei_deriv1(atom);
 
@@ -3120,10 +3990,7 @@ std::vector<SharedMatrix> MintsHelper::mo_tei_deriv1(int atom, SharedMatrix C1, 
 
 std::vector<SharedMatrix> MintsHelper::mo_tei_deriv2(int atom1, int atom2, SharedMatrix C1, SharedMatrix C2,
                                                      SharedMatrix C3, SharedMatrix C4) {
-    std::vector<std::string> cartcomp;
-    cartcomp.push_back("X");
-    cartcomp.push_back("Y");
-    cartcomp.push_back("Z");
+    std::array<std::string, 3> cartcomp{ {"X", "Y", "Z"} };
 
     std::vector<SharedMatrix> ao_grad = ao_tei_deriv2(atom1, atom2);
     std::vector<SharedMatrix> mo_grad;

@@ -3,7 +3,7 @@
 .. #
 .. # Psi4: an open-source quantum chemistry software package
 .. #
-.. # Copyright (c) 2007-2019 The Psi4 Developers.
+.. # Copyright (c) 2007-2022 The Psi4 Developers.
 .. #
 .. # The copyrights for code used from other parties are included in
 .. # the corresponding files.
@@ -53,6 +53,8 @@ calls :py:func:`~psi4.gradient` that computes the gradient then adds a
 call to the :ref:`geometry optimization module <sec:optking>`.
 
 .. autofunction:: psi4.optimize(name [, molecule, return_wfn, func, mode, dertype, hessian_with])
+   :noindex:
 
 .. autofunction:: psi4.gradient(name [, molecule, return_wfn, func, dertype])
+   :noindex:
 

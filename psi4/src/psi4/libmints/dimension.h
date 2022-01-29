@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -44,13 +44,8 @@ class PSI_API Dimension {
 
    public:
     Dimension();
-    Dimension(const Dimension& other);
     Dimension(int n, const std::string& name = "");
     Dimension(const std::vector<int>& other);
-    ~Dimension();
-
-    /// Assignment operator
-    Dimension& operator=(const Dimension& other);
 
     /// Assignment operator, this one can be very dangerous
     Dimension& operator=(const int* other);

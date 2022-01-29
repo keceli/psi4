@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -275,11 +275,6 @@ void DFOCC::occ_iterations() {
             break;
         }
 
-        if (wfn_type_ != "DF-OLCCD") {
-            if (rms_wog < tol_grad && biggest_mograd < mograd_max) break;
-            if (std::fabs(DE) <= tol_Eod) break;
-        }
-
         if (rms_wog >= DIVERGE) {
             throw PSIEXCEPTION("DF-OCC iterations are diverging");
         }
@@ -325,10 +320,8 @@ void DFOCC::occ_iterations() {
 // SAVE MOs to wfn
 //=========================
 void DFOCC::save_mo_to_wfn() {
-    // make sure we have semicanonic MOs
-    if (orbs_already_sc == 0) semi_canonic();
 
-    // Save mos to wfn
+    // Save MOs to wfn_; We cannot semicanonicalize them, as we'd need to do the same to all MO-basis quantities
     if (reference_ == "RESTRICTED") {
         SharedMatrix Ca = SharedMatrix(new Matrix("Alpha MO Coefficients", nso_, nmo_));
         CmoA->to_shared_matrix(Ca);
@@ -354,7 +347,7 @@ void DFOCC::save_mo_to_wfn() {
             std::shared_ptr<MoldenWriter> molden(new MoldenWriter(shared_from_this()));
             std::string filename = get_writer_file_prefix(molecule_->name()) + "_dfocc.molden";
 
-            // For now use zeros instead of energies, and DCFT NO occupation numbers as occupation numbers
+            // For now use zeros instead of energies, and NO occupation numbers as occupation numbers
             SharedVector dummy_a(new Vector("Dummy Vector Alpha", nmo_));
             for (int i = 0; i < naoccA; ++i) eps_orbA->set(i + nfrzc, eigooA->get(i));
             for (int a = 0; a < navirA; ++a) eps_orbA->set(a + noccA, eigvvA->get(a));
@@ -405,7 +398,7 @@ void DFOCC::save_mo_to_wfn() {
             std::shared_ptr<MoldenWriter> molden(new MoldenWriter(shared_from_this()));
             std::string filename = get_writer_file_prefix(molecule_->name()) + "_dfocc.molden";
 
-            // For now use zeros instead of energies, and DCFT NO occupation numbers as occupation numbers
+            // For now use zeros instead of energies, and NO occupation numbers as occupation numbers
             SharedVector dummy_a(new Vector("Dummy Vector Alpha", nmo_));
             SharedVector dummy_b(new Vector("Dummy Vector Beta", nmo_));
             for (int i = 0; i < naoccA; ++i) eps_orbA->set(i + nfrzc, eigooA->get(i));

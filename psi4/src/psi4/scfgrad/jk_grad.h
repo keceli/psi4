@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -32,6 +32,7 @@
 #include "psi4/libmints/typedefs.h"
 #include <map>
 #include <vector>
+#include <string>
 
 namespace psi {
 
@@ -39,6 +40,7 @@ class ERISieve;
 class BasisSet;
 class PSIO;
 class TwoBodyAOInt;
+class MintsHelper;
 
 namespace scfgrad {
 
@@ -93,8 +95,7 @@ public:
     * @param options Options reference, with preset parameters
     * @return abstract JK object, tuned in with preset options
     */
-    static std::shared_ptr<JKGrad> build_JKGrad(int deriv, std::shared_ptr<BasisSet> primary,
-                                                std::shared_ptr<BasisSet> auxiliary);
+    static std::shared_ptr<JKGrad> build_JKGrad(int deriv, std::shared_ptr<MintsHelper> mints);
 
     void set_Ca(SharedMatrix Ca) { Ca_ = Ca; }
     void set_Cb(SharedMatrix Cb) { Cb_ = Cb; }
@@ -169,6 +170,7 @@ class DFJKGrad : public JKGrad {
 
 protected:
     std::shared_ptr<BasisSet> auxiliary_;
+    std::shared_ptr<MintsHelper> mints_;
 
     std::shared_ptr<PSIO> psio_;
 
@@ -194,7 +196,7 @@ protected:
     size_t unit_c_;
 
 public:
-    DFJKGrad(int deriv, std::shared_ptr<BasisSet> primary, std::shared_ptr<BasisSet> auxiliary);
+    DFJKGrad(int deriv, std::shared_ptr<MintsHelper> mints);
     ~DFJKGrad() override;
 
     void compute_gradient() override;

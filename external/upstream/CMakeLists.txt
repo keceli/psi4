@@ -3,18 +3,23 @@ foreach(dir
   pybind11
   ambit
   chemps2
+  cppe
   dkh
+  ecpint
   libefp
   erd
   gau2grid
   gdma
   libint
+  libint2
+  mdi
   pcmsolver
   pylibefp
   qcelemental
   qcengine
   simint
   libxc
+  brianqc
   )
   add_subdirectory(${dir})
 endforeach()

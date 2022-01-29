@@ -4,7 +4,7 @@ and ensures that their memory is properly cleaned.
 """
 
 import pytest
-from .addons import using_memory_profiler
+from .addons import using
 
 import numpy as np
 
@@ -29,7 +29,7 @@ def check_leak(func, tol=1.e6):
 
     # A megabyte is excusable due to various GC funcs
     if diff > tol:
-        raise MemoryError("Function did not correctly clean up")
+        raise MemoryError("Function did not correctly clean up: leaked %d bytes of memory!" % diff)
     else:
         print("Function %s: PASSED" % func.__name__)
         return True
@@ -71,37 +71,37 @@ def build_copy_mat():
     return mat, view
 
 
-@using_memory_profiler
+@using("memory_profiler")
 def test_build_mat():
     assert(check_leak(build_mat))
 
 
-@using_memory_profiler
+@using("memory_profiler")
 def test_build_view_mat():
     assert(check_leak(build_view_mat))
 
 
-@using_memory_profiler
+@using("memory_profiler")
 def test_build_viewh_mat():
     assert(check_leak(build_viewh_mat))
 
 
-@using_memory_profiler
+@using("memory_profiler")
 def test_build_view_set_mat():
     assert(check_leak(build_view_set_mat))
 
 
-@using_memory_profiler
+@using("memory_profiler")
 def test_build_arr_mat():
     assert(check_leak(build_arr_mat))
 
 
-@using_memory_profiler
+@using("memory_profiler")
 def test_build_copy_mat():
     assert(check_leak(build_copy_mat))
 
 
-@using_memory_profiler
+@using("memory_profiler")
 def test_totals():
     start = snapshot_memory()
 

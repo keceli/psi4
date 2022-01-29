@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -34,7 +34,10 @@
     \brief   This class is used to iterate over n-tuples of MOs indices (p,q,r,..)
 */
 
+#include <array>
 #include <string>
+
+#include "psimrcc_wfn.h"
 
 namespace psi {
 namespace psimrcc {
@@ -44,10 +47,10 @@ class CCIndex;
 class CCIndexIterator {
    public:
     // Class Constructor and Destructor
-    explicit CCIndexIterator(std::string str);
-    explicit CCIndexIterator(std::string str, int select_irrep);
-    explicit CCIndexIterator(CCIndex* index);
-    explicit CCIndexIterator(CCIndex* index, int select_irrep);
+    explicit CCIndexIterator(std::shared_ptr<PSIMRCCWfn> wfn, std::string str);
+    explicit CCIndexIterator(std::shared_ptr<PSIMRCCWfn> wfn, std::string str, int select_irrep);
+    explicit CCIndexIterator(std::shared_ptr<PSIMRCCWfn> wfn, CCIndex* index);
+    explicit CCIndexIterator(std::shared_ptr<PSIMRCCWfn> wfn, CCIndex* index, int select_irrep);
     ~CCIndexIterator();
 
     // Class Public Methods
@@ -83,9 +86,11 @@ class CCIndexIterator {
     int current_block;
 
     // Properties of the tuples
+    // These come from the Index object. Which should outlast the iterator, and which should
+    // not be changing these values as long as this iterator is alive.
     int nelements;
-    int** element_irrep;
-    short** tuples;
+    std::vector<std::vector<int>> element_irrep;
+    const std::vector<std::array<short, 3>>& tuples;
     std::vector<size_t> block_last;
     std::vector<int> block_symmetry;
 };

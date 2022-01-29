@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -254,8 +254,17 @@ class PSI_API JK {
     /// Do wK matrices? Defaults to false
     bool do_wK_;
 
+    /// Combine (pq|rs) and (pq|w|rs) integrals before contracting?
+    bool wcombine_;
+
     /// Omega, defaults to 0.0
     double omega_;
+
+    /// omega alpha, defaults to 1.0
+    double omega_alpha_;
+
+    /// omega beta , defaults to 0.0
+    double omega_beta_;
 
     /// Left-right symmetric? Determined in each call of compute()
     bool lr_symmetric_;
@@ -429,12 +438,36 @@ class PSI_API JK {
     * @param do_wK do wK matrices or not,
     *        defaults to false
     */
-    void set_do_wK(bool do_wK) { do_wK_ = do_wK; }
+    virtual void set_do_wK(bool do_wK) { do_wK_ = do_wK; }
+    bool get_do_wK() {return do_wK_;}
+    /**
+    * Set to combine wK integral tensors
+    * @param wcombine do we combine wK matrices?
+    *        defaults to false unless MemDFJK
+    */
+    virtual void set_wcombine(bool wcombine);
+    bool get_wcombine() { return wcombine_; }
+
     /**
     * Set the omega value for wK
     * @param omega range-separation parameter
     */
     void set_omega(double omega) { omega_ = omega; }
+    double get_omega() { return omega_; }
+
+    /**
+    * Set the alpha value for w exchange: weight for HF Term                
+    * @param omega_alpha HF-Exchange weight
+    */
+    virtual void set_omega_alpha(double alpha) { omega_alpha_ = alpha; }
+    double get_omega_alpha() {return omega_alpha_; }
+
+    /**
+    * Set the alpha value for w exchange: weight for dampened Term                
+    * @param omega_beta Dampened Exchange weight
+    */
+    virtual void set_omega_beta(double beta) { omega_beta_ = beta; }
+    double get_omega_beta() { return omega_beta_; }
 
     // => Computers <= //
 
@@ -673,6 +706,34 @@ class PSI_API DirectJK : public JK {
     /// ERI Sieve
     std::shared_ptr<ERISieve> sieve_;
 
+    /// Options object
+    Options& options_;
+
+    // Perform Density matrix-based integral screening?
+    bool density_screening_;
+
+    // => Incremental Fock build variables <= //
+    /// Perform Incremental Fock Build for J and K Matrices? (default false)
+    bool incfock_;
+    /// The number of times INCFOCK has been performed (includes resets)
+    int incfock_count_;
+    bool do_incfock_iter_;
+
+    /// D, J, K, wK Matrices from previous iteration, used in Incremental Fock Builds
+    std::vector<SharedMatrix> prev_D_ao_;
+    std::vector<SharedMatrix> prev_J_ao_;
+    std::vector<SharedMatrix> prev_K_ao_;
+    std::vector<SharedMatrix> prev_wK_ao_;
+
+    // Delta D, J, K, wK Matrices for Incremental Fock Build
+    std::vector<SharedMatrix> delta_D_ao_;
+    std::vector<SharedMatrix> delta_J_ao_;
+    std::vector<SharedMatrix> delta_K_ao_;
+    std::vector<SharedMatrix> delta_wK_ao_;
+
+    // Is the JK currently on a guess iteration
+    bool initial_iteration_ = true;
+
     std::string name() override { return "DirectJK"; }
     size_t memory_estimate() override;
 
@@ -686,6 +747,11 @@ class PSI_API DirectJK : public JK {
     void compute_JK() override;
     /// Delete integrals, files, etc
     void postiterations() override;
+
+    /// Set up Incfock variables per iteration
+    void incfock_setup();
+    /// Post-iteration Incfock processing
+    void incfock_postiter();
 
     /// Build the J and K matrices for this integral class
     void build_JK(std::vector<std::shared_ptr<TwoBodyAOInt> >& ints, std::vector<std::shared_ptr<Matrix> >& D,
@@ -704,7 +770,7 @@ class PSI_API DirectJK : public JK {
      *        C matrices must have the same spatial symmetry
      *        structure as this molecule
      */
-    DirectJK(std::shared_ptr<BasisSet> primary);
+    DirectJK(std::shared_ptr<BasisSet> primary, Options& options);
     /// Destructor
     ~DirectJK() override;
 
@@ -717,6 +783,7 @@ class PSI_API DirectJK : public JK {
     void set_df_ints_num_threads(int val) { df_ints_num_threads_ = val; }
 
     // => Accessors <= //
+    bool do_incfock_iter() { return do_incfock_iter_; }
 
     /**
     * Print header information regarding JK
@@ -812,8 +879,12 @@ class PSI_API DiskDFJK : public JK {
     int max_rows_;
     /// Maximum number of nocc in C vectors
     int max_nocc_;
-    /// Sieve, must be static throughout the life of the object
-    std::shared_ptr<ERISieve> sieve_;
+    /// Number of significant function pairs that survive the sieve process
+    size_t n_function_pairs_ = 0;
+    /// Integral engines for each thread
+    std::vector<std::shared_ptr<TwoBodyAOInt>> eri_;
+    /// Integral engines for each thread for erf integrals
+    std::vector<std::shared_ptr<TwoBodyAOInt>> erf_eri_;
 
     /// Main (Q|mn) Tensor (or chunk for disk-based)
     SharedMatrix Qmn_;
@@ -940,6 +1011,8 @@ class PSI_API CDJK : public DiskDFJK {
     std::string name() override { return "CDJK"; }
     size_t memory_estimate() override;
 
+    /// integral engine for computing CD integrals
+    std::shared_ptr<TwoBodyAOInt> cderi_;
 
     // the number of cholesky vectors
     long int ncholesky_;
@@ -990,6 +1063,7 @@ class PSI_API CDJK : public DiskDFJK {
  */
 class PSI_API MemDFJK : public JK {
    protected:
+
     // => DF-Specific stuff <= //
 
     std::string name() override { return "MemDFJK"; }
@@ -1050,6 +1124,12 @@ class PSI_API MemDFJK : public JK {
      */
     void set_df_ints_num_threads(int val) { df_ints_num_threads_ = val; }
 
+    /**
+ * A set_do_wK function that affects the dfhelper object.
+ * used to control wK workflow.
+ */
+    void set_do_wK(bool do_wK) override;
+
     // => Accessors <= //
 
     /**
@@ -1058,10 +1138,17 @@ class PSI_API MemDFJK : public JK {
     */
     void print_header() const override;
 
+    void set_omega_alpha(double alpha) override;
+    void set_omega_beta(double beta) override;
+    void set_wcombine(bool wcombine) override;
+
     /**
      * Returns the DFHelper object
      */
     std::shared_ptr<DFHelper> dfh() { return dfh_; }
 };
+
 }
+
 #endif
+

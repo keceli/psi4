@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -56,6 +56,9 @@ void Process::Environment::initialize() {
 #ifdef _OPENMP
     nthread_ = Process::environment.get_n_threads();
 #endif
+
+    /* See notes in process.h */
+    _psio_manager_keepalive = PSIOManager::shared_object();
 }
 
 void Process::Environment::set_n_threads(int nthread) {

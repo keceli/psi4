@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -31,6 +31,8 @@
 
 #include <string>
 
+#include "psimrcc_wfn.h"
+
 namespace psi {
 namespace psimrcc {
 
@@ -54,7 +56,6 @@ class CCOperation {
     void print();
     void print_operation();
     void compute();
-    static void print_timing();
 
    private:
     //            Variable        Syntax (p,q,r,s=integers)
@@ -67,6 +68,7 @@ class CCOperation {
     CCMatrix* A_Matrix;
     CCMatrix* B_Matrix;
     CCMatrix* C_Matrix;
+    std::shared_ptr<PSIMRCCWfn> wfn_;
 
    private:
     // Check that an operation can be performed
@@ -102,7 +104,7 @@ class CCOperation {
     void setup_contractions();
     void contract_in_core(double** A_matrix, double** B_matrix, double** C_matrix, bool B_on_disk, bool C_on_disk,
                           int rows_A, int rows_B, int rows_C, int cols_A, int cols_B, int cols_C, int offset);
-    void sort(CCIndex* T_left, CCIndex* T_right, double*** T_matrix, double constant);
+    void sort(CCIndex* T_left, CCIndex* T_right, std::vector<double**> T_matrix, double constant);
     void sort();
     void check_and_zero_target();
     void check_and_zero_target_block(int h);

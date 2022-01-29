@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -255,16 +255,16 @@ double ADCWfn::compute_energy() {
                                                 free(tracepi);
                         */
 
-                        /*- Process::environment.globals["ADC ROOT n s EXCITATION ENERGY"] -*/
-                        oss << state_top << root + 1 << " " << irrep_[irrep] << " EXCITATION ENERGY";
+                        /*- Process::environment.globals["ADC ROOT 0 -> ROOT m EXCITATION ENERGY - h SYMMETRY"] -*/
+                        oss << state_top << "0 -> ROOT " << root + 1 << " EXCITATION ENERGY - " << irrep_[irrep] << " SYMMETRY";
                         Process::environment.globals[oss.str()] = omega[root];
-                        /*- Process::environment.globals["ADC ROOT n s CORRELATION ENERGY"] -*/
+                        /*- Process::environment.globals["ADC ROOT 0 -> ROOT m CORRELATION ENERGY - h SYMMETRY"] -*/
                         oss.str(std::string());
-                        oss << state_top << root + 1 << " " << irrep_[irrep] << " CORRELATION ENERGY";
+                        oss << state_top << "0 -> ROOT " << root + 1 << " CORRELATION ENERGY - " << irrep_[irrep] << " SYMMETRY";
                         Process::environment.globals[oss.str()] = omega[root] + corr_energy;
-                        /*- Process::environment.globals["ADC ROOT n s TOTAL ENERGY"] -*/
+                        /*- Process::environment.globals["ADC ROOT n TOTAL ENERGY - h SYMMETRY"] -*/
                         oss.str(std::string());
-                        oss << state_top << root + 1 << " " << irrep_[irrep] << " TOTAL ENERGY";
+                        oss << state_top << root + 1 << " TOTAL ENERGY - " << irrep_[irrep] << " SYMMETRY";
                         Process::environment.globals[oss.str()] = omega[root] + energy_ + corr_energy;
 
                         global_dpd_->file2_close(&V);

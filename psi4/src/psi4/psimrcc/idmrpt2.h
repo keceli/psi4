@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -35,7 +35,10 @@
  *  A multireference coupled cluster code
  ***************************************************************************/
 
+#include "blas.h"
 #include "manybody.h"
+#include "psimrcc_wfn.h"
+#include "updater.h"
 #include "psi4/liboptions/liboptions.h"
 
 namespace psi {
@@ -48,14 +51,16 @@ class Updater;
 */
 class IDMRPT2 : public CCManyBody {
    public:
-    IDMRPT2(SharedWavefunction ref_wfn, Options& options);
+    IDMRPT2(std::shared_ptr<PSIMRCCWfn> wfn, Options& options);
     ~IDMRPT2() override;
-    void compute_mrpt2_energy(Updater* updater);
+    double compute_energy() override;
 
    private:
+    std::shared_ptr<Updater> updater_;
+
     void add_matrices();
     void read_mrpt2_integrals();
-    void update_amps_mkpt2(Updater* updater);
+    void update_amps_mkpt2();
     void synchronize_amps();
     void build_amplitudes();
     void build_t1_ia_amplitudes();
@@ -72,11 +77,6 @@ class IDMRPT2 : public CCManyBody {
     void build_Heff_uVxY();
     void build_Heff_uvxy();
     void build_Heff_UVXY();
-
-    void build_Heff_ijkabc();
-    void build_Heff_ijKabC();
-    void build_Heff_iJKaBC();
-    void build_Heff_IJKABC();
 
     void build_F_intermediates();
     void build_F_ae_intermediates();

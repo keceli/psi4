@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -65,6 +65,7 @@ class SuperFunctional {
     std::string name_;
     std::string description_;
     std::string citation_;
+    std::string xclib_description_;
     bool locked_;
 
     // => Exchange-side DFA functionals <= //
@@ -101,6 +102,9 @@ class SuperFunctional {
     std::map<std::string, SharedVector> values_;
     std::map<std::string, SharedVector> ac_values_;
     std::map<std::string, SharedVector> vv_values_;
+
+    // => Other LibXC settings
+    double density_tolerance_;
 
     // Set up a null Superfunctional
     void common_init();
@@ -172,6 +176,7 @@ class SuperFunctional {
     void set_name(const std::string& name) { name_ = name; }
     void set_description(const std::string& description) { description_ = description; }
     void set_citation(const std::string& citation) { citation_ = citation; }
+    void set_xclib_description(const std::string& description) { xclib_description_ = description; }
 
     void set_max_points(int max_points) { max_points_ = max_points; }
     void set_deriv(int deriv) { deriv_ = deriv; }
@@ -188,12 +193,15 @@ class SuperFunctional {
     void set_grac_shift(double grac_shift);
     void set_grac_alpha(double grac_alpha);
     void set_grac_beta(double grac_beta);
-
+    void set_density_tolerance(double cut);
+    void print_density_threshold(std::string out_fname = "outfile", int print = 1) const;
+    void py_print_density_threshold() const { print_density_threshold("outfile", 1); }
     // => Accessors <= //
 
     std::string name() const { return name_; }
     std::string description() const { return description_; }
     std::string citation() const { return citation_; }
+    std::string xclib_description() const { return xclib_description_; }
 
     int ansatz() const;
     int max_points() const { return max_points_; }
@@ -211,6 +219,7 @@ class SuperFunctional {
     double grac_shift() const { return grac_shift_; }
     double grac_alpha() const { return grac_alpha_; }
     double grac_beta() const { return grac_beta_; }
+    double density_tolerance() const { return density_tolerance_; }
 
     bool needs_xc() const { return ((c_functionals_.size() + x_functionals_.size()) > 0); }
     bool needs_vv10() const { return needs_vv10_; };

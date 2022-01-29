@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -66,7 +66,14 @@ void export_fock(py::module &m) {
         .def("set_do_J", &JK::set_do_J)
         .def("set_do_K", &JK::set_do_K)
         .def("set_do_wK", &JK::set_do_wK)
-        .def("set_omega", &JK::set_omega)
+        .def("set_omega", &JK::set_omega, "Dampening term for range separated DFT", "omega"_a)
+        .def("get_omega", &JK::get_omega, "Dampening term for range separated DFT")
+        .def("set_wcombine", &JK::set_wcombine, "Are Exchange terms in one Matrix", "wcombine"_a )
+        .def("get_wcombine", &JK::get_wcombine, "Are Exchange terms in one Matrix", "wcombine")
+        .def("set_omega_alpha", &JK::set_omega_alpha, "Weight for HF exchange term in range-separated DFT", "alpha"_a)
+        .def("get_omega_alpha", &JK::get_omega_alpha, "Weight for HF exchange term in range-separated DFT")
+        .def("set_omega_beta", &JK::set_omega_beta, "Weight for dampened exchange term in range-separated DFT", "beta"_a)
+        .def("get_omega_beta", &JK::get_omega_beta, "Weight for dampened exchange term in range-separated DFT")
         .def("compute", &JK::compute)
         .def("finalize", &JK::finalize)
         .def("C_clear",
@@ -86,9 +93,6 @@ void export_fock(py::module &m) {
         .def("wK", &JK::wK, py::return_value_policy::reference_internal)
         .def("D", &JK::D, py::return_value_policy::reference_internal)
         .def("print_header", &JK::print_header, "docstring");
-
-    py::class_<MemDFJK, std::shared_ptr<MemDFJK>, JK>(m, "MemDFJK", "docstring")
-        .def("dfh", &MemDFJK::dfh, "Return the DFHelper object.");
 
     py::class_<LaplaceDenominator, std::shared_ptr<LaplaceDenominator>>(m, "LaplaceDenominator", "docstring")
         .def(py::init<std::shared_ptr<Vector>, std::shared_ptr<Vector>, double>())
@@ -177,6 +181,12 @@ void export_fock(py::module &m) {
         .def("get_tensor_shape", &DFHelper::get_tensor_shape)
         .def("get_tensor", take_string(&DFHelper::get_tensor))
         .def("get_tensor", tensor_access3(&DFHelper::get_tensor));
+
+    py::class_<MemDFJK, std::shared_ptr<MemDFJK>, JK>(m, "MemDFJK", "docstring")
+        .def("dfh", &MemDFJK::dfh, "Return the DFHelper object.");
+
+    py::class_<DirectJK, std::shared_ptr<DirectJK>, JK>(m, "DirectJK", "docstring")
+        .def("do_incfock_iter", &DirectJK::do_incfock_iter, "Return whether an incremental Fock iteration was performed.");
 
     py::class_<scf::SADGuess, std::shared_ptr<scf::SADGuess>>(m, "SADGuess", "docstring")
         .def_static("build_SAD",

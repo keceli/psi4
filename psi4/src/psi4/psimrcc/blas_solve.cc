@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -30,13 +30,9 @@
 #include "psi4/libmoinfo/libmoinfo.h"
 
 #include "blas.h"
-#include "debugging.h"
-
-extern FILE* outfile;
 
 namespace psi {
 namespace psimrcc {
-extern MOInfo* moinfo;
 
 /**
  * Read and compute an expression
@@ -72,9 +68,7 @@ void CCBLAS::append(const char* cstr) {
 void CCBLAS::append(std::string str) {
     // Main driver for solving expressions
     int noperations_added = 0;
-    DEBUGGING(5, outfile->Printf("\n\nYou have requested the following operation :\n\t\"%s\"", str.c_str());
-              outfile->Printf("\n\nCCBLAS::append() has parsed the following:");)
-    std::vector<std::string> names = moinfo->get_matrix_names(str);
+    std::vector<std::string> names = wfn_->moinfo()->get_matrix_names(str);
     for (int n = 0; n < names.size(); n++) {
         noperations_added += parse(names[n]);
     }
@@ -224,10 +218,10 @@ void CCBLAS::compute() {
 void CCBLAS::append_zero_two_diagonal(const char* cstr) {
     std::string str(cstr);
     // To zero diagonals of things like "Fae[v][v]{u}"
-    std::vector<std::string> names = moinfo->get_matrix_names(str);
+    std::vector<std::string> names = wfn_->moinfo()->get_matrix_names(str);
     for (int n = 0; n < names.size(); n++) {
         CCMatrix* Matrix = get_Matrix(names[n]);
-        CCOperation op(0.0, "", "", "zero_two_diagonal", Matrix, nullptr, nullptr, work[0], buffer[0]);
+        CCOperation op(0.0, "", "", "zero_two_diagonal", Matrix, nullptr, nullptr, work[0].data(), buffer[0].data());
         operations.push_back(op);
     }
 }

@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -31,6 +31,7 @@
 
 #include "psi4/psi4-dec.h"
 #include <psi4/libmints/typedefs.h>
+#include "psi4/libpsi4util/exception.h"
 
 #include <map>
 #include <list>
@@ -114,9 +115,15 @@ class PSI_API DFHelper {
     void set_schwarz_cutoff(double cutoff) { cutoff_ = cutoff; }
     double get_schwarz_cutoff() { return cutoff_; }
 
-    /// fitting metric power (defaults to -0.5)
-    void set_metric_pow(double pow) { mpower_ = pow; }
+    /// fitting metric power (defaults to -0.5) to use in
+    /// K_{m n} = C_{l a}(m l|Q)(Q|R)^{-1/2}(R|P)^{-1/2}(P|n s)C_{s a}
+    void set_metric_pow(double m_pow) { mpower_ = m_pow; }
     double get_metric_pow() { return mpower_; }
+
+    /// fitting metric power for w integrals (defaults to -1.0) to use in
+    /// wK_{m n} = C_{l a}(m l|Q)(Q|P)^-1(P|w|n s)C_{s a}
+    void set_wmetric_pow(double wm_pow) { wmpower_ = wm_pow; }
+    double get_wmetric_pow() { return wmpower_; }
 
     ///
     /// Sets the fitting metric to be held in core (defaults to FALSE)
@@ -133,6 +140,20 @@ class PSI_API DFHelper {
     void set_fitting_condition(double condition) { condition_ = condition; }
     bool get_fitting_condition() { return condition_; }
 
+
+    ///
+    /// Do we calculate omega exchange and regular hf exchange together?
+    /// @param wcombine boolean: all exchange in one matrix
+    /// TODO: re-enable after all bugs are fixed.
+    // void set_wcombine(bool wcombine) {wcombine_ = wcombine;}
+    void set_wcombine(bool wcombine) {
+        if (wcombine) {
+            throw PSIEXCEPTION("JK: wcombine option is currently not available.");
+        }
+        wcombine_ = wcombine;
+    }
+    bool get_wcombine() { return wcombine_; }
+
     ///
     /// Lets me know whether to compute those other type of integrals
     /// @param do_wK boolean indicating to compute other integrals
@@ -145,7 +166,21 @@ class PSI_API DFHelper {
     /// @param omega double indicating parameter for other type
     ///
     void set_omega(double omega) { omega_ = omega; }
-    size_t get_omega() { return omega_; }
+    double get_omega() { return omega_; }
+
+    ///
+    /// sets the coefficient for (pq|rs) integrals
+    /// @param omega double indicating coefficient for eri
+    ///
+    void set_omega_alpha(double alpha) { omega_alpha_ = alpha; }
+    double get_omega_alpha() { return omega_alpha_; }
+    
+    ///
+    /// sets the parameter for the other type of integrals
+    /// @param omega double indicating parameter for other type
+    ///
+    void set_omega_beta(double beta) { omega_beta_ = beta; }
+    double get_omega_beta() { return omega_beta_; }
 
     ///
     /// set the printing verbosity parameter
@@ -263,6 +298,9 @@ class PSI_API DFHelper {
     /// clear spaces
     void clear_spaces();
 
+    /// clear transformations
+    void clear_transformations(); 
+
     /// clears spaces and transformations
     void clear_all();
 
@@ -274,8 +312,8 @@ class PSI_API DFHelper {
 
     /// builds J/K
     void build_JK(std::vector<SharedMatrix> Cleft, std::vector<SharedMatrix> Cright, std::vector<SharedMatrix> D,
-                  std::vector<SharedMatrix> J, std::vector<SharedMatrix> K, size_t max_nocc, bool do_J, bool do_K,
-                  bool do_wK, bool lr_symmetric);
+                  std::vector<SharedMatrix> J, std::vector<SharedMatrix> K, std::vector<SharedMatrix> wK,
+                  size_t max_nocc, bool do_J, bool do_K, bool do_wK, bool lr_symmetric);
 
    protected:
     // => basis sets <=
@@ -299,13 +337,17 @@ class PSI_API DFHelper {
     double cutoff_ = 1e-12;
     double condition_ = 1e-12;
     double mpower_ = -0.5;
+    double wmpower_ = -1.0;
     bool hold_met_ = false;
     bool built_ = false;
     bool transformed_ = false;
     std::pair<size_t, size_t> info_;
     bool ordered_ = false;
     bool do_wK_ = false;
+    bool wcombine_ = false;
     double omega_;
+    double omega_alpha_;
+    double omega_beta_;
     bool debug_ = false;
     bool sparsity_prepared_ = false;
     int print_lvl_ = 1;
@@ -314,6 +356,10 @@ class PSI_API DFHelper {
     void AO_core();
     std::unique_ptr<double[]> Ppq_;
     std::map<double, SharedMatrix> metrics_;
+
+    // => in-core wK machinery <=
+    std::unique_ptr<double[]> wPpq_;  // if do_wK_ holds (A|w|mn)
+    std::unique_ptr<double[]> m1Ppq_;
 
     // => AO building machinery <=
     void prepare_AO();
@@ -326,8 +372,20 @@ class PSI_API DFHelper {
                                        std::vector<std::shared_ptr<TwoBodyAOInt>> eri);
     void compute_sparse_pQq_blocking_p_symm(const size_t start, const size_t stop, double* Mp,
                                             std::vector<std::shared_ptr<TwoBodyAOInt>> eri);
-    void contract_metric_AO_core_symm(double* Qpq, double* metp, size_t begin, size_t end);
+    void compute_sparse_pQq_blocking_p_symm_abw(const size_t start, const size_t stop, double* just_Mp, double* param_Mp,
+                                        std::vector<std::shared_ptr<TwoBodyAOInt>> eri,
+                                        std::vector<std::shared_ptr<TwoBodyAOInt>> weri);
+
+
+
+    void contract_metric_AO_core_symm(double* Qpq, double* Ppq, double* metp, size_t begin, size_t end);
     void grab_AO(const size_t start, const size_t stop, double* Mp);
+
+    // => wK AO building machinery <=
+    void prepare_AO_wK_core();
+    void prepare_AO_wK();
+
+    void copy_upper_lower_wAO_core_symm(double* Qpq, double* Ppq, size_t begin, size_t end);
 
     // first integral transforms
     void first_transform_pQq(size_t bsize, size_t bcount, size_t block_size, double* Mp, double* Tp, double* Bp,
@@ -343,6 +401,7 @@ class PSI_API DFHelper {
     // => shell info and blocking <=
     size_t pshells_;
     size_t Qshells_;
+    // greatest number of functions in an aux_ shell
     double Qshell_max_;
     std::vector<size_t> pshell_aggs_;
     std::vector<size_t> Qshell_aggs_;
@@ -365,9 +424,11 @@ class PSI_API DFHelper {
     std::vector<std::pair<double, std::string>> metric_keys_;
     void prepare_metric();
     void prepare_metric_core();
-    double* metric_prep_core(double pow);
-    std::string return_metfile(double pow);
-    std::string compute_metric(double pow);
+    double* metric_prep_core(double m_pow);
+    std::string return_metfile(double m_pow);
+    std::string compute_metric(double m_pow);
+
+    double* metric_inverse_prep_core();
 
     // => metric operations <=
     void contract_metric_Qpq(std::string file, double* metp, double* Mp, double* Fp, const size_t tots);
@@ -454,11 +515,14 @@ class PSI_API DFHelper {
                    std::vector<std::vector<double>>& D_buffers, size_t bcount, size_t block_size);
     void compute_J_symm(std::vector<SharedMatrix> D, std::vector<SharedMatrix> J, double* Mp, double* T1p, double* T2p,
                         std::vector<std::vector<double>>& D_buffers, size_t bcount, size_t block_size);
+    void compute_J_combined(std::vector<SharedMatrix> D, std::vector<SharedMatrix> J, double* Mp, double* T1p, double* T2p, std::vector<std::vector<double>>& D_buffers, size_t bcount, size_t block_size);
     void compute_K(std::vector<SharedMatrix> Cleft, std::vector<SharedMatrix> Cright, std::vector<SharedMatrix> K,
                    double* Tp, double* Jtmp, double* Mp, size_t bcount, size_t block_size,
                    std::vector<std::vector<double>>& C_buffers, bool lr_symmetric);
     std::tuple<size_t, size_t> Qshell_blocks_for_JK_build(std::vector<std::pair<size_t, size_t>>& b, size_t max_nocc,
                                                           bool lr_symmetric);
+    void compute_wK(std::vector<SharedMatrix> Cleft, std::vector<SharedMatrix> Cright, std::vector<SharedMatrix> wK,
+                    size_t max_nocc, bool do_J, bool do_K, bool do_wK);
 
     // => misc <=
     void fill(double* b, size_t count, double value);

@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -42,6 +42,7 @@ namespace adc {
 ADCWfn::ADCWfn(SharedWavefunction ref_wfn, Options& options) : Wavefunction(options) {
     shallow_copy(ref_wfn);
     reference_wavefunction_ = ref_wfn;
+    module_ = "adc";
 
     std::vector<std::string> irreps_ = molecule_->irrep_labels();
     aoccpi_ = new int[nirrep_];
@@ -69,6 +70,9 @@ ADCWfn::ADCWfn(SharedWavefunction ref_wfn, Options& options) : Wavefunction(opti
 
     nopen_ = 0;
     for (int h = 0; h < nirrep_; h++) nopen_ += soccpi_[h];
+    if (!psio_) {
+        throw PSIEXCEPTION("The wavefunction passed in lacks a PSIO object, crashing ADC. See GitHub issue #1851.");
+    }
     if (nopen_) throw PSIEXCEPTION("Openshell calculation has not been implemented yet!");
 
     aoccount = 0, boccount = 0, avircount = 0, bvircount = 0;

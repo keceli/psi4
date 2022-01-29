@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -46,24 +46,15 @@
 #include <cstdlib>
 
 // PSI libraries
-#include "psi4/psifiles.h"
 #include "psi4/libciomr/libciomr.h"
-#include "psi4/libmoinfo/libmoinfo.h"
 #include "psi4/liboptions/liboptions.h"
-#include "psi4/libpsi4util/libpsi4util.h"
-#include "psi4/libpsi4util/memory_manager.h"
 #include "psi4/libqt/qt.h"
-#include "psi4/libpsi4util/process.h"
-
-// PSI C++
-#include "psi4/libpsio/psio.hpp"
 
 #include "blas.h"
 #include "main.h"
 #include "sort.h"
 #include "mrcc.h"
-#include "debugging.h"
-#include "psimrcc.h"
+#include "psimrcc_wfn.h"
 #include "transform.h"
 
 // PSI FILES
@@ -73,19 +64,10 @@ using namespace psi;
 namespace psi {
 
 namespace psimrcc {
-// Global variables
-Timer *global_timer;
-CCBLAS *blas;
-CCSort *sorter;
-CCTransform *trans = nullptr;
-MOInfo *moinfo;
-ModelSpace *model_space;
-Debugging *debugging;
-MemoryManager *memory_manager;
+// Global variables - created in compute_energy
 
-PsiReturnType psimrcc(SharedWavefunction ref_wfn, Options &options) {
+SharedWavefunction psimrcc(SharedWavefunction ref_wfn, Options &options) {
     using namespace psi::psimrcc;
-    _default_psio_lib_->open(PSIF_PSIMRCC_INTEGRALS, PSIO_OPEN_NEW);
 
     outfile->Printf("\n  MRCC          MRCC");
     outfile->Printf("\n   MRCC  MRCC  MRCC");
@@ -96,68 +78,15 @@ PsiReturnType psimrcc(SharedWavefunction ref_wfn, Options &options) {
     outfile->Printf("\n         MRCC");
     outfile->Printf("\n       MRCCMRCC");
 
-    global_timer = new Timer;
-    debugging = new Debugging(options);
-    moinfo = new MOInfo(*(ref_wfn.get()), options);
+    auto wfn = std::make_shared<PSIMRCCWfn>(ref_wfn, options);
 
-    memory_manager = new MemoryManager(Process::environment.get_memory());
-    model_space = new ModelSpace(moinfo);
-
-    moinfo->setup_model_space();  // The is a bug here DELETEME
-
-    int nactmo = moinfo->get_nactv();
-    int nactel = moinfo->get_nactive_ael() + moinfo->get_nactive_bel();
-    if (nactel > 2 && nactmo > 2) {
-        outfile->Printf("\n   WARNING: PSIMRCC detected that you are not using a CAS(2,n) or CAS(m,2) active space");
-        outfile->Printf("\n            You requested a CAS(%d,%d) space.  In this case the program will run", nactel,
-                        nactmo);
-        outfile->Printf("\n            but will negled matrix elements of the effective Hamiltonian between");
-        outfile->Printf("\n            reference determinats that differ by more than two spin orbitals.");
-        outfile->Printf(
-            "\n            The final answer will NOT be the Mk-MRCC energy but only an approximation to it.");
-        outfile->Printf("\n            If you are going to report this number in a publication make sure that you");
-        outfile->Printf("\n            understand what is going on and that you document it in your publication.");
+    if (options["PERTURB_CBS"].has_changed() || options["PERTURB_CBS_COUPLING"].has_changed()) {
+        outfile->Printf("\tPerturbative CBS was removed in 1.4. Using unpublished features is a bad habit.\n\n");
     }
 
-    blas = new CCBLAS(options);
-    trans = new CCTransform();
-    if (options.get_str("CORR_WFN") == "PT2") {
-        mrpt2(ref_wfn, options);
-    } else {
-        mrccsd(ref_wfn, options);
-        if (nactel > 2 && nactmo > 2) {
-            outfile->Printf(
-                "\n   WARNING: PSIMRCC detected that you are not using a CAS(2,n) or CAS(m,2) active space");
-            outfile->Printf("\n            You requested a CAS(%d,%d) space.  In this case the program will run",
-                            nactel, nactmo);
-            outfile->Printf("\n            but will negled matrix elements of the effective Hamiltonian between");
-            outfile->Printf("\n            reference determinats that differ by more than two spin orbitals.");
-            outfile->Printf(
-                "\n            The final answer will NOT be the Mk-MRCC energy but only an approximation to it.");
-            outfile->Printf("\n            If you are going to report this number in a publication make sure that you");
-            outfile->Printf("\n            understand what is going on and that you document it in your publication.");
-        }
-    }
+    wfn->compute_energy();
 
-    delete sorter;
-    delete trans;
-    delete blas;
-
-    outfile->Printf("\n\n  PSIMRCC job completed.");
-    outfile->Printf("\n  Wall Time = %20.6f s", global_timer->get());
-    outfile->Printf("\n  GEMM Time = %20.6f s", moinfo->get_dgemm_timing());
-
-    memory_manager->MemCheck("outfile");
-
-    delete model_space;
-    delete moinfo;
-    delete debugging;
-    delete memory_manager;
-    delete global_timer;
-
-    _default_psio_lib_->close(PSIF_PSIMRCC_INTEGRALS, 1);
-
-    return Success;
+    return wfn;
 }
 
 }  // namespace psimrcc

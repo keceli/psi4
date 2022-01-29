@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -49,6 +49,8 @@ PRAGMA_WARNING_POP
 #include "dpdmospace.h"
 
 namespace psi {
+
+class Matrix;
 
 #define T3_TIMER_ON (0)
 
@@ -111,6 +113,9 @@ struct dpdbuf4 {
     int **row_offset;
     int **col_offset;
     double ***matrix;
+
+    int axpy_matrix(const Matrix& MatX, double alpha);
+    int zero();
 };
 
 struct dpdtrans4 {
@@ -146,6 +151,9 @@ struct dpdfile2 {
     dpdparams2 *params;
     int incore;
     double ***matrix;
+
+    int axpy_matrix(const Matrix& MatX, double alpha);
+    int zero();
 };
 
 /* DPD File4 Cache entries */
@@ -343,7 +351,7 @@ class PSI_API DPD {
 
     int trace42_13(dpdbuf4 *A, dpdfile2 *B, int transb, double alpha, double beta);
 
-    int file2_init(dpdfile2 *File, int filenum, int irrep, int pnum, int qnum, const char *label);
+    int file2_init(dpdfile2 *File, int filenum, int irrep, int pnum, int qnum, const std::string& label);
     int file2_close(dpdfile2 *File);
     int file2_mat_init(dpdfile2 *File);
     int file2_mat_close(dpdfile2 *File);
@@ -377,10 +385,10 @@ class PSI_API DPD {
     int file4_mat_irrep_wrt_block(dpdfile4 *File, int irrep, int start_pq, int num_pq);
 
     int buf4_init(dpdbuf4 *Buf, int inputfile, int irrep, int pqnum, int rsnum, int file_pqnum, int file_rsnum,
-                  int anti, const char *label);
+                  int anti, const std::string& label);
     int buf4_init(dpdbuf4 *Buf, int inputfile, int irrep, std::string pq, std::string rs, std::string file_pq,
-                  std::string file_rs, int anti, const char *label);
-    int buf4_init(dpdbuf4 *Buf, int inputfile, int irrep, std::string pq, std::string rs, int anti, const char *label);
+                  std::string file_rs, int anti, const std::string& label);
+    int buf4_init(dpdbuf4 *Buf, int inputfile, int irrep, std::string pq, std::string rs, int anti, const std::string& label);
     int pairnum(std::string);
     double buf4_trace(dpdbuf4 *Buf);
     int buf4_close(dpdbuf4 *Buf);
@@ -389,10 +397,10 @@ class PSI_API DPD {
     int buf4_mat_irrep_rd(dpdbuf4 *Buf, int irrep);
     int buf4_mat_irrep_wrt(dpdbuf4 *Buf, int irrep);
     int buf4_print(dpdbuf4 *Buf, std::string out_fname, int print_data);
-    int buf4_copy(dpdbuf4 *InBuf, int outfilenum, const char *label);
-    int buf4_sort(dpdbuf4 *InBuf, int outfilenum, enum indices index, int pqnum, int rsnum, const char *label);
+    int buf4_copy(dpdbuf4 *InBuf, int outfilenum, const std::string& label);
+    int buf4_sort(dpdbuf4 *InBuf, int outfilenum, enum indices index, int pqnum, int rsnum, const std::string& label);
     int buf4_sort(dpdbuf4 *InBuf, int outfilenum, enum indices index, std::string pq, std::string rs,
-                  const char *label);
+                  const std::string& label);
     int buf4_sort_ooc(dpdbuf4 *InBuf, int outfilenum, enum indices index, int pqnum, int rsnum, const char *label);
     int buf4_sort_axpy(dpdbuf4 *InBuf, int outfilenum, enum indices index, int pqnum, int rsnum, const char *label,
                        double alpha);

@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -76,6 +76,8 @@ using namespace psi;
 namespace py = pybind11;
 using namespace pybind11::literals;
 
+#include <pybind11/functional.h>
+
 void export_wavefunction(py::module& m) {
     typedef void (Wavefunction::*take_sharedwfn)(SharedWavefunction);
     py::class_<Wavefunction, std::shared_ptr<Wavefunction>>(m, "Wavefunction", "docstring", py::dynamic_attr())
@@ -90,8 +92,7 @@ void export_wavefunction(py::module& m) {
         .def("shallow_copy", take_sharedwfn(&Wavefunction::shallow_copy), "Copies the pointers to the internal data.")
         .def("deep_copy", take_sharedwfn(&Wavefunction::deep_copy), "Deep copies the internal data.")
         .def("c1_deep_copy", &Wavefunction::c1_deep_copy,
-             "Returns a new wavefunction with internal data converted to C_1 symmetry, using pre-c1-constructed "
-             "BasisSet `basis`",
+             "Returns a new wavefunction with internal data converted to :math:`C_1` symmetry, using pre-c1-constructed `basis`",
              "basis"_a)
         .def("same_a_b_orbs", &Wavefunction::same_a_b_orbs, "Returns true if the alpha and beta orbitals are the same.")
         .def("same_a_b_dens", &Wavefunction::same_a_b_dens,
@@ -105,10 +106,42 @@ void export_wavefunction(py::module& m) {
         .def("efzc", &Wavefunction::efzc, "Returns the frozen-core energy")
         .def("Ca", &Wavefunction::Ca, "Returns the Alpha Orbitals.")
         .def("Cb", &Wavefunction::Cb, "Returns the Beta Orbitals.")
-        .def("Ca_subset", &Wavefunction::Ca_subset, py::return_value_policy::take_ownership,
-             "Returns the requested Alpha Orbital subset.")
-        .def("Cb_subset", &Wavefunction::Cb_subset, py::return_value_policy::take_ownership,
-             "Returns the requested Beta Orbital subset.")
+        .def("Ca_subset", &Wavefunction::Ca_subset, py::return_value_policy::take_ownership, R"pbdoc(
+              Returns the requested Alpha orbital subset.
+
+              Parameters
+              ----------
+              basis : str
+                  {'SO', AO'}
+                  Should the subset be of symmetry orbitals or atomic orbitals?
+              subset : str
+                  {'ALL', 'ACTIVE', 'FROZEN', 'OCC', 'VIR', 'FROZEN_OCC', 'ACTIVE_OCC', 'ACTIVE_VIR', 'FROZEN_VIR'}
+                  Which subspace of orbitals should be returned?
+
+              Returns
+              -------
+              Matrix
+                  A Pitzer-ordered matrix of the orbitals, (# basis functions, # orbitals in the subset).
+                  Pitzer-ordering is with respect to c1 symmetry if basis is AO.
+         )pbdoc")
+        .def("Cb_subset", &Wavefunction::Cb_subset, py::return_value_policy::take_ownership, R"pbdoc(
+              Returns the requested Beta orbital subset.
+
+              Parameters
+              ----------
+              basis : str
+                  {'SO', 'AO'}
+                  Should the subset be of symmetry orbitals or atomic orbitals?
+              subset : str
+                  {'ALL', 'ACTIVE', 'FROZEN', 'OCC', 'VIR', 'FROZEN_OCC', 'ACTIVE_OCC', 'ACTIVE_VIR', 'FROZEN_VIR'}
+                  Which subspace of orbitals should be returned?
+
+              Returns
+              -------
+              Matrix
+                  A Pitzer-ordered matrix of the orbitals, (# basis functions, # orbitals in the subset).
+                  Pitzer-ordering is with respect to c1 symmetry if basis is AO.
+         )pbdoc")
         .def("Fa", &Wavefunction::Fa, "Returns the Alpha Fock Matrix.")
         .def("Fa_subset", &Wavefunction::Fa_subset, "Returns the Alpha Fock Matrix in the requested basis (AO,SO).")
         .def("Fb", &Wavefunction::Fb, "Returns the Beta Fock Matrix.")
@@ -121,24 +154,64 @@ void export_wavefunction(py::module& m) {
              "Returns the requested Beta Density subset.")
         .def("epsilon_a", &Wavefunction::epsilon_a, "Returns the Alpha Eigenvalues.")
         .def("epsilon_b", &Wavefunction::epsilon_b, "Returns the Beta Eigenvalues.")
-        .def("epsilon_a_subset", &Wavefunction::epsilon_a_subset, "Returns the requested Alpha Eigenvalues subset.")
-        .def("epsilon_b_subset", &Wavefunction::epsilon_b_subset, "Returns the requested Beta Eigenvalues subset.")
-        .def("X", &Wavefunction::X, "Returns the Lagrangian Matrix.")
+        .def("epsilon_a_subset", &Wavefunction::epsilon_a_subset, "basis"_a, "subset"_a, R"pbdoc(
+              Returns the requested Alpha orbital energies subset.
+
+              Parameters
+              ----------
+              basis
+                  {'AO', 'SO', 'MO'}
+                  MO or SO select for Pitzer-ordering the return vector in the full computational point group symmetry.
+                  AO selects for Pitzer-ordering the return vector without point group symmetry.
+              subset
+                  {'ALL', 'ACTIVE', 'FROZEN', 'OCC', 'VIR', 'FROZEN_OCC', 'ACTIVE_OCC', 'ACTIVE_VIR', 'FROZEN_VIR'}
+                  Which subspace of orbital energies should be returned?
+
+              Returns
+              -------
+              Vector
+                  A Pitzer-ordered vector of the orbitals.
+         )pbdoc")
+        .def("epsilon_b_subset", &Wavefunction::epsilon_b_subset, "basis"_a, "subset"_a, R"pbdoc(
+              Returns the requested Beta orbital energies subset.
+
+              Parameters
+              ----------
+              basis
+                  {'AO', 'SO', 'MO'}
+                  MO or SO select for Pitzer-ordering the return vector in the full computational point group symmetry.
+                  AO selects for Pitzer-ordering the return vector without point group symmetry.
+              subset
+                  {'ALL', 'ACTIVE', 'FROZEN', 'OCC', 'VIR', 'FROZEN_OCC', 'ACTIVE_OCC', 'ACTIVE_VIR', 'FROZEN_VIR'}
+                  Which subspace of orbital energies should be returned?
+
+              Returns
+              -------
+              Vector
+                  A Pitzer-ordered vector of the orbitals.
+         )pbdoc")
+        .def("lagrangian", &Wavefunction::lagrangian, "Returns the Lagrangian Matrix.")
+        .def("set_lagrangian", &Wavefunction::set_lagrangian, "Sets the orbital Lagrangian matrix.")
         .def("basis_projection", &Wavefunction::basis_projection,
              "Projects a orbital matrix from one basis to another.")
         .def("H", &Wavefunction::H, "Returns the 'Core' Matrix (Potential + Kinetic) Integrals.")
         .def("S", &Wavefunction::S, "Returns the One-electron Overlap Matrix.")
+        .def("mintshelper", &Wavefunction::mintshelper, "Returns the current MintsHelper object.")
         .def("aotoso", &Wavefunction::aotoso, "Returns the Atomic Orbital to Symmetry Orbital transformer.")
         .def("basisset", &Wavefunction::basisset, "Returns the current orbital basis.")
         .def("sobasisset", &Wavefunction::sobasisset, "Returns the symmetry orbitals basis.")
         .def("get_basisset", &Wavefunction::get_basisset, "Returns the requested auxiliary basis.")
         .def("set_basisset", &Wavefunction::set_basisset, "Sets the requested auxiliary basis.")
         .def("energy", &Wavefunction::energy, "Returns the Wavefunction's energy.")
-        .def("set_energy", &Wavefunction::set_energy, "Sets the Wavefunction's energy. Syncs with Wavefunction's QC variable ``CURRENT ENERGY``.")
+        .def("options", &Wavefunction::options, "Returns the Wavefunction's options object")
+        .def("set_energy", &Wavefunction::set_energy,
+             "Sets the Wavefunction's energy. Syncs with Wavefunction's QC variable ``CURRENT ENERGY``.")
         .def("gradient", &Wavefunction::gradient, "Returns the Wavefunction's gradient.")
-        .def("set_gradient", &Wavefunction::set_gradient, "Sets the Wavefunction's gradient. Syncs with Wavefunction's QC variable ``CURRENT GRADIENT``.")
+        .def("set_gradient", &Wavefunction::set_gradient,
+             "Sets the Wavefunction's gradient. Syncs with Wavefunction's QC variable ``CURRENT GRADIENT``.")
         .def("hessian", &Wavefunction::hessian, "Returns the Wavefunction's Hessian.")
-        .def("set_hessian", &Wavefunction::set_hessian, "Sets the Wavefunction's Hessian. Syncs with Wavefunction's QC variable ``CURRENT HESSIAN``.")
+        .def("set_hessian", &Wavefunction::set_hessian,
+             "Sets the Wavefunction's Hessian. Syncs with Wavefunction's QC variable ``CURRENT HESSIAN``.")
         .def("legacy_frequencies", &Wavefunction::frequencies, "Returns the frequencies of the Hessian.")
         .def("set_legacy_frequencies", &Wavefunction::set_frequencies, "Sets the frequencies of the Hessian.")
         .def("esp_at_nuclei", &Wavefunction::get_esp_at_nuclei, "returns electrostatic potentials at nuclei")
@@ -151,7 +224,29 @@ void export_wavefunction(py::module& m) {
         .def("set_name", &Wavefunction::set_name, "Sets the level of theory this wavefunction corresponds to.")
         .def("name", &Wavefunction::name, py::return_value_policy::copy,
              "The level of theory this wavefunction corresponds to.")
-        .def("alpha_orbital_space", &Wavefunction::alpha_orbital_space, "docstring")
+        .def("set_module", &Wavefunction::set_module, "module"_a,
+             "Sets name of the last/highest level of theory module (internal or external) touching the wavefunction.")
+        .def("module", &Wavefunction::module, py::return_value_policy::copy,
+             "Name of the last/highest level of theory module (internal or external) touching the wavefunction.")
+        .def("alpha_orbital_space", &Wavefunction::alpha_orbital_space, "id"_a, "basis"_a, "subset"_a, R"pbdoc(
+            Creates OrbitalSpace with information about the requested alpha orbital space.
+
+            Parameters
+            ----------
+            id
+                Unique name for the orbital space.
+            basis
+                {'SO', 'AO'}
+                Should the subspace be of symmetry orbitals or atomic orbitals?
+            subset
+                {ALL, ACTIVE, FROZEN, OCC, VIR, FROZEN_OCC, ACTIVE_OCC, ACTIVE_VIR, FROZEN_VIR}
+                Which subspace of orbitals should be returned?
+
+            Returns
+            -------
+            OrbitalSpace
+                Information on *subset* alpha orbitals.
+            )pbdoc")
         .def("beta_orbital_space", &Wavefunction::beta_orbital_space, "docstring")
         .def("molecule", &Wavefunction::molecule, "Returns the Wavefunction's molecule.")
         .def("doccpi", &Wavefunction::doccpi, py::return_value_policy::copy,
@@ -184,24 +279,41 @@ void export_wavefunction(py::module& m) {
         .def("compute_gradient", &Wavefunction::compute_gradient, "Computes the gradient of the Wavefunction")
         .def("compute_hessian", &Wavefunction::compute_hessian, "Computes the Hessian of the Wavefunction.")
         .def("set_external_potential", &Wavefunction::set_external_potential, "Sets the requested external potential.")
+        .def("external_pot", &Wavefunction::external_pot, "Gets the requested external potential.")
         .def("has_scalar_variable", &Wavefunction::has_scalar_variable,
              "Is the double QC variable (case-insensitive) set?")
         .def("has_array_variable", &Wavefunction::has_array_variable,
              "Is the Matrix QC variable (case-insensitive) set?")
+        .def("has_potential_variable", &Wavefunction::has_potential_variable,
+             "Is the ExternalPotential QC variable (case-insensitive) set? "
+             "(This function is provisional and might be removed in the future.)")
         .def("scalar_variable", &Wavefunction::scalar_variable,
              "Returns the requested (case-insensitive) double QC variable.")
         .def("array_variable", &Wavefunction::array_variable,
              "Returns copy of the requested (case-insensitive) Matrix QC variable.")
+        .def("potential_variable", &Wavefunction::potential_variable,
+             "key"_a, "Returns copy of the requested (case-insensitive) ExternalPotential QC variable *key*. "
+             "(This function is provisional and might be removed in the future.)")
         .def("set_scalar_variable", &Wavefunction::set_scalar_variable,
-             "Sets the requested (case-insensitive) double QC variable. Syncs with ``Wavefunction.energy_`` if CURRENT ENERGY.")
+             "Sets the requested (case-insensitive) double QC variable. Syncs with ``Wavefunction.energy_`` if CURRENT "
+             "ENERGY.")
         .def("set_array_variable", &Wavefunction::set_array_variable,
-             "Sets the requested (case-insensitive) Matrix QC variable. Syncs with ``Wavefunction.gradient_`` or ``hessian_`` if CURRENT GRADIENT or HESSIAN.")
+             "Sets the requested (case-insensitive) Matrix QC variable. Syncs with ``Wavefunction.gradient_`` or "
+             "``hessian_`` if CURRENT GRADIENT or HESSIAN.")
+        .def("set_potential_variable", &Wavefunction::set_potential_variable,
+             "Sets the requested (case-insensitive) ExternalPotential QC variable. "
+             "(This function is provisional and might be removed in the future.)")
         .def("del_scalar_variable", &Wavefunction::del_scalar_variable,
              "Removes the requested (case-insensitive) double QC variable.")
         .def("del_array_variable", &Wavefunction::del_array_variable,
              "Removes the requested (case-insensitive) Matrix QC variable.")
+        .def("del_potential_variable", &Wavefunction::del_potential_variable,
+             "Removes the requested (case-insensitive) ExternalPotential QC variable. "
+             "(This function is provisional and might be removed in the future.)")
         .def("scalar_variables", &Wavefunction::scalar_variables, "Returns the dictionary of all double QC variables.")
         .def("array_variables", &Wavefunction::array_variables, "Returns the dictionary of all Matrix QC variables.")
+        .def("potential_variables", &Wavefunction::potential_variables, "Returns the dictionary of all ExternalPotential QC variables. "
+             "(This function is provisional and might be removed in the future.)")
 
 #ifdef USING_PCMSolver
         .def("set_PCM", &Wavefunction::set_PCM, "Set the PCM object")
@@ -210,7 +322,8 @@ void export_wavefunction(py::module& m) {
         .def("PCM_enabled", &Wavefunction::PCM_enabled, "Whether running a PCM calculation");
 
     py::class_<scf::HF, std::shared_ptr<scf::HF>, Wavefunction>(m, "HF", "docstring")
-        .def("form_C", &scf::HF::form_C, "Forms the Orbital Matrices from the current Fock Matrices.")
+        .def("compute_fvpi", &scf::HF::compute_fvpi, "Update number of frozen virtuals")
+        .def("form_C", &scf::HF::form_C, "Forms the Orbital Matrices from the current Fock Matrices.", "shift"_a = 0.0)
         .def("form_initial_C", &scf::HF::form_initial_C,
              "Forms the initial Orbital Matrices from the current Fock Matrices.")
         .def("form_D", &scf::HF::form_D, "Forms the Density Matrices from the current Orbitals Matrices")
@@ -220,6 +333,7 @@ void export_wavefunction(py::module& m) {
         .def("form_initial_F", &scf::HF::form_initial_F, "Forms the initial F matrix.")
         .def("form_H", &scf::HF::form_H, "Forms the core Hamiltonian")
         .def("form_Shalf", &scf::HF::form_Shalf, "Forms the S^1/2 matrix")
+        .def("form_FDSmSDF", &scf::HF::form_FDSmSDF, "Forms the residual of SCF theory")
         .def("guess", &scf::HF::guess, "Forms the guess (guarantees C, D, and E)")
         .def("initialize_gtfock_jk", &scf::HF::initialize_gtfock_jk, "Sets up a GTFock JK object")
         .def("onel_Hx", &scf::HF::onel_Hx, "One-electron Hessian-vector products.")
@@ -255,19 +369,23 @@ void export_wavefunction(py::module& m) {
         .def("compute_orbital_gradient", &scf::HF::compute_orbital_gradient, "docstring")
         .def("find_occupation", &scf::HF::find_occupation, "docstring")
         .def("diis", &scf::HF::diis, "docstring")
-        .def("diis_manager", &scf::HF::diis_manager, "docstring")
+        .def_property("diis_manager_", &scf::HF::diis_manager, &scf::HF::set_diis_manager, "The DIIS object.")
         .def_property("initialized_diis_manager_", &scf::HF::initialized_diis_manager,
-                      &scf::HF::set_initialized_diis_manager, "docstring")
+                      &scf::HF::set_initialized_diis_manager, "Has the DIIS object been initialized?")
         .def("damping_update", &scf::HF::damping_update, "docstring")
         .def("check_phases", &scf::HF::check_phases, "docstring")
         .def("print_orbitals", &scf::HF::print_orbitals, "docstring")
         .def("print_header", &scf::HF::print_header, "docstring")
         .def("get_energies", &scf::HF::get_energies, "docstring")
         .def("set_energies", &scf::HF::set_energies, "docstring")
+        .def("scf_type", &scf::HF::scf_type, "Return the value of scf_type used in the SCF computation.")
         .def("clear_external_potentials", &scf::HF::clear_external_potentials, "Clear private external_potentials list")
         .def("push_back_external_potential", &scf::HF::push_back_external_potential,
              "Add an external potential to the private external_potentials list", "V"_a)
-        .def_property("iteration_", &scf::HF::iteration, &scf::HF::set_iteration, "docstring")
+        .def("set_external_cpscf_perturbation", &scf::HF::set_external_cpscf_perturbation,
+             "Add an external potential/perturbation to the private external_cpscf_perturbations map for CPSCF", "name"_a, "function"_a)
+        .def("clear_external_cpscf_perturbations", &scf::HF::clear_external_cpscf_perturbations, "Clear private external_cpscf_perturbations map")
+        .def_property("iteration_", &scf::HF::iteration, &scf::HF::set_iteration, "Internal iterator for SCF cycles. After completion, this equals the number of iterations taken to converge the SCF equations.")
         .def_property("diis_enabled_", &scf::HF::diis_enabled, &scf::HF::set_diis_enabled, "docstring")
         .def_property("diis_start_", &scf::HF::diis_start, &scf::HF::set_diis_start, "docstring")
         .def_property("frac_performed_", &scf::HF::frac_performed, &scf::HF::set_frac_performed,
@@ -289,31 +407,40 @@ void export_wavefunction(py::module& m) {
         .def("c1_deep_copy", &scf::RHF::c1_deep_copy,
              "Returns a new wavefunction with internal data converted to C_1 symmetry, using pre-c1-constructed "
              "BasisSet *basis*",
-             "basis"_a);
+             "basis"_a)
+        .def("mintshelper", &Wavefunction::mintshelper, "The MintsHelper object");
 
     py::class_<scf::ROHF, std::shared_ptr<scf::ROHF>, scf::HF>(m, "ROHF", "docstring")
         .def(py::init<std::shared_ptr<Wavefunction>, std::shared_ptr<SuperFunctional>>())
+        .def("soFeff", &scf::ROHF::soFeff,
+             "Returns the effective Fock matrix in the orthogonalized SO basis. See libscf_solver/rohf.cc::form_C"
+             "for technical definition.")
         .def("moFeff", &scf::ROHF::moFeff, "docstring")
         .def("moFa", &scf::ROHF::moFa, "docstring")
         .def("moFb", &scf::ROHF::moFb, "docstring")
+        .def("Ct", &scf::ROHF::Ct,
+             "MO coefficients in the orthogonalized MO basis. Differs from the standard C matrix by an orthogonalizer matrix.")
         .def("c1_deep_copy", &scf::ROHF::c1_deep_copy,
              "Returns a new wavefunction with internal data converted to C_1 symmetry, using pre-c1-constructed "
              "BasisSet *basis*",
-             "basis"_a);
+             "basis"_a)
+        .def("mintshelper", &Wavefunction::mintshelper, "The MintsHelper object");
 
     py::class_<scf::UHF, std::shared_ptr<scf::UHF>, scf::HF>(m, "UHF", "docstring")
         .def(py::init<std::shared_ptr<Wavefunction>, std::shared_ptr<SuperFunctional>>())
         .def("c1_deep_copy", &scf::UHF::c1_deep_copy,
              "Returns a new wavefunction with internal data converted to C_1 symmetry, using pre-c1-constructed "
              "BasisSet *basis*",
-             "basis"_a);
+             "basis"_a)
+        .def("mintshelper", &Wavefunction::mintshelper, "The MintsHelper object");
 
     py::class_<scf::CUHF, std::shared_ptr<scf::CUHF>, scf::HF>(m, "CUHF", "docstring")
         .def(py::init<std::shared_ptr<Wavefunction>, std::shared_ptr<SuperFunctional>>())
         .def("c1_deep_copy", &scf::CUHF::c1_deep_copy,
              "Returns a new wavefunction with internal data converted to C_1 symmetry, using pre-c1-constructed "
              "BasisSet *basis*",
-             "basis"_a);
+             "basis"_a)
+        .def("mintshelper", &Wavefunction::mintshelper, "The MintsHelper object");
 
     /// EP2 functions
     py::class_<dfep2::DFEP2Wavefunction, std::shared_ptr<dfep2::DFEP2Wavefunction>, Wavefunction>(
@@ -344,7 +471,8 @@ void export_wavefunction(py::module& m) {
         .def("exch", &fisapt::FISAPT::exch, "SAPT0 exchange.")
         .def("ind", &fisapt::FISAPT::ind, "SAPT0 induction.")
         .def("disp", &fisapt::FISAPT::disp, "Computes the MP2-based DispE20 and Exch-DispE20 energy.")
-        .def("sinf_disp", &fisapt::FISAPT::sinf_disp, "Computes the MP2-based DispE20 and Exch-DispE20 energy without S^2.")
+        .def("sinf_disp", &fisapt::FISAPT::sinf_disp,
+             "Computes the MP2-based DispE20 and Exch-DispE20 energy without S^2.")
         .def("flocalize", &fisapt::FISAPT::flocalize, "F-SAPT0 localize.")
         .def("felst", &fisapt::FISAPT::felst, "F-SAPT0 electrostatics.")
         .def("fexch", &fisapt::FISAPT::fexch, "F-SAPT0 exchange.")
@@ -354,49 +482,6 @@ void export_wavefunction(py::module& m) {
         .def("print_trailer", &fisapt::FISAPT::print_trailer, "Print SAPT results.");
 
     /// CIWavefunction functions
-    void (detci::CIWavefunction::*py_ci_sigma)(std::shared_ptr<psi::detci::CIvect>, std::shared_ptr<psi::detci::CIvect>,
-                                               int, int) = &detci::CIWavefunction::sigma;
-    void (detci::CIWavefunction::*py_ci_int_sigma)(std::shared_ptr<psi::detci::CIvect>,
-                                                   std::shared_ptr<psi::detci::CIvect>, int, int, SharedVector,
-                                                   SharedVector) = &detci::CIWavefunction::sigma;
-
-    typedef std::vector<SharedMatrix> (detci::CIWavefunction::*form_density_sig)(
-        std::shared_ptr<psi::detci::CIvect>, std::shared_ptr<psi::detci::CIvect>, int, int);
-
-    py::class_<detci::CIWavefunction, std::shared_ptr<detci::CIWavefunction>, Wavefunction>(m, "CIWavefunction",
-                                                                                            "docstring")
-        .def(py::init<std::shared_ptr<Wavefunction>>())
-        .def("get_dimension", &detci::CIWavefunction::get_dimension, "docstring")
-        .def("diag_h", &detci::CIWavefunction::diag_h, "docstring")
-        .def("ndet", &detci::CIWavefunction::ndet, "docstring")
-        .def("transform_ci_integrals", &detci::CIWavefunction::transform_ci_integrals, "docstring")
-        .def("transform_mcscf_integrals", &detci::CIWavefunction::transform_mcscf_integrals, "docstring")
-        .def("rotate_mcscf_integrals", &detci::CIWavefunction::rotate_mcscf_integrals, "docstring")
-        .def("pitzer_to_ci_order_onel", &detci::CIWavefunction::pitzer_to_ci_order_onel, "docstring")
-        .def("pitzer_to_ci_order_twoel", &detci::CIWavefunction::pitzer_to_ci_order_twoel, "docstring")
-        .def("get_orbitals", &detci::CIWavefunction::get_orbitals, "docstring")
-        .def("set_orbitals", &detci::CIWavefunction::set_orbitals, "docstring")
-        .def("form_opdm", &detci::CIWavefunction::form_opdm, "docstring")
-        .def("form_tpdm", &detci::CIWavefunction::form_tpdm, "docstring")
-        .def("get_opdm", &detci::CIWavefunction::get_opdm, "docstring")
-        .def("get_tpdm", &detci::CIWavefunction::get_tpdm, "docstring")
-        .def("opdm", form_density_sig(&detci::CIWavefunction::opdm), "docstring")
-        .def("tpdm", form_density_sig(&detci::CIWavefunction::tpdm), "docstring")
-        .def("ci_nat_orbs", &detci::CIWavefunction::ci_nat_orbs, "docstring")
-        .def("semicanonical_orbs", &detci::CIWavefunction::semicanonical_orbs, "docstring")
-        .def("hamiltonian", &detci::CIWavefunction::hamiltonian, "docstring")
-        .def("new_civector", &detci::CIWavefunction::new_civector, "docstring")
-        .def("print_vector", &detci::CIWavefunction::print_vector, "docstring")
-        .def("Hd_vector", &detci::CIWavefunction::Hd_vector, "docstring")
-        .def("D_vector", &detci::CIWavefunction::D_vector, "docstring")
-        .def("mcscf_object", &detci::CIWavefunction::mcscf_object, "docstring")
-        .def("compute_state_transfer", &detci::CIWavefunction::compute_state_transfer, "docstring")
-        .def("sigma", py_ci_sigma, "docstring")
-        .def("sigma", py_ci_int_sigma, "docstring")
-        .def("cleanup_ci", &detci::CIWavefunction::cleanup_ci, "docstring")
-        .def("cleanup_dpd", &detci::CIWavefunction::cleanup_dpd, "docstring")
-        .def("set_ci_guess", &detci::CIWavefunction::set_ci_guess, "docstring");
-
     void (detci::CIvect::*py_civ_copy)(std::shared_ptr<psi::detci::CIvect>, int, int) = &detci::CIvect::copy;
     void (detci::CIvect::*py_civ_scale)(double, int) = &detci::CIvect::scale;
 
@@ -419,43 +504,138 @@ void export_wavefunction(py::module& m) {
         .def("set_nvec", &detci::CIvect::set_nvect, "docstring")
         .def_buffer([](detci::CIvect& vec) { return vec.array_interface(); });
 
+    void (detci::CIWavefunction::*py_ci_sigma)(std::shared_ptr<psi::detci::CIvect>, std::shared_ptr<psi::detci::CIvect>,
+                                               int, int) = &detci::CIWavefunction::sigma;
+    void (detci::CIWavefunction::*py_ci_int_sigma)(std::shared_ptr<psi::detci::CIvect>,
+                                                   std::shared_ptr<psi::detci::CIvect>, int, int, SharedVector,
+                                                   SharedVector) = &detci::CIWavefunction::sigma;
+
+    typedef std::vector<SharedMatrix> (detci::CIWavefunction::*form_density_sig)(
+        std::shared_ptr<psi::detci::CIvect>, std::shared_ptr<psi::detci::CIvect>, int, int);
+
+    py::class_<detci::CIWavefunction, std::shared_ptr<detci::CIWavefunction>, Wavefunction>(m, "CIWavefunction",
+                                                                                            "docstring")
+        .def(py::init<std::shared_ptr<Wavefunction>>())
+        .def("get_dimension", &detci::CIWavefunction::get_dimension, R"pbdoc(
+              Returns the dimension of requested orbital subspace.
+
+              Parameters
+              ----------
+              orbital_name : str
+                  {'FZC', 'DRC', 'DOCC', 'ACT', 'RAS1', 'RAS2', 'RAS3', 'RAS4', 'POP', 'VIR', 'FZV', 'DRV', 'ALL'}
+                  Which subspace of orbitals should be returned?
+         )pbdoc")
+        .def("diag_h", &detci::CIWavefunction::diag_h, "docstring")
+        .def("ndet", &detci::CIWavefunction::ndet, "docstring")
+        .def("transform_ci_integrals", &detci::CIWavefunction::transform_ci_integrals,
+            "Transforms the one- and two-electron integrals for a CI computation.")
+        .def("transform_mcscf_integrals", &detci::CIWavefunction::transform_mcscf_integrals, "docstring")
+        .def("rotate_mcscf_integrals", &detci::CIWavefunction::rotate_mcscf_integrals, "docstring")
+        .def("pitzer_to_ci_order_onel", &detci::CIWavefunction::pitzer_to_ci_order_onel, "docstring")
+        .def("pitzer_to_ci_order_twoel", &detci::CIWavefunction::pitzer_to_ci_order_twoel, "docstring")
+        .def("get_orbitals", &detci::CIWavefunction::get_orbitals, "docstring")
+        .def("set_orbitals", &detci::CIWavefunction::set_orbitals, "docstring")
+        .def("form_opdm", &detci::CIWavefunction::form_opdm, "docstring")
+        .def("form_tpdm", &detci::CIWavefunction::form_tpdm, "docstring")
+        .def("get_opdm", &detci::CIWavefunction::get_opdm,
+             "Iroot"_a, "Jroot"_a, "spin"_a, "full_space"_a, R"pbdoc(
+              Returns the one-particle density or transition matrix.
+
+              Parameters
+              ----------
+              Iroot : int
+                  The index of the root in the bra. If Iroot and Jroot are -1, return the density matrix of root 0.
+                  Always use -1 for single-state calculations.
+              Jroot : int
+                  The index of the root in the ket. Select -1 for the same as Iroot.
+                  Always use -1 for single-state calculations.
+              spin : str
+                  {'A', 'B', 'SUM'}
+                  Return the alpha density matrix, the beta density matrix, or their sum?
+              full_space : bool
+                  Return a density matrix in the space of all orbitals (true) or the active orbitals (false)?
+
+              Returns
+              -------
+              Matrix
+                  The selected one-particle density/transition matrix with Pitzer-ordered orbitals.
+                  Irrep h of the matrix corresponds to orbitals of irrep h.
+                  Element pq is <ψ|a^p a_q|ψ>.
+              )pbdoc")
+        .def("get_tpdm", &detci::CIWavefunction::get_tpdm,
+             "spin"_a, "symmetrize"_a, R"pbdoc(
+              Returns the two-particle density matrix.
+
+              Parameters
+              ----------
+              spin : str
+                  {"AA", "AB", "BB", "SUM"}
+                  Which spin-block of the TPDM should be returned? SUM sums over all possible spin cases.
+              symmetrize : bool
+                  Return a genuine TPDM element (false) or an "average" of TPDM elements that contract with the same integral (true)?
+                  Only working for SUM.
+
+              Returns
+              -------
+              Matrix
+                  The two-particle density matrix with Pitzer-ordered orbitals, restricted to the active space.
+                  If symmetrize is false, element pqrs is <ψ|a^p a^r a_s a_q|ψ>.
+                  If symmetrize is true, element pqrs is obtained by summing over all "flips" of p/s, q/r, and multiplying by 0.5.
+         )pbdoc")
+        .def("opdm", form_density_sig(&detci::CIWavefunction::opdm), "docstring")
+        .def("tpdm", form_density_sig(&detci::CIWavefunction::tpdm), "docstring")
+        .def("ci_nat_orbs", &detci::CIWavefunction::ci_nat_orbs, "docstring")
+        .def("semicanonical_orbs", &detci::CIWavefunction::semicanonical_orbs, "docstring")
+        .def("hamiltonian", &detci::CIWavefunction::hamiltonian, "docstring")
+        .def("new_civector", &detci::CIWavefunction::new_civector, "docstring")
+        .def("print_vector", &detci::CIWavefunction::print_vector, "docstring")
+        .def("Hd_vector", &detci::CIWavefunction::Hd_vector, "docstring")
+        .def("D_vector", &detci::CIWavefunction::D_vector, "docstring")
+        .def("mcscf_object", &detci::CIWavefunction::mcscf_object, "docstring")
+        .def("compute_state_transfer", &detci::CIWavefunction::compute_state_transfer, "docstring")
+        .def("sigma", py_ci_sigma, "docstring")
+        .def("sigma", py_ci_int_sigma, "docstring")
+        .def("reset_ci_H0block", &detci::CIWavefunction::reset_ci_H0block, "docstring")
+        .def("cleanup_ci", &detci::CIWavefunction::cleanup_ci, "docstring")
+        .def("cleanup_dpd", &detci::CIWavefunction::cleanup_dpd, "docstring")
+        .def("set_ci_guess", &detci::CIWavefunction::set_ci_guess, "docstring");
+
     py::class_<ccenergy::CCEnergyWavefunction, std::shared_ptr<ccenergy::CCEnergyWavefunction>, Wavefunction>(
-        m, "CCWavefunction", "docstring")
+        m, "CCWavefunction", "Specialized Wavefunction used by the ccenergy, cceom, ccgradient, etc. modules.")
         .def(py::init<std::shared_ptr<Wavefunction>, Options&>())
-        .def("get_amplitudes", &ccenergy::CCEnergyWavefunction::get_amplitudes, R"docstring(
-               Get dict of converged T amplitudes
+        .def("get_amplitudes", &ccenergy::CCEnergyWavefunction::get_amplitudes, R"pbdoc(
+               Get dict of converged T amplitudes.
 
                Returns
                -------
                amps : dict (spacestr, SharedMatrix)
                  `spacestr` is a description of the amplitude set using the following conventions.
 
-                 I,J,K -> alpha occupied
-                 i,j,k -> beta occupied
-                 A,B,C -> alpha virtual
-                 a,b,c -> beta virtual
+                 * I,J,K -> alpha occupied
+                 * i,j,k -> beta occupied
+                 * A,B,C -> alpha virtual
+                 * a,b,c -> beta virtual
 
                The following entries are stored in the `amps`, depending on the reference type
 
-               RHF: "tIA", "tIjAb"
+               RHF: tIA, tIjAb
                UHF: tIA, tia, tIjAb, tIJAB, tijab
                ROHF: tIA, tia, tIjAb, tIJAB, tijab
 
-              Examples
-              --------
-              RHF T1 diagnostic = sqrt(sum_ia (T_ia * T_ia)/nelec)
-              >>> mol = """
-              ... 0 1
-              ... Ne 0.0 0.0 0.0
-              ... symmetry c1"""
-              >>> e, wfn = psi4.energy("CCSD/cc-pvdz", return_wfn=True)
-              >>> t1 = wfn.get_amplitudes()['tia'].to_array()
-              >>> t1_diagnostic = np.sqrt(np.dot(t1.ravel(),t1.ravel())/ (2 * wfn.nalpha())
-              >>> t1_diagnostic == psi4.variable("CC T1 DIAGNOSTIC")
-              True
-
+               Examples
+               --------
+               RHF T1 diagnostic = sqrt(sum_ia (T_ia * T_ia)/nelec)
+               >>> mol = """
+               ... 0 1
+               ... Ne 0.0 0.0 0.0
+               ... symmetry c1"""
+               >>> e, wfn = psi4.energy("CCSD/cc-pvdz", return_wfn=True)
+               >>> t1 = wfn.get_amplitudes()['tia'].to_array()
+               >>> t1_diagnostic = np.sqrt(np.dot(t1.ravel(),t1.ravel())/ (2 * wfn.nalpha())
+               >>> t1_diagnostic == psi4.variable("CC T1 DIAGNOSTIC")
+               True
 
                .. warning:: Symmetry free calculations only (nirreps > 1 will cause error)
                .. warning:: No checks that the amplitudes will fit in core. Do not use for proteins
-            )docstring");
+        )pbdoc");
 }

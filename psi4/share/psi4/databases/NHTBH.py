@@ -3,7 +3,7 @@
 #
 # Psi4: an open-source quantum chemistry software package
 #
-# Copyright (c) 2007-2019 The Psi4 Developers.
+# Copyright (c) 2007-2022 The Psi4 Developers.
 #
 # The copyrights for code used from other parties are included in
 # the corresponding files.
@@ -28,7 +28,7 @@
 
 """
 | Database (Truhlar) of non-hydrogen-transfer barrier height reactions.
-| Geometries and Reaction energies from Truhlar and coworkers at site http://t1.chem.umn.edu/misc/database_group/database_therm_bh/non_H.htm.
+| Geometries and Reaction energies from Truhlar and coworkers at site http://t1.chem.umn.edu/misc/database_group/database_therm_bh/non_H.htm (broken link).
 
 - **cp**  ``'off'``
 
@@ -41,6 +41,7 @@
 
 """
 import re
+
 import qcdb
 
 # <<< NHTBH Database Module >>>

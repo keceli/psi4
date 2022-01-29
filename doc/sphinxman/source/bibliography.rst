@@ -3,7 +3,7 @@
 .. #
 .. # Psi4: an open-source quantum chemistry software package
 .. #
-.. # Copyright (c) 2007-2019 The Psi4 Developers.
+.. # Copyright (c) 2007-2022 The Psi4 Developers.
 .. #
 .. # The copyrights for code used from other parties are included in
 .. # the corresponding files.
@@ -71,7 +71,7 @@ Bibliography
 
 .. [Hohenstein:2011:174107]
    E. G. Hohenstein, R. M. Parrish, C. D. Sherrill, J. M. Turney, and H. F.
-   Schaefer, *J. Chem. Phys.* **135**, 174107 (2011).
+   Schaefer III, *J. Chem. Phys.* **135**, 174107 (2011).
 
 .. [Hohenstein:2011:2842]
    E. G. Hohenstein, H. M. Jaeger, E. J. Carrell, G. S. Tschumper, and
@@ -97,7 +97,8 @@ Bibliography
    E. Papajak and D. G. Truhlar,
    *J. Chem. Theory Comput.* **7**, 10-18 (2011).
 
-.. [Cohen:GreenBook:2008]
+..
+   [Cohen:GreenBook:2008]
    E. R. Cohen, T. Cvitas, J. G. Frey, B. Holmstr\ |o_dots|\ om,
    K. Kuchitsu, R. Marquardt, I. Mills, F. Pavese, M. Quack,
    J. Stohner, H. L. Strauss, M. Takami, and A. J. Thor,
@@ -109,10 +110,10 @@ Bibliography
    Integrated Platform of Small Molecules and Biological Activities,
    Chapter 12 in *Annual Reports in Computational Chemistry*, Volume
    4 (American Chemical Society: Washington, DC, 2008).
-   See `pubchem.ncbi.nlm.nih.gov <http://pubchem.ncbi.nlm.nih.gov/>`_.
+   See https://pubchem.ncbi.nlm.nih.gov/.
 
 .. [Sherrill:1999:CI]
-   C. D. Sherrill and H. F. Schaefer,
+   C. D. Sherrill and H. F. Schaefer III,
    *Advances in Quantum Chemistry*, Vol. 34, edited by P.-O. L\ |o_dots|\ wdin
    (Academic Press, New York, 1999), pages 143-269.
 
@@ -176,20 +177,21 @@ Bibliography
    M. Saitow and Y. Mochizuki,
    *Chem. Phys. Lett.* **X**, XX (2012).
 
-.. [Evangelista:2010:4728]
-   F. A. Evangelista, E. Prochnow, J. Gauss, and H. F. Schaefer,
+..
+   [Evangelista:2010:4728]
+   F. A. Evangelista, E. Prochnow, J. Gauss, and H. F. Schaefer III,
    *J. Chem. Phys.* **132**, (2010).
 
 .. [Evangelista:2009:4728]
-   F. A. Evangelista, A. C. Simmonett, H. F. Schaefer, III, D. Mukherjee, and W. D. Allen,
+   F. A. Evangelista, A. C. Simmonett, H. F. Schaefer III, D. Mukherjee, and W. D. Allen,
    *Phys. Chem. Chem. Phys.* **11**, 4728 (2009).
 
 .. [Evangelista:2006:154113]
-   F. A. Evangelista, W. D. Allen, and H. F. Schaefer, III,
+   F. A. Evangelista, W. D. Allen, and H. F. Schaefer III,
    *J. Chem. Phys.* **125**, 154113 (2006).
 
 .. [Evangelista:2008:124104]
-   F. A. Evangelista, A. C. Simmonett, W. D. Allen, H. F. Schaefer, III, and J. Gauss,
+   F. A. Evangelista, A. C. Simmonett, W. D. Allen, H. F. Schaefer III, and J. Gauss,
    *J. Chem. Phys.* **128**, 124104 (2008).
 
 .. [Cheng:084114]
@@ -232,16 +234,18 @@ Bibliography
    P.-A. Malmqvist, A. Rendell, and B. O. Roos,
    *J. Phys. Chem.* **94**, 5477-5482 (1990).
 
-.. [Docken:1972:4928]
+..
+   [Docken:1972:4928]
    K. K. Docken and J. Hinze,
    *J. Chem. Phys.* **57**, 4928-4936 (1972).
 
-.. [Ruedenberg:1979:1069]
+..
+   [Ruedenberg:1979:1069]
    K. Ruedenberg, L. M. Cheung, and S. T. Elbert,
    *Int. J. Quantum Chem.* **16**, 1069-1101 (1979).
 
 .. [Evangelista:2010:074107]
-   F. A. Evangelista, E. Prochnow, J. Gauss, and H. F. Schaefer,
+   F. A. Evangelista, E. Prochnow, J. Gauss, and H. F. Schaefer III,
    *J. Chem. Phys.* **132**, 074107 (2010).
 
 .. [Wennmohs:2008:217]
@@ -265,7 +269,7 @@ Bibliography
    *Chem. Phys.* **87**, 5968 (1987).
 
 .. [Crawford:1997:instability]
-   T. D. Crawford, J. F. Stanton, W. D. Allen, and H. F. Schaefer,
+   T. D. Crawford, J. F. Stanton, W. D. Allen, and H. F. Schaefer III,
    *J. Chem. Phys.*, **107**, 10626 (1997).
 
 .. [Sherrill:1998:od]
@@ -284,12 +288,13 @@ Bibliography
    T. B. Pedersen, H. Koch, and C. Hattig,
    *J. Chem. Phys.* **110**, 8318 (1999).
 
-.. [Pedersen:2001:od]
+..
+   [Pedersen:2001:od]
    T. B. Pedersen, B. Fernandez, and H. Koch,
    *J. Chem. Phys.* **114**, 6983 (2001).
 
 .. [Bozkaya:2011:omp2]
-   U. Bozkaya, J. M. Turney, Y. Yamaguchi, H. F. Schaefer, and C. D. Sherrill
+   U. Bozkaya, J. M. Turney, Y. Yamaguchi, H. F. Schaefer III, and C. D. Sherrill
    *J. Chem. Phys.* **135**, 104103 (2011).
 
 .. [Bozkaya:2013:omp2grad]
@@ -305,7 +310,7 @@ Bibliography
    *J. Chem. Theory Comput.* **9**, 1452 (2013).
 
 .. [Bozkaya:2012:odtl]
-   U. Bozkaya and H. F. Schaefer,
+   U. Bozkaya and H. F. Schaefer III,
    *J. Chem. Phys.* **136**, 204114 (2012).
 
 .. [Bozkaya:2013:ocepa]
@@ -371,7 +376,7 @@ Bibliography
    R. Sure and S. Grimme,
    *J. Comput. Chem.* **15**, 1672 (2013).
 
-.. [Kallay:2008p144101]
+.. [Kallay:2008:144101]
    M. Kallay and J. Gauss,
    *J. Chem. Phys.* **129**, 144101 (2008).
 
@@ -396,7 +401,7 @@ Bibliography
    *J. Chem. Phys.* **148**, 164110 (2018).
 
 .. [Morell:2005:205]
-   Christophe Morell, Andr\ |e_acute|\  Grand, and Alejandro Toro-Labb\ |e_acute| 
+   Christophe Morell, Andr\ |e_acute|\  Grand, and Alejandro Toro-Labb\ |e_acute|
    *J. Phys. Chem. A* **109**, 205 (2005).
 
 .. [Martinez-Araya:2015:451]
@@ -428,5 +433,138 @@ Bibliography
    *Mol. Phys.* **111**, 2570 (2013).
 
 .. [Laqua:2018:204111]
-   H. Laque, J. Kussmann and C. Ochsenfeld
-   *J. Chem. Phys.* **149**, 204111 (2018) 
+   H. Laqua, J. Kussmann and C. Ochsenfeld
+   *J. Chem. Phys.* **149**, 204111 (2018)
+
+.. [Lehtola:2019:1593]
+   S. Lehtola
+   *J. Chem. Theory Comput.* **15**, 1593 (2019), doi: 10.1021/acs.jctc.8b01089.
+
+.. [Lehtola:2019:241102]
+   S. Lehtola
+   *J. Chem. Phys.* **151**, 241102 (2019), doi: 10.1063/1.5139948.
+
+ .. [Lehtola:2019:25945]
+   S. Lehtola
+   *Int. J. Quantum Chem.* **119**, e25945 (2019), doi: 10.1002/qua.25945.
+
+.. [Lehtola:2020:012516]
+   S. Lehtola
+   *Phys. Rev. A.* **101**, 012516 (2020), doi: 10.1103/PhysRevA.101.012516.
+
+.. [Lehtola:2020:032504]
+   S. Lehtola
+   *Phys. Rev. A.* **101**, 032504 (2020), doi: 10.1103/PhysRevA.101.032504.
+
+.. [Lehtola:2020:04224]
+   S. Lehtola
+   *arXiv* 2001:04224.
+
+.. [Olsen:2010:3721]
+   J. M. Olsen, K. Aidas, and J. Kongsted.
+   *J. Chem. Theory Comput.* **6**, 3721-3734 (2010).
+
+.. [Dreuw:2014:82]
+   A. Dreuw and M. Wormit.
+   *WIREs Comput. Mol. Sci.*  **5**, 82-95 (2014).
+
+.. [Herbst2020]
+   M. F. Herbst, M. Scheurer, T. Fransson, D. R. Rehn, and A. Dreuw.
+   *WIREs Comput. Mol. Sci.*, (2020) **DOI: 10.1002/wcms.1462**, Preprint https://adc-connect.org/q/publications
+
+.. [Houck:2019:2278]
+   S. E. Houck and N. J. Mayhall,
+   *J. Chem. Theory Comput.* **15**, 2278-2290 (2019).
+
+.. [Krylov:2001:522]
+   A. I. Krylov,
+   *Chem. Phys. Lett.* **350**, 522-530 (2001).
+
+.. [Nooijen:1995:3629]
+   M. Nooijen and R. J. Bartlett,
+   *J. Chem. Phys.* **102**, 3629 (1995).
+
+.. [Wang:2016:214108]
+   L.-P. Wang and C. Song,
+   *J. Chem. Phys.* **144**, 214108 (2016).
+
+.. [stratmann:1998]
+   R. Eric Stratmann, G. E. Scuseria, and M. J. Frisch
+   *J. Chem. Phys.* **109**, 8218 (1998), doi: 10.1063/1.477483.
+
+.. [Pedersen1995-du]
+   T. B. Pedersen, A. E. Hansen
+   *Chem. Phys. Lett.* **246**, 1 (1995), doi: 10.1016/0009-2614(95)01036-9.
+
+.. [Lestrange2015-xn]
+   P. J. Lestrange, F. Egidi, X. Li
+   *J. Chem. Phys.* **143**, 234103 (2015), doi: 10.1063/1.4937410.
+
+.. [Rizzo2011-to]
+    A. Rizzo, S. Coriani, K. Ruud, "Response Function Theory Computational Approaches to Linear and Nonlinear Optical Spectroscopy". In Computational Strategies for Spectroscopy, doi: 10.1002/9781118008720.ch2.
+
+.. [Dreuw2005-wp]
+   A. Dreuw, M. Head-Gordon
+   *Chem. Rev.* **105**, 4009 (2005), doi: 10.1021/cr0505627.
+
+.. [Norman2018-tn]
+   P. Norman, K. Ruud, T. Saue, "Principles and Practices of Molecular Properties: Theory, Modeling, and Simulations". John Wiley & Sons, 2018
+
+.. [Verstraelen:2016]
+   T. Verstraelen et al. "Minimal Basis Iterative Stockholder: Atoms in Molecules for Force-Field Development". *J. Chem. Theory and Comput.* doi: 10.1021/acs.jctc.6b00456.
+
+..
+   [Misquitta:2005:214103]
+   A. J. Misquitta and R. Podeszwa,
+   *J. Chem. Phys.* **123**, 214103 (2005).
+
+..
+   [Hesselmann:2005:014103]
+   A. Hesselmann and G. Jansen,
+   *J. Chem. Phys.* **122**, 014103 (2005).
+
+.. [Hesselmann:2014:094107]
+   A. Hesselmann and T. Korona,
+   *J. Chem. Phys.* **141**, 094107 (2014).
+
+.. [Hylleraas:1930:209]
+   E. Hylleraas
+   *Z. Phys.* **65**, 209 (1930).
+
+.. [Pulay:1986:357]
+   P. Pulay and S. Saeb\ |o_slash|\ ,
+   *Theor. Chim. Acta* **69**, 357 (1986).
+
+.. [Pinski:2015:034108]
+   P. Pinski, C. Riplinger, E. Valeev, and F. Neese,
+   *J. Chem. Phys.* **143**, 034108 (2015).
+
+.. [Liakos:2015:1525]
+   D. Liakos, M. Sparta, M. Kesharwani, J. Martin, and F. Neese,
+   *J. Chem. Theory Comput.* **11**, 1525 (2015).
+   
+.. [Smith:2018:3504]
+    10.1021/acs.jctc.8b00286,
+    "PSI4NUMPY: An Interactive Quantum Chemistry Programming Environment for Reference Implementations and Rapid Development",
+    D. G. A. Smith, L. A. Burns, D. A. Sirianni, D. R. Nascimento, A. Kumar, A. M. James, J. B. Schriber, T. Zhang, B. Zhang, A. S. Abbott, E. J. Berquist, M. H. Lechner, L. A. Cunha, A. G. Heide, J. M. Waldrop, T. Y. Takeshita, A. Alenaizan, D. Neuhauser, R. A. King, A. C. Simmonett, J. M. Turney, H. F. Schaefer III, F. A. Evangelista, A. E. DePrince, T. D. Crawford, K. Patkowski, and C. D. Sherrill
+    *J. Chem. Theory Comput.* **14**, 3504-3511 (2018).
+
+.. [Schriber:2021:234107]
+    J. B. Schriber, D. A. Sirianni, D. G. A. Smith, L. A. Burns, D. Sitkoff, D. L. Cheney, C. D. Sherrill
+    *J. Chem. Phys.* **154**, 234107 (2021).
+
+.. [Caldeweyher:2019:154122]
+   "A generally applicable atomic-charge dependent London dispersion correction",
+   E. Caldeweyher,  S. Ehlert,  A. Hansen, H. Neugebauer, S. Spicher, C. Bannwarth, and S. Grimme,
+   *J. Chem. Phys.* **150**, 154122 (2019).
+   https://doi.org/10.1063/1.5090222
+
+.. [Haser:1989:104]
+   M. Haser and R. Ahlrichs,
+   *J. Comp. Chem.* **10(1)**, 104 (1989).
+   doi: 10.1002/jcc.540100111
+   
+.. [Thompson:2017:144101]
+   T. H. Thompson and C. Ochsenfeld
+   *J. Chem. Phys.* **147**, 144101 (2017).
+   doi: 10.1063/1.4994190

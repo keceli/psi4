@@ -3,7 +3,7 @@
 .. #
 .. # Psi4: an open-source quantum chemistry software package
 .. #
-.. # Copyright (c) 2007-2019 The Psi4 Developers.
+.. # Copyright (c) 2007-2022 The Psi4 Developers.
 .. #
 .. # The copyrights for code used from other parties are included in
 .. # the corresponding files.
@@ -40,21 +40,21 @@ CC: Coupled Cluster Theory
 .. codeauthor:: T. Daniel Crawford
 .. sectionauthor:: T. Daniel Crawford
 
-*Module:* :ref:`Keywords <apdx:ccenergy>`, :ref:`PSI Variables <apdx:ccenergy_psivar>`, :source:`CCENERGY <psi4/src/psi4/ccenergy>`
+*Module:* :ref:`PSI Variables <apdx:ccenergy_psivar>`
 
-*Module:* :ref:`Keywords <apdx:cceom>`, :ref:`PSI Variables <apdx:cceom_psivar>`, :source:`CCEOM <psi4/src/psi4/cceom>`
+*Module:* :ref:`Keywords <apdx:ccenergy>`, :source:`CCENERGY <psi4/src/psi4/cc/ccenergy>`
 
-*Module:* :ref:`Keywords <apdx:ccresponse>`, :ref:`PSI Variables <apdx:ccresponse_psivar>`, :source:`CCRESPONSE <psi4/src/psi4/ccresponse>`
+*Module:* :ref:`Keywords <apdx:cceom>`, :source:`CCEOM <psi4/src/psi4/cc/cceom>`
 
-*Module:* :ref:`Keywords <apdx:cctriples>`, :ref:`PSI Variables <apdx:cctriples_psivar>`, :source:`CCTRIPLES <psi4/src/psi4/cctriples>`
+*Module:* :ref:`Keywords <apdx:ccresponse>`, :source:`CCRESPONSE <psi4/src/psi4/cc/ccresponse>`
 
-*Module:* :ref:`Keywords <apdx:ccdensity>`, :ref:`PSI Variables <apdx:ccdensity_psivar>`, :source:`CCDENSITY <psi4/src/psi4/ccdensity>`
+*Module:* :ref:`Keywords <apdx:cctriples>`, :source:`CCTRIPLES <psi4/src/psi4/cc/cctriples>`
 
-*Module:* :ref:`Keywords <apdx:cchbar>`, :source:`CCHBAR <psi4/src/psi4/cchbar>`
+*Module:* :ref:`Keywords <apdx:ccdensity>`, :source:`CCDENSITY <psi4/src/psi4/cc/ccdensity>`
 
-*Module:* :ref:`Keywords <apdx:cclambda>`, :source:`CCLAMBDA <psi4/src/psi4/cclambda>`
+*Module:* :ref:`Keywords <apdx:cchbar>`, :source:`CCHBAR <psi4/src/psi4/cc/cchbar>`
 
-*Module:* :ref:`Keywords <apdx:ccsort>`, :source:`CCSORT <psi4/src/psi4//ccsort>`
+*Module:* :ref:`Keywords <apdx:cclambda>`, :source:`CCLAMBDA <psi4/src/psi4/cc/cclambda>`
 
 The coupled cluster approach is one of the most accurate and reliable quantum
 chemical techniques for including the effects of electron correlation.
@@ -117,47 +117,51 @@ continuum model (PCM) in the PTE approximation [Cammi:2009:164104]_, see
 
 .. table:: Current coupled cluster capabilities of |PSIfour|
 
-   +---------------+------------+-----------+-----------+---------------+-----------+
-   | Method        | Reference  | Energy    | Gradient  | Exc. Energies | LR Props  |
-   +===============+============+===========+===========+===============+===========+
-   | CC2           | RHF        | Y         | Y         | Y             | Y         |
-   +               +------------+-----------+-----------+---------------+-----------+
-   |               | UHF        | Y         | ---       | N             | ---       |
-   +               +------------+-----------+-----------+---------------+-----------+
-   |               | ROHF       | Y         | ---       | N             | ---       |
-   +---------------+------------+-----------+-----------+---------------+-----------+
-   | CCSD          | RHF        | Y         | Y         | Y             | Y         |
-   +               +------------+-----------+-----------+---------------+-----------+
-   |               | UHF        | Y         | Y         | Y             | ---       |
-   +               +------------+-----------+-----------+---------------+-----------+
-   |               | ROHF       | Y         | Y         | Y             | ---       |
-   +---------------+------------+-----------+-----------+---------------+-----------+
-   | CCSD(T)       | RHF        | Y         | Y         | n/a           | n/a       |
-   +               +------------+-----------+-----------+---------------+-----------+
-   |               | UHF        | Y         | Y         | n/a           | n/a       |
-   +               +------------+-----------+-----------+---------------+-----------+
-   |               | ROHF       | Y         | ---       | n/a           | n/a       |
-   +---------------+------------+-----------+-----------+---------------+-----------+
-   | CCSD(AT)      | RHF        | Y         | ---       | n/a           | n/a       |
-   +---------------+------------+-----------+-----------+---------------+-----------+
-   | CC3           | RHF        | Y         | ---       | Y             | ---       |
-   +               +------------+-----------+-----------+---------------+-----------+
-   |               | UHF        | Y         | ---       | Y             | ---       |
-   +               +------------+-----------+-----------+---------------+-----------+
-   |               | ROHF       | Y         | ---       | Y             | ---       |
-   +---------------+------------+-----------+-----------+---------------+-----------+
-   | CCD           | Brueckner  | Y         | N         | N             | N         |
-   +---------------+------------+-----------+-----------+---------------+-----------+
-   | CCD(T)        | Brueckner  | Y         | N         | n/a           | n/a       |
-   +---------------+------------+-----------+-----------+---------------+-----------+
+   +------------------+------------+-----------+-----------+---------------+-----------+
+   | Method           | Reference  | Energy    | Gradient  | Exc. Energies | LR Props  |
+   +==================+============+===========+===========+===============+===========+
+   | CC2              | RHF        | Y         | Y         | Y             | Y         |
+   +                  +------------+-----------+-----------+---------------+-----------+
+   |                  | UHF        | Y         | ---       | N             | ---       |
+   +                  +------------+-----------+-----------+---------------+-----------+
+   |                  | ROHF       | Y         | ---       | N             | ---       |
+   +------------------+------------+-----------+-----------+---------------+-----------+
+   | CCSD             | RHF        | Y         | Y         | Y             | Y         |
+   +                  +------------+-----------+-----------+---------------+-----------+
+   |                  | UHF        | Y         | Y         | Y             | ---       |
+   +                  +------------+-----------+-----------+---------------+-----------+
+   |                  | ROHF       | Y         | Y         | Y             | ---       |
+   +------------------+------------+-----------+-----------+---------------+-----------+
+   | CCSD(T)          | RHF        | Y         | Y         | n/a           | n/a       |
+   +                  +------------+-----------+-----------+---------------+-----------+
+   |                  | UHF        | Y         | Y         | n/a           | n/a       |
+   +                  +------------+-----------+-----------+---------------+-----------+
+   |                  | ROHF       | Y         | ---       | n/a           | n/a       |
+   +------------------+------------+-----------+-----------+---------------+-----------+
+   | A-CCSD(T) [#f1]_ | RHF        | Y         | ---       | n/a           | n/a       |
+   +------------------+------------+-----------+-----------+---------------+-----------+
+   | CC3              | RHF        | Y         | ---       | Y             | ---       |
+   +                  +------------+-----------+-----------+---------------+-----------+
+   |                  | UHF        | Y         | ---       | Y             | ---       |
+   +                  +------------+-----------+-----------+---------------+-----------+
+   |                  | ROHF       | Y         | ---       | Y             | ---       |
+   +------------------+------------+-----------+-----------+---------------+-----------+
+   | CCD              | Brueckner  | Y         | N         | N             | N         |
+   +------------------+------------+-----------+-----------+---------------+-----------+
+   | CCD(T)           | Brueckner  | Y         | N         | n/a           | n/a       |
+   +------------------+------------+-----------+-----------+---------------+-----------+
+
+.. rubric:: Footnotes
+
+.. [#f1] Also known as CCSD(AT), Lambda-CCSD(T), CCSD(T)_L
 
 The following wavefunctions are currently recognized by |PSIfour| as arguments
-to functions like :py:func:`~psi4.energy`: ``'ccsd'``, ``'ccsd(t)'``, ``'ccsd(at)'``, ``'cc2'``,
+to functions like :py:func:`~psi4.energy`: ``'ccsd'``, ``'ccsd(t)'``, ``'a-ccsd(t)'``, ``'cc2'``,
 ``'cc3'``, ``'bccd'`` (CCD with Brueckner orbitals), ``'bccd(t)'`` (CCD(T) with
 Brueckner orbitals), ``'eom-ccsd'``, ``'eom-cc2'`` (CC2 for excited states),
 ``'eom-cc3'`` (CC3 for excited states).  Response properties can be obtained
-by calling the function :py:func:`~psi4.property` (instead of, for example, :py:func:`~psi4.energy`,
-*e.g.*, ``property('ccsd')``.  There are many sample
+by calling the function :py:func:`~psi4.properties` (instead of, for example, :py:func:`~psi4.energy`,
+*e.g.*, ``properties('ccsd')``.  There are many sample
 coupled cluster inputs provided in :source:`samples`.
 
 Basic Keywords
@@ -219,8 +223,8 @@ The most important keywords associated with EOM-CC calculations are:
 Linear Response (CCLR) Calculations
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Linear response computations are invoked like ``property('ccsd')``
-or ``property('cc2')``, along with a list of requested properties.
+Linear response computations are invoked like ``properties('ccsd')``
+or ``properties('cc2')``, along with a list of requested properties.
 A complete list of keywords related to
 coupled cluster linear response is provided in Appendix :ref:`apdx:ccresponse`.
 

@@ -3,7 +3,7 @@
 #
 # Psi4: an open-source quantum chemistry software package
 #
-# Copyright (c) 2007-2019 The Psi4 Developers.
+# Copyright (c) 2007-2022 The Psi4 Developers.
 #
 # The copyrights for code used from other parties are included in
 # the corresponding files.
@@ -31,15 +31,16 @@ functionality, namely single-point energies, geometry optimizations,
 properties, and vibrational frequency calculations.
 
 """
+import json
 import os
 import re
-import sys
-import copy
-import json
 import shutil
+import sys
+from typing import Union
 
 import numpy as np
 
+from psi4 import core  # for typing
 from psi4.driver import driver_util
 from psi4.driver import driver_cbs
 from psi4.driver import driver_nbody
@@ -48,6 +49,7 @@ from psi4.driver import p4util
 from psi4.driver import qcdb
 from psi4.driver.procrouting import *
 from psi4.driver.p4util.exceptions import *
+from psi4.driver.mdi_engine import mdi_run
 
 # never import wrappers or aliases into this file
 
@@ -91,6 +93,10 @@ def _find_derivative_type(ptype, method_name, user_dertype):
 
     if (core.get_global_option('PCM')) and (dertype != 0):
         core.print_out('\nPCM analytic gradients are not implemented yet, re-routing to finite differences.\n')
+        dertype = 0
+
+    if core.get_global_option("RELATIVISTIC") in ["X2C", "DKH"]:
+        core.print_out("\nRelativistic analytic gradients are not implemented yet, re-routing to finite differences.\n")
         dertype = 0
 
     # Summary validation
@@ -198,6 +204,11 @@ def _process_displacement(derivfunc, method, molecule, displacement, n, ndisp, *
     return wfn
 
 
+def _filter_renamed_methods(compute, method):
+    r"""Raises UpgradeHelper when a method has been renamed."""
+    if method == "dcft":
+        raise UpgradeHelper(compute + "('dcft')", compute + "('dct')", 1.4, " All instances of 'dcft' should be replaced with 'dct'.")
+
 def energy(name, **kwargs):
     r"""Function to compute the single-point electronic energy.
 
@@ -210,11 +221,11 @@ def energy(name, **kwargs):
     .. hlist::
        :columns: 1
 
-       * :psivar:`CURRENT ENERGY <CURRENTENERGY>`
-       * :psivar:`CURRENT REFERENCE ENERGY <CURRENTREFERENCEENERGY>`
-       * :psivar:`CURRENT CORRELATION ENERGY <CURRENTCORRELATIONENERGY>`
+       * :psivar:`CURRENT ENERGY`
+       * :psivar:`CURRENT REFERENCE ENERGY`
+       * :psivar:`CURRENT CORRELATION ENERGY`
 
-    :type name: string
+    :type name: str
     :param name: ``'scf'`` || ``'mp2'`` || ``'ci5'`` || etc.
 
         First argument, usually unlabeled. Indicates the computational method
@@ -231,10 +242,19 @@ def energy(name, **kwargs):
         Indicate to additionally return the :py:class:`~psi4.core.Wavefunction`
         calculation result as the second element (after *float* energy) of a tuple.
 
-    :type restart_file: string
+    :type write_orbitals: str, :ref:`boolean <op_py_boolean>`
+    :param write_orbitals: ``filename`` || |dl| ``'on'`` |dr| || ``'off'`` 
+
+        (str) Save wfn containing current orbitals to the given file name after each SCF iteration
+        and retain after |PSIfour| finishes.
+
+        (:ref:`boolean <op_py_boolean>`) Turns writing the orbitals after the converged SCF on/off.
+        Orbital file will be deleted unless |PSIfour| is called with `-m` flag.
+
+    :type restart_file: str
     :param restart_file: ``['file.1, file.32]`` || ``./file`` || etc.
 
-        Binary data files to be renamed for calculation restart.
+        Existing files to be renamed and copied for calculation restart, e.g. a serialized wfn or module-specific binary data.
 
     .. _`table:energy_gen`:
 
@@ -251,9 +271,11 @@ def energy(name, **kwargs):
     +-------------------------+---------------------------------------------------------------------------------------------------------------+
     | pbeh3c                  | PBEh with dispersion, BSSE, and basis set corrections :ref:`[manual] <sec:gcp>`                               |
     +-------------------------+---------------------------------------------------------------------------------------------------------------+
-    | dcft                    | density cumulant functional theory :ref:`[manual] <sec:dcft>`                                                 |
+    | dct                     | density cumulant (functional) theory :ref:`[manual] <sec:dct>`                                                |
     +-------------------------+---------------------------------------------------------------------------------------------------------------+
     | mp2                     | 2nd-order |MollerPlesset| perturbation theory (MP2) :ref:`[manual] <sec:dfmp2>` :ref:`[details] <tlmp2>`      |
+    +-------------------------+---------------------------------------------------------------------------------------------------------------+
+    | dlpno-mp2               | local MP2 with pair natural orbital domains :ref:`[manual] <sec:dlpnomp2>`                                    |
     +-------------------------+---------------------------------------------------------------------------------------------------------------+
     | mp3                     | 3rd-order |MollerPlesset| perturbation theory (MP3) :ref:`[manual] <sec:occ_nonoo>` :ref:`[details] <tlmp3>`  |
     +-------------------------+---------------------------------------------------------------------------------------------------------------+
@@ -345,7 +367,7 @@ def energy(name, **kwargs):
     +-------------------------+---------------------------------------------------------------------------------------------------------------+
     | ccsd(t)                 | CCSD with perturbative triples (CCSD(T)) :ref:`[manual] <sec:cc>` :ref:`[details] <tlccsdt>`                  |
     +-------------------------+---------------------------------------------------------------------------------------------------------------+
-    | ccsd(at)                | CCSD with asymmetric perturbative triples (CCSD(AT)) :ref:`[manual] <sec:cc>` :ref:`[details] <tlccsdat>`     |
+    | a-ccsd(t)               | CCSD with asymmetric perturbative triples (A-CCSD(T)) :ref:`[manual] <sec:cc>` :ref:`[details] <tlccsdat>`    |
     +-------------------------+---------------------------------------------------------------------------------------------------------------+
     | bccd(t)                 | BCCD with perturbative triples :ref:`[manual] <sec:cc>`                                                       |
     +-------------------------+---------------------------------------------------------------------------------------------------------------+
@@ -447,11 +469,11 @@ def energy(name, **kwargs):
     .. comment mrcc --- this is handled in its own table
     .. comment psimrcc_scf --- convenience fn
 
-    .. include:: ../autodoc_dft_energy.rst
+    .. include:: /autodoc_dft_energy.rst
 
-    .. include:: ../mrcc_table_energy.rst
+    .. include:: /mrcc_table_energy.rst
 
-    .. include:: ../cfour_table_energy.rst
+    .. include:: /cfour_table_energy.rst
 
     :examples:
 
@@ -494,6 +516,13 @@ def energy(name, **kwargs):
     """
     kwargs = p4util.kwargs_lower(kwargs)
 
+    # Bounce to MDI if mdi kwarg
+    use_mdi = kwargs.pop('mdi', False)
+    if use_mdi:
+        return mdi_run(name, **kwargs)
+
+    core.print_out("\nScratch directory: %s\n" % core.IOManager.shared_object().get_default_path())
+
     # Bounce to CP if bsse kwarg
     if kwargs.get('bsse_type', None) is not None:
         return driver_nbody.nbody_gufunc(energy, name, ptype='energy', **kwargs)
@@ -512,6 +541,8 @@ def energy(name, **kwargs):
     if "/" in lowername:
         return driver_cbs._cbs_gufunc(energy, name, ptype='energy', **kwargs)
 
+    _filter_renamed_methods("energy", lowername)
+
     # Commit to procedures['energy'] call hereafter
     return_wfn = kwargs.pop('return_wfn', False)
     core.clean_variables()
@@ -524,6 +555,7 @@ def energy(name, **kwargs):
     #    precallback(lowername, **kwargs)
 
     optstash = driver_util._set_convergence_criterion('energy', lowername, 6, 8, 6, 8, 6)
+    optstash2 = p4util.OptionsState(['SCF', 'GUESS'])
 
     # Before invoking the procedure, we rename any file that should be read.
     # This is a workaround to do restarts with the current PSI4 capabilities
@@ -537,12 +569,17 @@ def energy(name, **kwargs):
             restartfile = (restartfile, )
         # Rename the files to be read to be consistent with psi4's file system
         for item in restartfile:
+            is_numpy_file = (os.path.isfile(item) and item.endswith(".npy")) or os.path.isfile(item + ".npy")
             name_split = re.split(r'\.', item)
-            if "npz" in item:
+            if is_numpy_file:
+                core.set_local_option('SCF', 'GUESS' ,'READ')
+                core.print_out(" Found user provided orbital data. Setting orbital guess to READ")
                 fname = os.path.split(os.path.abspath(core.get_writer_file_prefix(molecule.name())))[1]
                 psi_scratch = core.IOManager.shared_object().get_default_path()
-                file_num = item.split('.')[-2]
-                targetfile = os.path.join(psi_scratch, fname + "." + file_num + ".npz")
+                file_num = item.split('.')[-2] if "180" in item else "180"
+                targetfile = os.path.join(psi_scratch, fname + "." + file_num + ".npy")
+                if not item.endswith(".npy"):
+                    item = item + ".npy"
             else:
                 filenum = name_split[-1]
                 try:
@@ -556,6 +593,7 @@ def energy(name, **kwargs):
                 pid = str(os.getpid())
                 prefix = 'psi'
                 targetfile = filepath + prefix + '.' + pid + '.' + namespace + '.' + str(filenum)
+            core.print_out(f" \n Copying restart file <{item}> to <{targetfile}> for internal processing\n")
             shutil.copy(item, targetfile)
 
     wfn = procedures['energy'][lowername](lowername, molecule=molecule, **kwargs)
@@ -564,10 +602,11 @@ def energy(name, **kwargs):
         postcallback(lowername, wfn=wfn, **kwargs)
 
     optstash.restore()
+    optstash2.restore()
     if return_wfn:  # TODO current energy safer than wfn.energy() for now, but should be revisited
 
         # TODO place this with the associated call, very awkward to call this in other areas at the moment
-        if lowername in ['efp', 'mrcc', 'dmrg', 'psimrcc']:
+        if lowername in ['efp', 'mrcc', 'dmrg']:
             core.print_out("\n\nWarning! %s does not have an associated derived wavefunction." % name)
             core.print_out("The returned wavefunction is the incoming reference wavefunction.\n\n")
         elif 'sapt' in lowername:
@@ -580,7 +619,7 @@ def energy(name, **kwargs):
 
 
 def gradient(name, **kwargs):
-    r"""Function complementary to :py:func:~driver.optimize(). Carries out one gradient pass,
+    r"""Function complementary to :py:func:`~psi4.optimize()`. Carries out one gradient pass,
     deciding analytic or finite difference.
 
     :returns: :py:class:`~psi4.core.Matrix` |w--w| Total electronic gradient in Hartrees/Bohr.
@@ -598,6 +637,8 @@ def gradient(name, **kwargs):
 
     """
     kwargs = p4util.kwargs_lower(kwargs)
+    
+    core.print_out("\nScratch directory: %s\n" % core.IOManager.shared_object().get_default_path())
 
     # Figure out what kind of gradient this is
     if hasattr(name, '__call__'):
@@ -616,7 +657,7 @@ def gradient(name, **kwargs):
     # Figure out lowername, dertype, and func
     # If we have analytical gradients we want to pass to our wrappers, otherwise we want to run
     # finite-diference energy or cbs energies
-    # TODO MP5/cc-pv[DT]Z behavior unkown due to "levels"
+    # TODO MP5/cc-pv[DT]Z behavior unknown due to "levels"
     user_dertype = kwargs.pop('dertype', None)
     if gradient_type == 'custom_function':
         if user_dertype is None:
@@ -650,6 +691,8 @@ def gradient(name, **kwargs):
 
     elif gradient_type == 'cbs_gufunc':
         cbs_methods = driver_cbs._parse_cbs_gufunc_string(name.lower())[0]
+        for method in cbs_methods:
+            _filter_renamed_methods("gradient", method)
         dertype = min([_find_derivative_type('gradient', method, user_dertype) for method in cbs_methods])
         lowername = name.lower()
         if dertype == 1:
@@ -662,6 +705,7 @@ def gradient(name, **kwargs):
     else:
         # Allow specification of methods to arbitrary order
         lowername = name.lower()
+        _filter_renamed_methods("gradient", lowername)
         lowername, level = driver_util.parse_arbitrary_order(lowername)
         if level:
             kwargs['level'] = level
@@ -674,6 +718,7 @@ def gradient(name, **kwargs):
 
         # Set method-dependent scf convergence criteria (test on procedures['energy'] since that's guaranteed)
         optstash = driver_util._set_convergence_criterion('energy', lowername, 8, 10, 8, 10, 8)
+
 
     # Commit to procedures[] call hereafter
     return_wfn = kwargs.pop('return_wfn', False)
@@ -714,6 +759,8 @@ def gradient(name, **kwargs):
         wfn = _process_displacement(energy, lowername, molecule, findif_meta_dict["reference"], 1, ndisp,
                                     **kwargs)
         var_dict = core.variables()
+        # ensure displacement calculations do not use restart_file orbitals.
+        kwargs.pop('restart_file', None)
 
         for n, displacement in enumerate(findif_meta_dict["displacements"].values(), start=2):
             _process_displacement(
@@ -729,8 +776,14 @@ def gradient(name, **kwargs):
         grad_psi_matrix = core.Matrix.from_array(G)
         grad_psi_matrix.print_out()
         wfn.set_gradient(grad_psi_matrix)
+        core.set_variable('CURRENT GRADIENT', grad_psi_matrix)
 
         # Explicitly set the current energy..
+        if isinstance(lowername, str) and lowername in procedures['energy']:
+            # this correctly filters out cbs fn and "hf/cc-pvtz"
+            # it probably incorrectly filters out mp5, but reconsider in DDD
+            core.set_variable(f"{lowername.upper()} TOTAL GRADIENT", grad_psi_matrix)
+            wfn.set_variable(f"{lowername.upper()} TOTAL GRADIENT", grad_psi_matrix)
         core.set_variable('CURRENT ENERGY', findif_meta_dict["reference"]["energy"])
         wfn.set_variable('CURRENT ENERGY', findif_meta_dict["reference"]["energy"])
 
@@ -771,6 +824,23 @@ def properties(*args, **kwargs):
     +--------------------+-----------------------------------------------+----------------+---------------------------------------------------------------+
     | ccsd               | Coupled cluster singles and doubles (CCSD)    | RHF            | dipole, quadrupole, polarizability, rotation, roa_tensor      |
     +--------------------+-----------------------------------------------+----------------+---------------------------------------------------------------+
+    | dct                | density cumulant (functional) theory          | RHF/UHF        | Listed :ref:`here <sec:oeprop>`                               |
+    |                    | :ref:`[manual] <sec:dct>`                     |                |                                                               |
+    +--------------------+-----------------------------------------------+----------------+---------------------------------------------------------------+
+    | omp2               | orbital-optimized second-order                | RHF/UHF        | Listed :ref:`here <sec:oeprop>`                               |
+    |                    | MP perturbation theory                        |                | Density fitted only                                           |
+    |                    | :ref:`[manual] <sec:occ_oo>`                  |                |                                                               |
+    +--------------------+-----------------------------------------------+----------------+---------------------------------------------------------------+
+    | omp3               | orbital-optimized third-order                 | RHF/UHF        | Listed :ref:`here <sec:oeprop>`                               |
+    |                    | MP perturbation theory                        |                | Density fitted only                                           |
+    |                    | :ref:`[manual] <sec:occ_oo>`                  |                |                                                               |
+    +--------------------+-----------------------------------------------+----------------+---------------------------------------------------------------+
+    | omp2.5             | orbital-optimized MP2.5                       | RHF/UHF        | Listed :ref:`here <sec:oeprop>`                               |
+    |                    | :ref:`[manual] <sec:occ_oo>`                  |                | Density fitted only                                           |
+    +--------------------+-----------------------------------------------+----------------+---------------------------------------------------------------+
+    | olccd              | orbital optimized LCCD                        | RHF/UHF        | Listed :ref:`here <sec:oeprop>`                               |
+    |                    | :ref:`[manual] <sec:occ_oo>`                  |                | Density fitted only                                           |
+    +--------------------+-----------------------------------------------+----------------+---------------------------------------------------------------+
     | eom-cc2            | 2nd-order approximate EOM-CCSD                | RHF            | oscillator_strength, rotational_strength                      |
     +--------------------+-----------------------------------------------+----------------+---------------------------------------------------------------+
     | eom-ccsd           | Equation-of-motion CCSD (EOM-CCSD)            | RHF            | oscillator_strength, rotational_strength                      |
@@ -782,14 +852,19 @@ def properties(*args, **kwargs):
     | casscf, rasscf     | Multi-configurational SCF                     | RHF/ROHF       | Listed :ref:`here <sec:oeprop>`, transition_dipole,           |
     |                    |                                               |                | transition_quadrupole                                         |
     +--------------------+-----------------------------------------------+----------------+---------------------------------------------------------------+
+    | adc(0), adc(1),    | Algebraic-diagrammatic construction methods   | RHF/UHF        | dipole, transition_dipole, oscillator_strength,               |
+    | ..., adc(3),       | :ref:`[manual] <sec:adc>`                     |                | rotational_strength                                           |
+    | cvs-adc(0), ...    |                                               |                |                                                               |
+    | cvs-adc(3)         |                                               |                |                                                               |
+    +--------------------+-----------------------------------------------+----------------+---------------------------------------------------------------+
 
-    :type name: string
+    :type name: str
     :param name: ``'ccsd'`` || etc.
 
         First argument, usually unlabeled. Indicates the computational method
         to be applied to the system.
 
-    :type properties: array of strings
+    :type properties: List[str]
     :param properties: |dl| ``[]`` |dr| || ``['rotation', 'polarizability', 'oscillator_strength', 'roa']`` || etc.
 
         Indicates which properties should be computed. Defaults to dipole and quadrupole.
@@ -839,6 +914,194 @@ def properties(*args, **kwargs):
         return core.variable('CURRENT ENERGY')
 
 
+
+def optimize_geometric(name, **kwargs):
+
+    import qcelemental as qcel
+    from qcelemental.util import which_import
+
+    if not which_import('geometric', return_bool=True):
+        raise ModuleNotFoundError('Python module geometric not found. Solve by installing it: `conda install -c conda-forge geometric` or `pip install geometric`')
+    import geometric
+
+    class Psi4NativeEngine(geometric.engine.Engine):
+        """
+        Internally run an energy and gradient calculation for geometric 
+        """
+        def __init__(self, p4_name, p4_mol, p4_return_wfn, **p4_kwargs):
+    
+            self.p4_name = p4_name
+            self.p4_mol = p4_mol
+            self.p4_return_wfn = p4_return_wfn
+            self.p4_kwargs = p4_kwargs
+    
+            molecule = geometric.molecule.Molecule()
+            molecule.elem = [p4_mol.symbol(i) for i in range(p4_mol.natom())]
+            molecule.xyzs = [p4_mol.geometry().np * qcel.constants.bohr2angstroms] 
+            molecule.build_bonds()
+                                 
+            super(Psi4NativeEngine, self).__init__(molecule)
+    
+        def calc(self, coords, dirname):
+            self.p4_mol.set_geometry(core.Matrix.from_array(coords.reshape(-1,3)))
+            self.p4_mol.update_geometry()
+            if self.p4_return_wfn:
+                g, wfn = gradient(self.p4_name, return_wfn=True, molecule=self.p4_mol, **self.p4_kwargs)
+                self.p4_wfn = wfn
+            else:
+                g = gradient(self.p4_name, return_wfn=False, molecule=self.p4_mol, **self.p4_kwargs)
+            e = core.variable('CURRENT ENERGY')
+            return {'energy': e, 'gradient': g.np.ravel()}
+
+    return_wfn = kwargs.pop('return_wfn', False)
+    return_history = kwargs.pop('return_history', False)
+
+    if return_history:
+        step_energies = []
+        step_gradients = []
+        step_coordinates = []
+
+    # Make sure the molecule the user provided is the active one
+    molecule = kwargs.get('molecule', core.get_active_molecule())
+
+    # Do not change orientation or COM
+    molecule.fix_orientation(True)
+    molecule.fix_com(True)
+    molecule.update_geometry()
+
+    # Get geometric-specific options
+    optimizer_keywords = {k.lower(): v for k, v in kwargs.get("optimizer_keywords", {}).items()}
+
+    core.print_out('\n')
+    core.print_out("\n  ==> GeomeTRIC Optimizer <==                                                                   ~\n")
+                                 
+    # Default to Psi4 maxiter unless overridden
+    if 'maxiter' not in optimizer_keywords:
+        optimizer_keywords['maxiter'] = core.get_global_option('GEOM_MAXITER')
+
+    # Default to Psi4 geometry convergence criteria unless overridden 
+    if 'convergence_set' not in optimizer_keywords:
+        optimizer_keywords['convergence_set'] = core.get_global_option('G_CONVERGENCE')
+
+        # GeomeTRIC doesn't know these convergence criterion
+        if optimizer_keywords['convergence_set'] in ['CFOUR', 'QCHEM', 'MOLPRO']:
+            core.print_out(f"\n  Psi4 convergence criteria {optimizer_keywords['convergence_set']:6s} not recognized by GeomeTRIC, switching to GAU_TIGHT          ~")
+            optimizer_keywords['convergence_set'] = 'GAU_TIGHT'
+
+    engine = Psi4NativeEngine(name, molecule, return_wfn, **kwargs)
+    M = engine.M
+    
+    # Handle constraints
+    constraints_dict = {k.lower(): v for k, v in optimizer_keywords.get("constraints", {}).items()}
+    constraints_string = geometric.run_json.make_constraints_string(constraints_dict)
+    Cons, CVals = None, None
+    if constraints_string:
+        if 'scan' in constraints_dict:
+            raise ValueError("Coordinate scans are not yet available through the Psi4-GeomeTRIC interface")
+        Cons, CVals = geometric.optimize.ParseConstraints(M, constraints_string)
+    
+    # Set up the internal coordinate system
+    coordsys = optimizer_keywords.get('coordsys', 'tric')
+    CoordSysDict = {
+        'cart': (geometric.internal.CartesianCoordinates, False, False),
+        'prim': (geometric.internal.PrimitiveInternalCoordinates, True, False),
+        'dlc': (geometric.internal.DelocalizedInternalCoordinates, True, False),
+        'hdlc': (geometric.internal.DelocalizedInternalCoordinates, False, True),
+        'tric': (geometric.internal.DelocalizedInternalCoordinates, False, False)
+    }
+    
+    # Build internal coordinates
+    CoordClass, connect, addcart = CoordSysDict[coordsys.lower()]
+    IC = CoordClass(
+        M,
+        build=True,
+        connect=connect,
+        addcart=addcart,
+        constraints=Cons,
+        cvals=CVals[0] if CVals is not None else None)
+    
+    # Get initial coordinates in bohr
+    coords = M.xyzs[0].flatten() / qcel.constants.bohr2angstroms
+
+    # Setup an optimizer object
+    params = geometric.optimize.OptParams(**optimizer_keywords)
+    optimizer = geometric.optimize.Optimizer(coords, M, IC, engine, None, params)
+    
+    # TODO: print constraints
+    # IC.printConstraints(coords, thre=-1)
+    optimizer.calcEnergyForce()
+    optimizer.prepareFirstStep()
+    grms, gmax = optimizer.calcGradNorm()
+    conv_gmax = '*' if gmax < params.Convergence_gmax else ' '
+    conv_grms = '*' if grms < params.Convergence_grms else ' '
+    core.print_out("\n  Measures of convergence in internal coordinates in au.                                        ~")
+    core.print_out("\n  Criteria marked as inactive (o), active & met (*), and active & unmet ( ).                    ~")
+    core.print_out("\n  --------------------------------------------------------------------------------------------- ~")
+    core.print_out("\n   Step     Total Energy     Delta E     MAX Force     RMS Force      MAX Disp      RMS Disp    ~")
+    core.print_out("\n  --------------------------------------------------------------------------------------------- ~")
+    core.print_out((f"\n    Convergence Criteria  {params.Convergence_energy:10.2e}    "
+                    f"{params.Convergence_gmax:10.2e}    {params.Convergence_grms:10.2e}    "
+                    f"{params.Convergence_dmax:10.2e}    {params.Convergence_drms:10.2e}    ~"))
+    core.print_out("\n  --------------------------------------------------------------------------------------------- ~")
+
+    core.print_out((f"\n   {optimizer.Iteration:4d} {optimizer.E:16.8e}    --------    "
+                    f"{gmax:10.2e} {conv_gmax}  {grms:10.2e} {conv_grms}    --------      --------    ~"))
+    while True:
+        if optimizer.state == geometric.optimize.OPT_STATE.CONVERGED:
+            core.print_out("\n\n  Optimization converged!                                                                       ~\n")
+            break
+        elif optimizer.state == geometric.optimize.OPT_STATE.FAILED:
+            core.print_out("\n\n  Optimization failed to converge!                                                              ~\n")
+            break
+        optimizer.step()
+        optimizer.calcEnergyForce()
+        optimizer.evaluateStep()
+        grms, gmax = optimizer.calcGradNorm()
+        drms, dmax = geometric.optimize.calc_drms_dmax(optimizer.X, optimizer.Xprev)
+        conv_energy = '*' if np.abs(optimizer.E - optimizer.Eprev) < params.Convergence_energy else ' '
+        conv_gmax = '*' if gmax < params.Convergence_gmax else ' '
+        conv_grms = '*' if grms < params.Convergence_grms else ' '
+        conv_dmax = '*' if dmax < params.Convergence_dmax else ' '
+        conv_drms = '*' if drms < params.Convergence_drms else ' '
+        core.print_out((f'\n   {optimizer.Iteration:4d} {optimizer.E:16.8e}  '
+                        f'{optimizer.E-optimizer.Eprev:10.2e} {conv_energy}  {gmax:10.2e} {conv_gmax}  '
+                        f'{grms:10.2e} {conv_grms}  {dmax:10.2e} {conv_dmax}  {drms:10.2e} {conv_drms}  ~'))
+
+        if return_history:
+            step_energies.append(optimizer.E)
+            step_coordinates.append(core.Matrix.from_array(optimizer.X.reshape(-1,3)))
+            step_gradients.append(core.Matrix.from_array(optimizer.gradx.reshape(-1,3)))
+
+    return_energy = optimizer.E
+    opt_geometry = core.Matrix.from_array(optimizer.X.reshape(-1,3))
+    molecule.set_geometry(opt_geometry)
+    molecule.update_geometry()
+    core.print_out(f'\n  Final Energy : {return_energy} \n')
+    core.print_out('\n  Final Geometry : \n')
+    molecule.print_in_input_format()
+
+    if return_history:
+        history = {
+            'energy': step_energies,
+            'gradient': step_gradients,
+            'coordinates': step_coordinates,
+        }
+
+    if return_wfn:
+        wfn = engine.p4_wfn
+
+    if return_wfn and return_history:
+        return (return_energy, wfn, history)
+    elif return_wfn and not return_history:
+        return (return_energy, wfn)
+    elif return_history and not return_wfn:
+        return (return_energy, history)
+    else:
+        return return_energy
+
+
+
+
 def optimize(name, **kwargs):
     r"""Function to perform a geometry optimization.
 
@@ -848,21 +1111,21 @@ def optimize(name, **kwargs):
 
     :returns: (*float*, :py:class:`~psi4.core.Wavefunction`) |w--w| energy and wavefunction when **return_wfn** specified.
 
-    :raises: psi4.OptimizationConvergenceError if |optking__geom_maxiter| exceeded without reaching geometry convergence.
+    :raises: :py:class:`psi4.OptimizationConvergenceError` if :term:`GEOM_MAXITER <GEOM_MAXITER (OPTKING)>` exceeded without reaching geometry convergence.
 
     :PSI variables:
 
     .. hlist::
        :columns: 1
 
-       * :psivar:`CURRENT ENERGY <CURRENTENERGY>`
+       * :psivar:`CURRENT ENERGY`
 
-    :type name: string
+    :type name: str
     :param name: ``'scf'`` || ``'mp2'`` || ``'ci5'`` || etc.
 
         First argument, usually unlabeled. Indicates the computational method
         to be applied to the database. May be any valid argument to
-        :py:func:`~driver.energy`.
+        :py:func:`psi4.energy`.
 
     :type molecule: :ref:`molecule <op_py_molecule>`
     :param molecule: ``h2o`` || etc.
@@ -881,6 +1144,18 @@ def optimize(name, **kwargs):
         Indicate to additionally return dictionary of lists of geometries,
         energies, and gradients at each step in the optimization.
 
+    :type engine: str
+    :param engine: |dl| ``'optking'`` |dr| || ``'geometric'``
+
+        Indicates the optimization engine to use, which can be either Psi4's
+        native Optking optimizer or the GeomeTRIC program.
+
+    :type optimizer_keywords: dict
+    :param optimizer_keywords: Options passed to the GeomeTRIC optimizer
+
+        Indicates additional options to be passed to the GeomeTRIC optimizer if
+        chosen as the optimization engine.
+
     :type func: :ref:`function <op_py_function>`
     :param func: |dl| ``gradient`` |dr| || ``energy`` || ``cbs``
 
@@ -896,7 +1171,7 @@ def optimize(name, **kwargs):
         Indicates whether analytic (if available) or finite difference
         optimization is to be performed.
 
-    :type hessian_with: string
+    :type hessian_with: str
     :param hessian_with: ``'scf'`` || ``'mp2'`` || etc.
 
         Indicates the computational method with which to perform a hessian
@@ -920,7 +1195,7 @@ def optimize(name, **kwargs):
     +-------------------------+---------------------------------------------------------------------------------------------------------------+
     | hf                      | HF self consistent field (SCF) :ref:`[manual] <sec:scf>`                                                      |
     +-------------------------+---------------------------------------------------------------------------------------------------------------+
-    | dcft                    | density cumulant functional theory :ref:`[manual] <sec:dcft>`                                                 |
+    | dct                     | density cumulant (functional) theory :ref:`[manual] <sec:dct>`                                                |
     +-------------------------+---------------------------------------------------------------------------------------------------------------+
     | mp2                     | 2nd-order |MollerPlesset| perturbation theory (MP2) :ref:`[manual] <sec:dfmp2>` :ref:`[details] <tlmp2>`      |
     +-------------------------+---------------------------------------------------------------------------------------------------------------+
@@ -950,9 +1225,9 @@ def optimize(name, **kwargs):
     .. _`table:grad_scf`:
 
 
-    .. include:: ../autodoc_dft_opt.rst
+    .. include:: /autodoc_dft_opt.rst
 
-    .. include:: ../cfour_table_grad.rst
+    .. include:: /cfour_table_grad.rst
 
 
     :examples:
@@ -985,6 +1260,12 @@ def optimize(name, **kwargs):
     """
     kwargs = p4util.kwargs_lower(kwargs)
 
+    engine = kwargs.pop('engine', 'optking')
+    if engine == 'geometric':
+        return optimize_geometric(name, **kwargs)
+    elif engine != 'optking':
+        raise ValidationError(f"Optimizer {engine} is not supported.")
+
     if hasattr(name, '__call__'):
         lowername = name
         custom_gradient = True
@@ -1012,6 +1293,8 @@ def optimize(name, **kwargs):
         raise ValidationError("Optimize: Does not support custom Hessian's yet.")
     else:
         hessian_with_method = kwargs.get('hessian_with', lowername)
+
+    _filter_renamed_methods("optimize", lowername)
 
     optstash = p4util.OptionsState(
         ['OPTKING', 'INTRAFRAG_STEP_LIMIT'],
@@ -1217,6 +1500,8 @@ def hessian(name, **kwargs):
     else:
         lowername = name.lower()
 
+    _filter_renamed_methods("frequency", lowername)
+    
     return_wfn = kwargs.pop('return_wfn', False)
     core.clean_variables()
     dertype = 2
@@ -1301,6 +1586,8 @@ def hessian(name, **kwargs):
         wfn = _process_displacement(gradient, lowername, molecule, findif_meta_dict["reference"], 1, ndisp,
                                     **kwargs)
         var_dict = core.variables()
+        # ensure displacement calculations do not use restart_file orbitals.
+        kwargs.pop('restart_file', None)
 
         for n, displacement in enumerate(findif_meta_dict["displacements"].values(), start=2):
             _process_displacement(
@@ -1317,6 +1604,14 @@ def hessian(name, **kwargs):
         wfn.set_gradient(G0)
 
         # Explicitly set the current energy..
+        if isinstance(lowername, str) and lowername in procedures['energy']:
+            # this correctly filters out cbs fn and "hf/cc-pvtz"
+            # it probably incorrectly filters out mp5, but reconsider in DDD
+            core.set_variable(f"CURRENT HESSIAN", H)
+            core.set_variable(f"{lowername.upper()} TOTAL HESSIAN", H)
+            core.set_variable(f"{lowername.upper()} TOTAL GRADIENT", G0)
+            wfn.set_variable(f"{lowername.upper()} TOTAL HESSIAN", H)
+            wfn.set_variable(f"{lowername.upper()} TOTAL GRADIENT", G0)
         core.set_variable('CURRENT ENERGY', findif_meta_dict["reference"]["energy"])
         wfn.set_variable('CURRENT ENERGY', findif_meta_dict["reference"]["energy"])
 
@@ -1360,6 +1655,14 @@ def hessian(name, **kwargs):
         wfn.set_gradient(G0)
 
         # Explicitly set the current energy..
+        if isinstance(lowername, str) and lowername in procedures['energy']:
+            # this correctly filters out cbs fn and "hf/cc-pvtz"
+            # it probably incorrectly filters out mp5, but reconsider in DDD
+            core.set_variable(f"CURRENT HESSIAN", H)
+            core.set_variable(f"{lowername.upper()} TOTAL HESSIAN", H)
+            core.set_variable(f"{lowername.upper()} TOTAL GRADIENT", G0)
+            wfn.set_variable(f"{lowername.upper()} TOTAL HESSIAN", H)
+            wfn.set_variable(f"{lowername.upper()} TOTAL GRADIENT", G0)
         core.set_variable('CURRENT ENERGY', findif_meta_dict["reference"]["energy"])
         wfn.set_variable('CURRENT ENERGY', findif_meta_dict["reference"]["energy"])
 
@@ -1384,7 +1687,7 @@ def frequency(name, **kwargs):
 
     :returns: (*float*, :py:class:`~psi4.core.Wavefunction`) |w--w| energy and wavefunction when **return_wfn** specified.
 
-    :type name: string
+    :type name: str
     :param name: ``'scf'`` || ``'mp2'`` || ``'ci5'`` || etc.
 
         First argument, usually unlabeled. Indicates the computational method
@@ -1418,7 +1721,7 @@ def frequency(name, **kwargs):
         difference of gradients (if available) or finite difference of
         energies is to be performed.
 
-    :type irrep: int or string
+    :type irrep: int or str
     :param irrep: |dl| ``-1`` |dr| || ``1`` || ``'b2'`` || ``'App'`` || etc.
 
         Indicates which symmetry block (:ref:`Cotton <table:irrepOrdering>` ordering) of vibrational
@@ -1426,7 +1729,7 @@ def frequency(name, **kwargs):
         :math:`a_1`, requesting only the totally symmetric modes.
         ``-1`` indicates a full frequency calculation.
 
-    .. note:: Analytic hessians are only available for RHF. For all other methods, Frequencies will
+    .. note:: Analytic hessians are only available for RHF and UHF. For all other methods, Frequencies will
         proceed through finite differences according to availability of gradients or energies.
 
     .. _`table:freq_gen`:
@@ -1460,7 +1763,7 @@ def frequency(name, **kwargs):
 
     """
     kwargs = p4util.kwargs_lower(kwargs)
-
+    
     return_wfn = kwargs.pop('return_wfn', False)
 
     # Make sure the molecule the user provided is the active one
@@ -1488,27 +1791,27 @@ def frequency(name, **kwargs):
         return core.variable('CURRENT ENERGY')
 
 
-def vibanal_wfn(wfn, hess=None, irrep=None, molecule=None, project_trans=True, project_rot=True):
+def vibanal_wfn(wfn: core.Wavefunction, hess: np.ndarray = None, irrep: Union[int, str] = None, molecule=None, project_trans: bool = True, project_rot: bool = True):
     """Function to perform analysis of a hessian or hessian block, specifically...
     calling for and printing vibrational and thermochemical analysis, setting thermochemical variables,
     and writing the vibrec and normal mode files.
 
     Parameters
     ----------
-    wfn : :py:class:`~psi4.core.Wavefunction`
+    wfn
         The wavefunction which had its Hessian computed.
-    hess : ndarray of float, optional
+    hess
         Hessian to analyze, if not the hessian in wfn.
         (3*nat, 3*nat) non-mass-weighted Hessian in atomic units, [Eh/a0/a0].
-    irrep : int or string
+    irrep
         The irrep for which frequencies are calculated. Thermochemical analysis is skipped if this is given,
         as only one symmetry block of the hessian has been computed.
     molecule : :py:class:`~psi4.core.Molecule` or qcdb.Molecule, optional
         The molecule to pull information from, if not the molecule in wfn. Must at least have similar
         geometry to the molecule in wfn.
-    project_trans : boolean
+    project_trans
         Should translations be projected in the harmonic analysis?
-    project_rot : boolean
+    project_rot
         Should rotations be projected in the harmonic analysis?
 
     Returns
@@ -1576,15 +1879,15 @@ def vibanal_wfn(wfn, hess=None, irrep=None, molecule=None, project_trans=True, p
             E0=core.variable('CURRENT ENERGY'))  # someday, wfn.energy()
         vibrec.update({k: qca.json() for k, qca in therminfo.items()})
 
-        core.set_variable("ZPVE", therminfo['ZPE_corr'].data)
-        core.set_variable("THERMAL ENERGY CORRECTION", therminfo['E_corr'].data)
-        core.set_variable("ENTHALPY CORRECTION", therminfo['H_corr'].data)
-        core.set_variable("GIBBS FREE ENERGY CORRECTION", therminfo['G_corr'].data)
+        core.set_variable("ZPVE", therminfo['ZPE_corr'].data)  # P::e THERMO
+        core.set_variable("THERMAL ENERGY CORRECTION", therminfo['E_corr'].data)  # P::e THERMO
+        core.set_variable("ENTHALPY CORRECTION", therminfo['H_corr'].data)  # P::e THERMO
+        core.set_variable("GIBBS FREE ENERGY CORRECTION", therminfo['G_corr'].data)  # P::e THERMO
 
-        core.set_variable("ZERO K ENTHALPY", therminfo['ZPE_tot'].data)
-        core.set_variable("THERMAL ENERGY", therminfo['E_tot'].data)
-        core.set_variable("ENTHALPY", therminfo['H_tot'].data)
-        core.set_variable("GIBBS FREE ENERGY", therminfo['G_tot'].data)
+        core.set_variable("ZERO K ENTHALPY", therminfo['ZPE_tot'].data)  # P::e THERMO
+        core.set_variable("THERMAL ENERGY", therminfo['E_tot'].data)  # P::e THERMO
+        core.set_variable("ENTHALPY", therminfo['H_tot'].data)  # P::e THERMO
+        core.set_variable("GIBBS FREE ENERGY", therminfo['G_tot'].data)  # P::e THERMO
 
         core.print_out(thermtext)
     else:
@@ -1614,8 +1917,6 @@ def gdma(wfn, datafile=""):
     """Function to use wavefunction information in *wfn* and, if specified,
     additional commands in *filename* to run GDMA analysis.
 
-    .. include:: ../autodoc_abbr_options_c.rst
-
     .. versionadded:: 0.6
 
     :returns: None
@@ -1623,10 +1924,10 @@ def gdma(wfn, datafile=""):
     :type wfn: :py:class:`~psi4.core.Wavefunction`
     :param wfn: set of molecule, basis, orbitals from which to generate DMA analysis
 
-    :type datafile: string
+    :type datafile: str
     :param datafile: optional control file (see GDMA manual) to peform more complicated DMA
                      analyses.  If this option is used, the File keyword must be set to read
-                     a filename.fchk, where filename is provided by |globals__writer_file_label| .
+                     a filename.fchk, where filename is provided by :term:`WRITER_FILE_LABEL <WRITER_FILE_LABEL (GLOBALS)>` .
 
     :examples:
 
@@ -1675,8 +1976,7 @@ def gdma(wfn, datafile=""):
     if not datafile:
         os.remove(commands)
 
-
-def fchk(wfn, filename):
+def fchk(wfn: core.Wavefunction, filename: str, *, debug: bool = False, strict_label: bool = True):
     """Function to write wavefunction information in *wfn* to *filename* in
     Gaussian FCHK format.
 
@@ -1684,17 +1984,23 @@ def fchk(wfn, filename):
 
     :returns: None
 
-    :type filename: string
+    :param wfn: set of molecule, basis, orbitals from which to generate fchk file
+
     :param filename: destination file name for FCHK file
 
-    :type wfn: :py:class:`~psi4.core.Wavefunction`
-    :param wfn: set of molecule, basis, orbitals from which to generate fchk file
+    :param debug: returns a dictionary to aid with debugging
+
+    :param strict_label: If true set a density label compliant with what Gaussian would write. A warning will be printed if this is not possible.
+                         Otherwise set the density label according to the method name.
 
     Notes
     -----
     * A description of the FCHK format is http://wild.life.nctu.edu.tw/~jsyu/compchem/g09/g09ur/f_formchk.htm
     * The allowed headers for methods are general and limited, i.e., "Total SCF|MP2|CI|CC Density",
-      so "CC" is always used for the post-HF case.
+      PSI4 will try to find the right one for the current calculation. If `strict_label=False` the PSI4 method name will be used as label.
+    * Not all theory modules in PSI4 are compatible with the FCHK writer.
+      A warning will be printed if a theory module is not supported.
+    * Caution! For orbital-optimized correlated methods (e.g. DCT, OMP2) the 'Orbital Energy' field contains ambiguous data.
 
     :examples:
 
@@ -1702,10 +2008,101 @@ def fchk(wfn, filename):
     >>> E, wfn = energy('b3lyp', return_wfn=True)
     >>> fchk(wfn, 'mycalc.fchk')
 
-    """
-    fw = core.FCHKWriter(wfn)
-    fw.write(filename)
+    >>> # [2] FCHK file for correlated densities
+    >>> E, wfn = gradient('ccsd', return_wfn=True)
+    >>> fchk(wfn, 'mycalc.fchk')
 
+    >>> # [2] Write FCHK file with non-standard label.
+    >>> E, wfn = gradient('mp2.5', return_wfn=True)
+    >>> fchk(wfn, 'mycalc.fchk', strict_label=False)
+
+    """
+    # * Known limitations and notes *
+    #
+    # OCC: (occ theory module only, not dfocc) is turned off as densities are not correctly set.
+    # DFMP2: Contains natural orbitals in wfn.C() and wfn.epsilon() data. This is fixed to contain respective HF data.
+
+    allowed = ['DFMP2', 'SCF', 'CCENERGY', 'DCT', 'DFOCC']
+    module_ = wfn.module().upper()
+    if module_ not in allowed:
+        core.print_out(f"FCHKWriter: Theory module {module_} is currently not supported by the FCHK writer.")
+        return None
+
+    if (wfn.basisset().has_ECP()):
+        core.print_out(f"FCHKWriter: Limited ECP support! No ECP data will be written to the FCHK file.")
+
+    # fix orbital coefficients and energies for DFMP2
+    if module_ in ['DFMP2']:
+        wfn_ = core.Wavefunction.build(wfn.molecule(), core.get_global_option('BASIS'))
+        wfn_.deep_copy(wfn)
+        refwfn = wfn.reference_wavefunction()
+        wfn_.set_reference_wavefunction(refwfn)  # refwfn not deep_copied
+        wfn_.Ca().copy(refwfn.Ca())
+        wfn_.Cb().copy(refwfn.Cb())
+        wfn_.epsilon_a().copy(refwfn.epsilon_a())
+        wfn_.epsilon_b().copy(refwfn.epsilon_b())
+        fw = core.FCHKWriter(wfn_)
+    else:
+        fw = core.FCHKWriter(wfn)
+
+    if module_ in ['DCT', 'DFOCC']:
+        core.print_out("""FCHKWriter: Caution! For orbital-optimized correlated methods
+            the 'Orbital Energy' field contains ambiguous data. \n""")
+
+    # At this point we don't know the method name, so we try to search for it.
+    # idea: get the method from the variable matching closely the 'current energy'
+    # for varlist, wfn is long-term and to allow from-file wfns. core is b/c some modules not storing in wfn yet
+    varlist = {**wfn.scalar_variables(), **core.scalar_variables()}
+    current = varlist['CURRENT ENERGY']
+
+    # delete problematic entries
+    for key in ['CURRENT ENERGY', 'CURRENT REFERENCE ENERGY']:
+        varlist.pop(key, None)
+
+    # find closest matching energy
+    for (key, val) in varlist.items():
+        if (np.isclose(val, current, 1e-12)):
+            method = key.split()[0]
+            break
+
+    # The 'official' list of labels for compatibility.
+    # OMP2,MP2.5,OCCD, etc get reduced to MP2,CC.
+    allowed_labels = {
+        "HF": " SCF Density",
+        "SCF": " SCF Density",
+        "DFT": " SCF Density",
+        "MP2": " MP2 Density",
+        "MP3": " MP3 Density",
+        "MP4": " MP4 Density",
+        "CI": " CI Density",
+        "CC": " CC Density",
+    }
+    # assign label from method name
+    fchk_label = f" {method} Density"
+    if strict_label:
+        in_list = False
+        for key in allowed_labels:
+            if key in method:
+                if key is not method:
+                    core.print_out(f"FCHKWriter: !WARNING! method '{method}'' renamed to label '{key}'.\n")
+                fchk_label = allowed_labels[key]
+                in_list = True
+        if not in_list:
+            core.print_out(f"FCHKWriter: !WARNING! {method} is not recognized. Using non-standard label.\n")
+    core.print_out(f"FCHKWriter: Writing {filename} with label '{fchk_label}'.\n")
+    fw.set_postscf_density_label(fchk_label)
+
+    fw.write(filename)
+    # needed for the pytest. The SCF density below follows PSI4 ordering not FCHK ordering.
+    if debug:
+        ret = {
+            "filename": filename,
+            "detected energy": method,
+            "selected label": fchk_label,
+            "Total SCF Density": fw.SCF_Dtot().np,
+        }
+        return ret
+    return None
 
 def molden(wfn, filename=None, density_a=None, density_b=None, dovirtual=None):
     """Function to write wavefunction information in *wfn* to *filename* in
@@ -1723,7 +2120,7 @@ def molden(wfn, filename=None, density_a=None, density_b=None, dovirtual=None):
     :type wfn: :py:class:`~psi4.core.Wavefunction`
     :param wfn: set of molecule, basis, orbitals from which to generate cube files
 
-    :type filename: string
+    :type filename: str
     :param filename: destination file name for MOLDEN file (optional)
 
     :type density_a: :py:class:`~psi4.core.Matrix`
@@ -1818,6 +2215,8 @@ def molden(wfn, filename=None, density_a=None, density_b=None, dovirtual=None):
         mw = core.MoldenWriter(wfn)
         mw.write(filename, wfn.Ca(), wfn.Cb(), wfn.epsilon_a(), wfn.epsilon_b(), occa, occb, dovirt)
 
+def tdscf(wfn, **kwargs):
+    return proc.run_tdscf_excitations(wfn,**kwargs)
 
 # Aliases
 opt = optimize

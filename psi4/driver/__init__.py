@@ -3,7 +3,7 @@
 #
 # Psi4: an open-source quantum chemistry software package
 #
-# Copyright (c) 2007-2019 The Psi4 Developers.
+# Copyright (c) 2007-2022 The Psi4 Developers.
 #
 # The copyrights for code used from other parties are included in
 # the corresponding files.
@@ -33,21 +33,24 @@ from . import dependency_check
 from qcelemental import constants
 from psi4.driver import psifiles as psif
 
+from psi4.driver.ipi_broker import ipi_broker
 from psi4.driver.molutil import *
 from psi4.driver.inputparser import process_input
 from psi4.driver.p4util.util import *
 from psi4.driver.p4util.testing import *
 from psi4.driver.p4util.fcidump import *
+from psi4.driver.p4util.fchk import *
 from psi4.driver.p4util.text import *
 from psi4.driver.qmmm import QMMM
-from psi4.driver.plugin import *
+from psi4.driver.pluginutil import *
 
 from psi4.driver import gaussian_n
 from psi4.driver import aliases
 from psi4.driver import diatomic
 from psi4.driver import wrapper_database
 from psi4.driver import wrapper_autofrag
-from psi4.driver import json_wrapper
+from psi4.driver import schema_wrapper
+from psi4.driver import schema_wrapper as json_wrapper # Deprecate in 1.4
 from psi4.driver import frac
 
 from psi4.driver.driver import *

@@ -3,7 +3,7 @@
 .. #
 .. # Psi4: an open-source quantum chemistry software package
 .. #
-.. # Copyright (c) 2007-2019 The Psi4 Developers.
+.. # Copyright (c) 2007-2022 The Psi4 Developers.
 .. #
 .. # The copyrights for code used from other parties are included in
 .. # the corresponding files.
@@ -38,7 +38,7 @@ Notes on Options
 
 .. note:: All |PSIfour| keyword names and values are insensitive to case, both
    those that are placed in ``set`` blocks and as Python function arguments.
-   The few exceptions are documented for the :py:func:`~wrapper_database.database` function,
+   The few exceptions are documented for the :py:func:`~psi4.database` function,
    where case structure must match the database file.
 
 .. _`op_c_bool`:
@@ -179,7 +179,7 @@ conventional integrals. Therefore, for a closed-shell molecule:
     +----------------------+----------------------+------+----------+------+------+----------+------+----------+------+------+------+------+------+------+------+------+------+------+------+
     | .. _tlccsdat:        | CCENERGY             | D    |          |      |      |          |      |          |      |      |      |      |      |      |      |      |      |      |      |
     +                      +----------------------+------+----------+------+------+----------+------+----------+------+------+------+------+------+------+------+------+------+------+------+
-    | ccsd(at)             | DETCI                |      |          |      |      |          |      |          |      |      |      |      |      |      |      |      |      |      |      |
+    | a-ccsd(t) [#f4]_     | DETCI                |      |          |      |      |          |      |          |      |      |      |      |      |      |      |      |      |      |      |
     +                      +----------------------+------+----------+------+------+----------+------+----------+------+------+------+------+------+------+------+------+------+------+------+
     | |globals__cc_type|   | DFMP2                |      |          |      |      |          |      |          |      |      |      |      |      |      |      |      |      |      |      |
     +                      +----------------------+------+----------+------+------+----------+------+----------+------+------+------+------+------+------+------+------+------+------+------+
@@ -197,10 +197,17 @@ conventional integrals. Therefore, for a closed-shell molecule:
     +                      +----------------------+------+----------+------+------+----------+------+----------+------+------+------+------+------+------+------+------+------+------+------+
     |                      | OCC                  |      |          |      |      |          |      |          |      |      |      |      |      |      |      |      |      |      |      |
     +----------------------+----------------------+------+----------+------+------+----------+------+----------+------+------+------+------+------+------+------+------+------+------+------+
+    | .. _tladc2:          | ADCC                 | Y    |          |      | D    |          |      |          |      |      |      |      |      |      |      |      |      |      |      |
+    +                      +----------------------+------+----------+------+------+----------+------+----------+------+------+------+------+------+------+------+------+------+------+------+
+    | adc(2)               | BUILTIN              | D    |          |      |      |          |      |          |      |      |      |      |      |      |      |      |      |      |      |
+    +                      +                      +      +          +      +      +          +      +          +      +      +      +      +      +      +      +      +      +      +      +
+    | |globals__mp_type|   |                      |      |          |      |      |          |      |          |      |      |      |      |      |      |      |      |      |      |      |
+    +----------------------+----------------------+------+----------+------+------+----------+------+----------+------+------+------+------+------+------+------+------+------+------+------+
 
 .. rubric:: Footnotes
 
 .. [#f1] Algorithm type selection keyword below. Values to the right: conventional ``CONV`` (here abbreviated CV), density-fitted ``DF``, and Cholesky-decomposed ``CD``.
 .. [#f2] Also available for KS reference.
 .. [#f3] Conditions have *no* default module (computationally inefficient) and can only be accessed by specifying |globals__qc_module|.
+.. [#f4] Also known as CCSD(AT), Lambda-CCSD(T), CCSD(T)_L
 

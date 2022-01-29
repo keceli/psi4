@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -48,7 +48,6 @@
 #include "psi4/libciomr/libciomr.h"
 #include "psi4/lib3index/dftensor.h"
 #include "psi4/lib3index/cholesky.h"
-#include "psi4/libmints/sieve.h"
 #include "psi4/libqt/qt.h"
 #include "psi4/libmints/vector.h"
 #include "psi4/libmints/basisset.h"
@@ -67,6 +66,8 @@ FrozenNO::FrozenNO(SharedWavefunction wfn, Options& options) : Wavefunction(opti
 FrozenNO::~FrozenNO() {}
 
 void FrozenNO::common_init() {
+    module_ = "fnocc";
+
     nso = nmo = ndocc = nvirt = nfzc = nfzv = 0;
     for (int h = 0; h < nirrep_; h++) {
         nfzc += frzcpi_[h];
@@ -208,10 +209,10 @@ void FrozenNO::ComputeNaturalOrbitals() {
     global_dpd_->buf4_close(&amps1);
 
     double escf = Process::environment.globals["SCF TOTAL ENERGY"];
-    Process::environment.globals["MP2 OPPOSITE-SPIN CORRELATION ENERGY"] = emp2_os;
-    Process::environment.globals["MP2 SAME-SPIN CORRELATION ENERGY"] = emp2_ss;
-    Process::environment.globals["MP2 CORRELATION ENERGY"] = emp2_os + emp2_ss;
-    Process::environment.globals["MP2 TOTAL ENERGY"] = emp2_os + emp2_ss + escf;
+    set_scalar_variable("MP2 OPPOSITE-SPIN CORRELATION ENERGY", emp2_os);
+    set_scalar_variable("MP2 SAME-SPIN CORRELATION ENERGY", emp2_ss);
+    set_scalar_variable("MP2 CORRELATION ENERGY", emp2_os + emp2_ss);
+    set_scalar_variable("MP2 TOTAL ENERGY", emp2_os + emp2_ss + escf);
 
     // build amps1(ij,ab) = 2*T(ij,ab) - T(ji,ab)
     global_dpd_->buf4_init(&amps1, PSIF_LIBTRANS_DPD, 0, ID("[O,O]"), ID("[V,V]"), ID("[O,O]"), ID("[V,V]"), 0,
@@ -523,9 +524,13 @@ void DFFrozenNO::ThreeIndexIntegrals() {
     // 1.  read scf 3-index integrals from disk
 
     // get ntri from sieve
-    auto sieve = std::make_shared<ERISieve>(basisset_, options_.get_double("INTS_TOLERANCE"));
-    const std::vector<std::pair<int, int> >& function_pairs = sieve->function_pairs();
+    std::shared_ptr<BasisSet> primary = basisset();
+    std::shared_ptr<IntegralFactory> integral = std::make_shared<IntegralFactory>(primary, primary, primary, primary);
+    auto eri = std::shared_ptr<TwoBodyAOInt>(integral->eri());
+    const std::vector<std::pair<int, int> >& function_pairs = eri->function_pairs();
     long int ntri = function_pairs.size();
+
+    auto psio = std::make_shared<PSIO>();
 
     // read integrals that were written to disk in the scf
     long int nQ_scf = Process::environment.globals["NAUX (SCF)"];
@@ -535,11 +540,16 @@ void DFFrozenNO::ThreeIndexIntegrals() {
 
         nQ_scf = auxiliary->nbf();
         Process::environment.globals["NAUX (SCF)"] = nQ_scf;
+    } else if (options_.get_str("SCF_TYPE") == "CD") {
+        psio->open(PSIF_DFSCF_BJ, PSIO_OPEN_OLD);
+        psio->read_entry(PSIF_DFSCF_BJ, "length", (char*)&nQ_scf, sizeof(long int));
+        psio->close(PSIF_DFSCF_BJ, 1);
+        Process::environment.globals["NAUX (SCF)"] = nQ_scf;
     }
 
     auto Qmn = std::make_shared<Matrix>("Qmn Integrals", nQ_scf, ntri);
     double** Qmnp = Qmn->pointer();
-    auto psio = std::make_shared<PSIO>();
+
     psio->open(PSIF_DFSCF_BJ, PSIO_OPEN_OLD);
     psio->read_entry(PSIF_DFSCF_BJ, "(Q|mn) Integrals", (char*)Qmnp[0], sizeof(double) * ntri * nQ_scf);
     psio->close(PSIF_DFSCF_BJ, 1);
@@ -584,7 +594,11 @@ void DFFrozenNO::ThreeIndexIntegrals() {
         // read integrals from disk if they were generated in the SCF
         if (options_.get_str("SCF_TYPE") == "CD") {
             outfile->Printf("        Reading Cholesky vectors from disk ...\n");
-            nQ = Process::environment.globals["NAUX (SCF)"];
+
+            psio->open(PSIF_DFSCF_BJ, PSIO_OPEN_OLD);
+            psio->read_entry(PSIF_DFSCF_BJ, "length", (char*)&nQ, sizeof(long int));
+            psio->close(PSIF_DFSCF_BJ, 1);
+
             outfile->Printf("        Cholesky decomposition threshold: %8.2le\n",
                             options_.get_double("CHOLESKY_TOLERANCE"));
             outfile->Printf("        Number of Cholesky vectors:          %5li\n", nQ);
@@ -613,9 +627,6 @@ void DFFrozenNO::ThreeIndexIntegrals() {
         } else {
             // generate Cholesky 3-index integrals
             outfile->Printf("        Generating Cholesky vectors ...\n");
-            std::shared_ptr<BasisSet> primary = basisset();
-            std::shared_ptr<IntegralFactory> integral =
-                std::make_shared<IntegralFactory>(primary, primary, primary, primary);
             double tol = options_.get_double("CHOLESKY_TOLERANCE");
             std::shared_ptr<CholeskyERI> Ch = std::make_shared<CholeskyERI>(
                 std::shared_ptr<TwoBodyAOInt>(integral->eri()), 0.0, tol, Process::environment.get_memory());
@@ -790,10 +801,10 @@ void DFFrozenNO::ComputeNaturalOrbitals() {
     outfile->Printf("        Doubles contribution to MP2 energy in full space: %20.12lf\n", emp2);
     outfile->Printf("\n");
 
-    Process::environment.globals["MP2 OPPOSITE-SPIN CORRELATION ENERGY"] = emp2_os;
-    Process::environment.globals["MP2 SAME-SPIN CORRELATION ENERGY"] = emp2_ss;
-    Process::environment.globals["MP2 CORRELATION ENERGY"] = emp2;
-    Process::environment.globals["MP2 TOTAL ENERGY"] = emp2 + Process::environment.globals["SCF TOTAL ENERGY"];
+    set_scalar_variable("MP2 OPPOSITE-SPIN CORRELATION ENERGY", emp2_os);
+    set_scalar_variable("MP2 SAME-SPIN CORRELATION ENERGY", emp2_ss);
+    set_scalar_variable("MP2 CORRELATION ENERGY", emp2);
+    set_scalar_variable("MP2 TOTAL ENERGY", emp2 + Process::environment.globals["SCF TOTAL ENERGY"]);
 
     ijab = 0;
     for (long int a = o; a < o + v; a++) {
@@ -1026,9 +1037,7 @@ void DFFrozenNO::BuildFock(long int nQ, double* Qso, double* F) {
 
     // transform H
     // one-electron integrals
-    auto mints = std::make_shared<MintsHelper>(basisset_, options_, 0);
-    SharedMatrix H = mints->so_kinetic();
-    H->add(mints->so_potential());
+    auto H = reference_wavefunction_->H()->clone();
 
     long int max = nQ > nso * nso ? nQ : nso * nso;
     double* temp2 = (double*)malloc(max * sizeof(double));

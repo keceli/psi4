@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -31,13 +31,15 @@
 
 #include <vector>
 
+#include "psimrcc_wfn.h"
+
 namespace psi {
 namespace psimrcc {
 
 class Hamiltonian {
    public:
     // Constructor and destructor
-    Hamiltonian();
+    Hamiltonian(std::shared_ptr<PSIMRCCWfn> wfn);
     ~Hamiltonian();
 
     double get_eigenvalue() const { return eigenvalue; }
@@ -55,15 +57,19 @@ class Hamiltonian {
 
     void set_eigenvalue(double eigenvalue_) { eigenvalue = eigenvalue_; }
     void set_matrix(double** M, int ndets);
-    void set_zeroth_order_eigenvector(double* v, int ndets);
-    void set_left_eigenvector(double* v, int ndets);
-    void set_right_eigenvector(double* v, int ndets);
+    void set_zeroth_order_eigenvector(const std::vector<double>& v);
+    void set_left_eigenvector(const std::vector<double>& v);
+    void set_right_eigenvector(const std::vector<double>& v);
     void print();
     void print_matrix();
+
+    const std::shared_ptr<PSIMRCCWfn> wfn() const { return wfn_; }
 
    private:
     void startup();
     void cleanup();
+
+    std::shared_ptr<PSIMRCCWfn> wfn_;
 
     int ndets;
     double eigenvalue;

@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -169,6 +169,8 @@ void sortone_RHF(const struct RHO_Params& rho_params) {
     }
 
     moinfo.opdm = O;
+    moinfo.opdm_a = nullptr;
+    moinfo.opdm_b = nullptr;
 }
 }
 }  // namespace psi

@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -31,8 +31,8 @@
 #include "psi4/liboptions/liboptions.h"
 #include "psi4/libmoinfo/libmoinfo.h"
 #include "psi4/libpsi4util/libpsi4util.h"
+#include "psi4/libpsi4util/process.h"
 #include "psi4/libciomr/libciomr.h"
-#include "debugging.h"
 #include "psi4/libqt/qt.h"
 
 #include "blas.h"
@@ -42,10 +42,11 @@
 namespace psi {
 
 namespace psimrcc {
-extern MOInfo* moinfo;
-extern MemoryManager* memory_manager;
 
-CCBLAS::CCBLAS(Options& options) : options_(options), full_in_core(false), work_size(0), buffer_size(0) { init(); }
+CCBLAS::CCBLAS(std::shared_ptr<PSIMRCCWfn> wfn, Options& options)
+    : wfn_(wfn), options_(options), full_in_core(false), work_size(0), buffer_size(0) {
+    init();
+}
 
 CCBLAS::~CCBLAS() { cleanup(); }
 
@@ -57,26 +58,26 @@ void CCBLAS::init() {
 
 void CCBLAS::cleanup() {
     free_sortmap();
-    free_buffer();
-    free_work();
     free_matrices();
     free_indices();
+    free_work();
+    free_buffer();
+}
+
+void CCBLAS::free_work() {
+    if (work.size()) {
+        wfn_->free_memory_ += sizeof(double) * options_.get_int("CC_NUM_THREADS") * work[0].size();
+    }
 }
 
 void CCBLAS::allocate_work() {
-    // Make sure work is empty
-    if (!work.empty())
-        for (size_t n = 0; n < work.size(); ++n)
-            if (work[n] != nullptr) release1(work[n]);
-
-    for (int n = 0; n < options_.get_int("CC_NUM_THREADS"); n++) work.push_back(nullptr);
     // Compute the temporary work space size
     CCIndex* oo_pair = get_index("[oo]");
     CCIndex* vv_pair = get_index("[vv]");
     CCIndex* ff_pair = get_index("[ff]");
 
     work_size = 0;
-    for (int h = 0; h < moinfo->get_nirreps(); h++) {
+    for (int h = 0; h < wfn_->nirrep(); h++) {
         std::vector<size_t> dimension;
         dimension.push_back(oo_pair->get_pairpi(h));
         dimension.push_back(vv_pair->get_pairpi(h));
@@ -85,58 +86,34 @@ void CCBLAS::allocate_work() {
         work_size += dimension[2] * dimension[1];
     }
     // Allocate the temporary work space
-    for (int n = 0; n < options_.get_int("CC_NUM_THREADS"); n++) {
-        allocate1(double, work[n], work_size);
-        zero_arr(work[n], work_size);
+    free_work();
+    wfn_->free_memory_ -= sizeof(double) * options_.get_int("CC_NUM_THREADS") * work_size;
+    work = std::vector<std::vector<double>>(options_.get_int("CC_NUM_THREADS"), std::vector<double>(work_size, 0));
+    outfile->Printf("\n  Allocated work array of size %.2f MiB", work_size * sizeof(double) / 1048576.0);
+}
+
+void CCBLAS::free_buffer() {
+    if (buffer.size()) {
+        wfn_->free_memory_ += sizeof(double) * options_.get_int("CC_NUM_THREADS") * buffer[0].size();
     }
-    outfile->Printf("\n  Allocated work array of size %ld (%.2f MiB)", work_size * sizeof(double),
-                    type_to_MiB<double>(work_size));
 }
 
 void CCBLAS::allocate_buffer() {
-    // Make sure buffer is empty
-    if (!buffer.empty())
-        for (size_t n = 0; n < buffer.size(); ++n)
-            if (buffer[n] != nullptr) release1(buffer[n]);
-
-    for (int n = 0; n < options_.get_int("CC_NUM_THREADS"); n++) buffer.push_back(nullptr);
+    free_buffer();
     // Compute the temporary buffer space size, 101% of the actual strip size
     buffer_size = static_cast<size_t>(1.01 * CCMatrix::fraction_of_memory_for_buffer *
-                                      static_cast<double>(memory_manager->get_FreeMemory()) /
-                                      static_cast<double>(sizeof(double)));
-    // The value used here , 0.05 is also used in
+                                      static_cast<double>(wfn_->free_memory_) / static_cast<double>(sizeof(double)));
 
     // Allocate the temporary buffer space
-    for (int n = 0; n < options_.get_int("CC_NUM_THREADS"); n++) {
-        allocate1(double, buffer[n], buffer_size);
-        zero_arr(buffer[n], buffer_size);
-    }
-    outfile->Printf("\n  Allocated buffer array of size %ld (%.2f MiB)", buffer_size * sizeof(double),
-                    type_to_MiB<double>(buffer_size));
+    buffer = std::vector<std::vector<double>>(options_.get_int("CC_NUM_THREADS"), std::vector<double>(buffer_size, 0));
+    wfn_->free_memory_ -= sizeof(double) * options_.get_int("CC_NUM_THREADS") * buffer_size;
+    outfile->Printf("\n  Allocated buffer array of size %.2f MiB", buffer_size * sizeof(double) / 1048576.0);
 }
 
 void CCBLAS::free_sortmap() {
     for (SortMap::iterator iter = sortmap.begin(); iter != sortmap.end(); ++iter) {
-        for (int irrep = 0; irrep < moinfo->get_nirreps(); irrep++) delete[] iter->second[irrep];
+        for (int irrep = 0; irrep < wfn_->nirrep(); irrep++) delete[] iter->second[irrep];
         delete[] iter->second;
-    }
-}
-
-void CCBLAS::free_work() {
-    // Delete the temporary work space
-    for (size_t n = 0; n < work.size(); ++n) {
-        if (work[n] != nullptr) {
-            release1(work[n]);
-        }
-    }
-}
-
-void CCBLAS::free_buffer() {
-    // Delete the temporary buffer space
-    for (size_t n = 0; n < buffer.size(); ++n) {
-        if (buffer[n] != nullptr) {
-            release1(buffer[n]);
-        }
     }
 }
 
@@ -229,7 +206,7 @@ void CCBLAS::add_indices() {
 
 void CCBLAS::print(const char* cstr) {
     std::string str(cstr);
-    std::vector<std::string> names = moinfo->get_matrix_names(str);
+    std::vector<std::string> names = wfn_->moinfo()->get_matrix_names(str);
     for (size_t n = 0; n < names.size(); ++n) print_ref(names[n]);
 }
 
@@ -277,17 +254,15 @@ int CCBLAS::compute_storage_strategy() {
     outfile->Printf("\n\n  Computing storage strategy:");
 
     // N.B. Here I am using bytes as the basic unit
-    size_t available_memory = memory_manager->get_FreeMemory();
     double fraction_for_in_core = 0.97;  // Fraction of the total available memory that may be used
-    size_t storage_memory = static_cast<size_t>(static_cast<double>(available_memory) * fraction_for_in_core);
+    size_t storage_memory = static_cast<size_t>(static_cast<double>(wfn_->free_memory_) * fraction_for_in_core);
     size_t fully_in_core_memory = 0;
     size_t integrals_memory = 0;
     size_t fock_memory = 0;
     size_t others_memory = 0;
 
-    outfile->Printf("\n    Input memory                           = %14lu bytes",
-                    (size_t)memory_manager->get_MaximumAllowedMemory());
-    outfile->Printf("\n    Free memory                            = %14lu bytes", (size_t)available_memory);
+    outfile->Printf("\n    Input memory                           = %14lu bytes", Process::environment.get_memory());
+    outfile->Printf("\n    Free memory                            = %14lu bytes", wfn_->free_memory_);
     outfile->Printf("\n    Free memory available for matrices     = %14lu bytes (%3.0f%%)", (size_t)storage_memory,
                     fraction_for_in_core * 100.0);
 
@@ -295,11 +270,11 @@ int CCBLAS::compute_storage_strategy() {
     // and divide the integrals from all the other matrices.
     // At the same time compute the memory requirements for
     // a fully in-core algorithm.
-    std::vector<std::pair<size_t, std::pair<CCMatrix*, int> > > integrals;
-    std::vector<std::pair<size_t, std::pair<CCMatrix*, int> > > fock;
-    std::vector<std::pair<size_t, std::pair<CCMatrix*, int> > > others;
+    std::vector<std::pair<size_t, std::pair<CCMatrix*, int>>> integrals;
+    std::vector<std::pair<size_t, std::pair<CCMatrix*, int>>> fock;
+    std::vector<std::pair<size_t, std::pair<CCMatrix*, int>>> others;
     for (MatrixMap::iterator it = matrices.begin(); it != matrices.end(); ++it) {
-        for (int h = 0; h < moinfo->get_nirreps(); ++h) {
+        for (int h = 0; h < wfn_->nirrep(); ++h) {
             size_t block_memory = it->second->get_memorypi2(h);
             if (it->second->is_integral()) {
                 integrals.push_back(std::make_pair(block_memory, std::make_pair(it->second, h)));
@@ -365,66 +340,11 @@ int CCBLAS::compute_storage_strategy() {
         }
     }
 
-    //  DEBUGGING(1,
-    //    outfile->Printf("\n    -------------------- Fock matrices -------------------------");
-    //    for(int i=0;i<fock.size();i++){
-    //      if(fock[i].first > 1.0e-5){
-    //        outfile->Printf("\n    %-32s irrep %d   %6.2f Mb --> ",fock[i].second.first->get_label().c_str(),
-    //                                                      fock[i].second.second,
-    //                                                      fock[i].first);
-    //        outfile->Printf("%s",fock[i].second.first->is_block_allocated(fock[i].second.second) ? "in-core" :
-    //        "out-of-core");
-    //      }
-    //    }
-    //    outfile->Printf("\n    -------------------- Other matrices ------------------------");
-    //    for(int i=0;i<others.size();i++){
-    //      if(others[i].first > 1.0e-5){
-    //        outfile->Printf("\n    %-32s irrep %d   %6.2f Mb --> ",others[i].second.first->get_label().c_str(),
-    //                                                      others[i].second.second,
-    //                                                      others[i].first);
-    //        outfile->Printf("%s",others[i].second.first->is_block_allocated(others[i].second.second) ? "in-core" :
-    //        "out-of-core");
-    //      }
-    //    }
-    //    outfile->Printf("\n    -------------------- Integrals -----------------------------");
-    //    for(int i=0;i<integrals.size();i++){
-    //      if(integrals[i].first > 1.0e-5){
-    //        outfile->Printf("\n    %-32s irrep %d   %6.2f Mb --> ",integrals[i].second.first->get_label().c_str(),
-    //                                                      integrals[i].second.second,
-    //                                                      integrals[i].first);
-    //        outfile->Printf("%s",integrals[i].second.first->is_block_allocated(integrals[i].second.second) ? "in-core"
-    //        : "out-of-core");
-    //      }
-    //    }
-    //    outfile->Printf("\n\n");
-    //  );
-
     if (!full_in_core) {
         outfile->Printf("\n    Out-of-core algorithm will store %d other matrices on disk", number_of_others_on_disk);
         outfile->Printf("\n    Out-of-core algorithm will store %d integrals on disk", number_of_integrals_on_disk);
     }
     return (strategy);
-}
-
-/**
- * This routine computes which quantities have to be initially stored in memory and which on disk
- */
-void CCBLAS::show_storage() {
-    //  DEBUGGING(1,
-    //    outfile->Printf("\n    ----------------------------------");
-    //    outfile->Printf("\n               Show Storage ");
-    //    outfile->Printf("\n    ----------------------------------");
-
-    //    for(MatrixMap::iterator it=matrices.begin();it!=matrices.end();++it){
-    //      for(int h=0;h<moinfo->get_nirreps();++h){
-    //        double block_memory = it->second->get_memorypi(h);
-    //        outfile->Printf("\n    %-32s irrep %d   %6.2f Mb",it->second->get_label().c_str(),h,block_memory);
-    //        outfile->Printf(" is %s",it->second->is_block_allocated(h) ? "allocated" : "not allocated");
-    //        outfile->Printf("%s",it->second->is_out_of_core(h) ? "(out-of-core)" : "");
-
-    //      }
-    //    }
-    //  )
 }
 
 }  // namespace psimrcc

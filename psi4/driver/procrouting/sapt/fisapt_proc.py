@@ -3,7 +3,7 @@
 #
 # Psi4: an open-source quantum chemistry software package
 #
-# Copyright (c) 2007-2019 The Psi4 Developers.
+# Copyright (c) 2007-2022 The Psi4 Developers.
 #
 # The copyrights for code used from other parties are included in
 # the corresponding files.
@@ -34,7 +34,7 @@ from psi4 import core
 from .. import empirical_dispersion
 
 
-def fisapt_compute_energy(self):
+def fisapt_compute_energy(self, external_potentials=None):
     """Computes the FSAPT energy. FISAPT::compute_energy"""
 
     # => Header <=
@@ -73,7 +73,8 @@ def fisapt_compute_energy(self):
     core.timer_off("FISAPT:SAPT:ind")
     if not core.get_option("FISAPT", "FISAPT_DO_FSAPT"):
         core.timer_on("FISAPT:SAPT:disp")
-        self.disp(matrices_, vectors_, true)  # Expensive, only do if needed
+        self.disp(self.matrices(), self.vectors(), True)  # Expensive, only do if needed  # unteseted translation of below
+        # self.disp(matrices_, vectors_, true)  # Expensive, only do if needed
         core.timer_off("FISAPT:SAPT:disp")
 
     # => F-SAPT0 <=
@@ -110,7 +111,7 @@ def fisapt_compute_energy(self):
         #    text.append("\n    Empirical Dispersion Energy [Eh] =     {:24.16f}\n".format(Edisp))
         #    text.append('\n')
         #    core.print_out('\n'.join(text))
-        self.fdrop()
+        self.fdrop(external_potentials)
 
     # => Scalar-Field Analysis <=
 
@@ -124,7 +125,7 @@ def fisapt_compute_energy(self):
     self.print_trailer()
 
 
-def fisapt_fdrop(self):
+def fisapt_fdrop(self, external_potentials=None):
     """Drop output files from FSAPT calculation. FISAPT::fdrop"""
 
     core.print_out("  ==> F-SAPT Output <==\n\n")
@@ -138,6 +139,19 @@ def fisapt_fdrop(self):
     xyz = self.molecule().to_string(dtype='xyz', units='Angstrom')
     with open(geomfile, 'w') as fh:
         fh.write(xyz)
+
+    # write external potential geometries
+    if external_potentials is not None:
+        for frag in "ABC":
+            potential = external_potentials.get(frag, None)
+            if potential is not None:
+                charges = potential.extern.getCharges()
+                xyz = str(len(charges)) + "\n\n"
+                for charge in charges:
+                    xyz += "Ch %f %f %f\n" %(charge[1], charge[2], charge[3])
+
+                with open(filepath + os.sep + "Extern_%s.xyz" %frag, "w") as fh:
+                    fh.write(xyz)
 
     vectors = self.vectors()
     matrices = self.matrices()

@@ -3,7 +3,7 @@
 .. #
 .. # Psi4: an open-source quantum chemistry software package
 .. #
-.. # Copyright (c) 2007-2019 The Psi4 Developers.
+.. # Copyright (c) 2007-2022 The Psi4 Developers.
 .. #
 .. # The copyrights for code used from other parties are included in
 .. # the corresponding files.
@@ -28,7 +28,7 @@
 
 .. include:: autodoc_abbr_options_c.rst
 
-.. _`sec:prog_setup`:
+.. _`sec:prog_help`:
 
 =================
 Where to Get Help
@@ -37,7 +37,7 @@ Where to Get Help
 Slack
 -----
 
-|PSIfour| has an active `Slack channel <http://psi4.slack.com>`_
+|PSIfour| has an active `Slack channel <https://psi4.slack.com/>`_
 for developers, and a friendly community willing to answer your questions.  
 
 Reporting Bugs

@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -68,6 +68,7 @@ namespace psi {
 class Molecule;
 class BasisSet;
 class IntegralFactory;
+class MintsHelper;
 class Matrix;
 class Vector;
 class MatrixFactory;
@@ -87,8 +88,8 @@ class PSI_API Wavefunction : public std::enable_shared_from_this<Wavefunction> {
     /// Name of the wavefunction
     std::string name_;
 
-    /// DF/RI/F12/etc basis sets
-    std::map<std::string, std::shared_ptr<BasisSet>> basissets_;
+    /// Module name for CURRENT ENERGY
+    std::string module_;
 
     /// The ORBITAL basis
     std::shared_ptr<BasisSet> basisset_;
@@ -110,6 +111,9 @@ class PSI_API Wavefunction : public std::enable_shared_from_this<Wavefunction> {
 
     /// Integral factory
     std::shared_ptr<IntegralFactory> integral_;
+
+    /// MintsHelper
+    std::shared_ptr<MintsHelper> mintshelper_;
 
     /// Matrix factory for creating standard sized matrices
     std::shared_ptr<MatrixFactory> factory_;
@@ -233,7 +237,7 @@ class PSI_API Wavefunction : public std::enable_shared_from_this<Wavefunction> {
     bool same_a_b_dens_;
     bool same_a_b_orbs_;
 
-    // The external potential
+    // The external potential for the current wave function
     std::shared_ptr<ExternalPotential> external_pot_;
 
     // Collection of scalar variables
@@ -244,6 +248,15 @@ class PSI_API Wavefunction : public std::enable_shared_from_this<Wavefunction> {
     // * any '<mtd> DIPOLE GRADIENT' is a dipole derivative w.r.t. nuclear perturbations (a.u.) as a degree-of-freedom
     //   by dipole component (3 * nat, 3) Matrix
     std::map<std::string, SharedMatrix> arrays_;
+
+    // Collection of external potentials; this member variable is provisional and might be removed in the future.
+    // This member variable is currently used for passing ExternalPotential objects to the F/I-SAPT code
+    // The above defined external_pot_ member variable contains the total external potential defined for the current
+    // wave function. For F/I-SAPT, we need a set of external potential that can be assigned to either the interacting
+    // fragments or to the environment
+    // For F/I-SAPT the keys can be A, B, or C (all optionals), where A and B signify the interacting subsystem
+    // and C signify the envirnoment
+    std::map<std::string, std::shared_ptr<ExternalPotential>> potentials_;
 
     // Polarizable continuum model
     bool PCM_enabled_;
@@ -336,12 +349,15 @@ class PSI_API Wavefunction : public std::enable_shared_from_this<Wavefunction> {
 
     /// An integral factory with basisset() on each center.
     std::shared_ptr<IntegralFactory> integral() const;
+    /// An molecular integrals helper with basisset() on each center.
+    std::shared_ptr<MintsHelper> mintshelper() const;
     /// Returns the basis set object that pertains to this wavefunction.
     std::shared_ptr<BasisSet> basisset() const;
     /// Returns the SO basis set object that pertains to this wavefunction.
     std::shared_ptr<SOBasisSet> sobasisset() const;
 
     /// Getters and setters for other basis sets
+    std::map<std::string, std::shared_ptr<BasisSet>> basissets() const;
     std::shared_ptr<BasisSet> get_basisset(std::string label);
     void set_basisset(std::string label, std::shared_ptr<BasisSet> basis);
     bool basisset_exists(std::string label);
@@ -440,8 +456,6 @@ class PSI_API Wavefunction : public std::enable_shared_from_this<Wavefunction> {
     SharedVector epsilon_a() const;
     /// Returns the beta orbital energies
     SharedVector epsilon_b() const;
-    /// Returns the SO basis Lagrangian
-    SharedMatrix Lagrangian() const;
 
     SharedMatrix aotoso() const { return AO2SO_; }
 
@@ -457,6 +471,7 @@ class PSI_API Wavefunction : public std::enable_shared_from_this<Wavefunction> {
      * @param subset the subset of orbitals to return
      *  ALL, ACTIVE, FROZEN, OCC, VIR, FROZEN_OCC, ACTIVE_OCC, ACTIVE_VIR, FROZEN_VIR
      * @return the matrix in Pitzer order in the desired basis
+     *  Pitzer ordering is in c1 symmetry if AO is selected
      **/
     SharedMatrix Ca_subset(const std::string& basis = "SO", const std::string& subset = "ALL") const;
 
@@ -467,6 +482,7 @@ class PSI_API Wavefunction : public std::enable_shared_from_this<Wavefunction> {
      * @param subset the subset of orbitals to return
      *  ALL, ACTIVE, FROZEN, OCC, VIR, FROZEN_OCC, ACTIVE_OCC, ACTIVE_VIR, FROZEN_VIR
      * @return the matrix in Pitzer order in the desired basis
+     *  Pitzer ordering is in c1 symmetry if AO is selected
      **/
     SharedMatrix Cb_subset(const std::string& basis = "SO", const std::string& subset = "ALL") const;
 
@@ -510,16 +526,6 @@ class PSI_API Wavefunction : public std::enable_shared_from_this<Wavefunction> {
     SharedMatrix Db_subset(const std::string& basis = "SO") const;
 
     /**
-     * Return the D matrix in the desired basis
-     * @param D matrix in the SO basis to transform
-     * @param C matrix in the SO basis to use for transforms to the MO basis
-     * @param basis the symmetry basis to use
-     *  AO, SO, MO, CartAO
-     * @return the D matrix in the desired basis
-     **/
-    SharedMatrix D_subset_helper(SharedMatrix D, SharedMatrix C, const std::string& basis) const;
-
-    /**
      * Return the Fa matrix in the desired basis
      * @param basis the symmetry basis to use
      *  AO, SO, MO
@@ -534,16 +540,6 @@ class PSI_API Wavefunction : public std::enable_shared_from_this<Wavefunction> {
      * @return the matrix in the desired basis
      **/
     SharedMatrix Fb_subset(const std::string& basis = "SO") const;
-
-    /**
-     * Return the F matrix in the desired basis
-     * @param F matrix in the SO basis to transform
-     * @param C matrix in the SO basis to use for transforms to the MO basis
-     * @param basis the symmetry basis to use
-     *  AO, SO, MO, CartAO
-     * @return the F matrix in the desired basis
-     **/
-    SharedMatrix F_subset_helper(SharedMatrix F, SharedMatrix C, const std::string& basis) const;
 
     /**
      * Transform a matrix M into the desired basis
@@ -585,8 +581,20 @@ class PSI_API Wavefunction : public std::enable_shared_from_this<Wavefunction> {
     SharedMatrix basis_projection(SharedMatrix Cold, Dimension noccpi, std::shared_ptr<BasisSet> old_basis,
                                   std::shared_ptr<BasisSet> new_basis);
 
-    /// Returns the Lagrangian in SO basis for the wavefunction
-    SharedMatrix X() const;
+    /// Returns the SO basis Lagrangian
+    SharedMatrix lagrangian() const;
+    /// Set Lagrangian matrix in SO basis
+    void set_lagrangian(SharedMatrix X);
+    /// Returns the SO basis Lagrangian
+    PSI_DEPRECATED(
+        "Using `Wavefunction.Lagrangian` instead of `Wavefunction.lagrangian` is deprecated,"
+        " and in 1.5 it will stop working")
+    SharedMatrix Lagrangian() const { return lagrangian(); }
+    /// Returns the SO basis Lagrangian (duplicated one)
+    PSI_DEPRECATED(
+        "Using `Wavefunction.X` instead of `Wavefunction.lagrangian` is deprecated,"
+        " and in 1.5 it will stop working")
+    SharedMatrix X() const { return lagrangian(); }
 
     /// Returns the gradient
     SharedMatrix gradient() const;
@@ -651,6 +659,12 @@ class PSI_API Wavefunction : public std::enable_shared_from_this<Wavefunction> {
     /// Returns the wavefunction name
     const std::string& name() const { return name_; }
 
+    /// Set the module name (e.g. "OCC", "CCENERGY", "CCT3")
+    void set_module(const std::string& module) { module_ = module; }
+
+    /// Returns the module name
+    const std::string& module() const { return module_; }
+
     // Set the print flag level
     void set_print(size_t print) { print_ = print; }
 
@@ -666,17 +680,27 @@ class PSI_API Wavefunction : public std::enable_shared_from_this<Wavefunction> {
     // Set the external potential
     void set_external_potential(std::shared_ptr<ExternalPotential> external) { external_pot_ = external; }
 
-    /// Get and set variables and arrays dictionaries
+    /// Get and set variables, arrays, and potentials dictionaries
     bool has_scalar_variable(const std::string& key);
     bool has_array_variable(const std::string& key);
+    // The function below is provisional and might be removed in the future
+    bool has_potential_variable(const std::string& key);
     double scalar_variable(const std::string& key);
     SharedMatrix array_variable(const std::string& key);
+    // The function below is provisional and might be removed in the future
+    std::shared_ptr<ExternalPotential> potential_variable(const std::string& key);
     void set_scalar_variable(const std::string& key, double value);
     void set_array_variable(const std::string& key, SharedMatrix value);
+    // The function below is provisional and might be removed in the future
+    void set_potential_variable(const std::string& key, std::shared_ptr<ExternalPotential> value);
     int del_scalar_variable(const std::string& key);
     int del_array_variable(const std::string& key);
+    // The function below is provisional and might be removed in the future
+    int del_potential_variable(const std::string& key);
     std::map<std::string, double> scalar_variables();
     std::map<std::string, SharedMatrix> array_variables();
+    // The function below is provisional and might be removed in the future
+    std::map<std::string, std::shared_ptr<ExternalPotential>> potential_variables();
 
     PSI_DEPRECATED(
         "Using `Wavefunction.get_variable` instead of `Wavefunction.scalar_variable` is deprecated, and in 1.4 it will "

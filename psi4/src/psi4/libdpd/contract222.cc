@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -38,6 +38,23 @@
 #include "psi4/psi4-dec.h"
 #include "psi4/libpsi4util/PsiOutStream.h"
 namespace psi {
+
+/* dpd_contract222(): Contracts a pair of two-index quantities to
+** give a product two-index quantity.
+**
+** Arguments:
+**   dpdfile2 *X: A pointer to the leftmost dpd two-index
+**               buffer in the product.
+**   dpdfile2 *Y: A pointer to the rightmost dpd two-index
+**               buffer in the product.
+**   dpdfile2 *Z: A pointer to the dpd two-index target
+**   int target_X: Indicates which index (0 = bra, 1 =
+**                 ket) of X is the target index.
+**   int target_Y: Indicates which index (0 = bra, 1 =
+**                 ket) of Y is the target index.
+**   double alpha: A prefactor for the product alpha * X * Y.
+**   double beta: A prefactor for the target beta * Z.
+*/
 
 int DPD::contract222(dpdfile2 *X, dpdfile2 *Y, dpdfile2 *Z, int target_X, int target_Y, double alpha, double beta) {
     int h, nirreps, Xtrans, Ytrans, *numlinks;

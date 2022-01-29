@@ -3,7 +3,7 @@
 #
 # Psi4: an open-source quantum chemistry software package
 #
-# Copyright (c) 2007-2019 The Psi4 Developers.
+# Copyright (c) 2007-2022 The Psi4 Developers.
 #
 # The copyrights for code used from other parties are included in
 # the corresponding files.
@@ -29,6 +29,7 @@
 import os
 import ast
 import sys
+import math
 import pickle
 import inspect
 import warnings
@@ -37,6 +38,7 @@ import collections
 from typing import List, Union
 
 import numpy as np
+import qcelemental as qcel
 
 from psi4 import core
 from psi4.metadata import __version__
@@ -55,7 +57,7 @@ def kwargs_lower(kwargs):
     caseless_kwargs = {}
     for key, value in kwargs.items():
         lkey = key.lower()
-        if lkey in ['subset', 'banner']:  # only kw for which case matters
+        if lkey in ['subset', 'banner', 'restart_file', 'write_orbitals']:  # only kw for which case matters
             lvalue = value
         else:
             try:
@@ -324,11 +326,12 @@ _modules = [
     "CCTRANSORT",
     "CCTRIPLES",
     "CPHF",
-    "DCFT",
+    "DCT",
     "DETCI",
     "DFEP2",
     "DFMP2",
     "DFOCC",
+    "DLPNO",
     "DMRG",
     "EFP",
     "FINDIF",
@@ -341,6 +344,7 @@ _modules = [
     "OCC",
     "OPTKING",
     "PCM",
+    "PE",
     "PSIMRCC",
     "RESPONSE",
     "SAPT",
@@ -423,6 +427,73 @@ def prepare_options_for_modules(changedOnly=False, commandsInsteadDict=False):
         return commands
     else:
         return options
+
+
+def prepare_options_for_set_options():
+    """Capture current state of C++ psi4.core.Options information for reloading by `psi4.set_options()`.
+
+    Returns
+    -------
+    dict
+        Dictionary where keys are option names to be set globally or module__option
+        mangled names to be set locally. Values are option values.
+
+    """
+    flat_options = {}
+    has_changed_snapshot = {module: core.options_to_python(module) for module in _modules}
+
+    for opt in core.get_global_option_list():
+
+        handled_locally = False
+        ghoc = core.has_global_option_changed(opt)
+        opt_snapshot = {k: v[opt] for k, v in has_changed_snapshot.items() if opt in v}
+        for module, (lhoc, ohoc) in opt_snapshot.items():
+            if ohoc:
+                if lhoc:
+                    key = module + '__' + opt
+                    val = core.get_local_option(module, opt)
+                else:
+                    key = opt
+                    val = core.get_global_option(opt)
+                    handled_locally = True
+                flat_options[key] = val
+
+        if ghoc and not handled_locally:
+            # some options are globals section (not level) so not in any module
+            flat_options[opt] = core.get_global_option(opt)
+
+    return flat_options
+
+
+def state_to_atomicinput(*, driver, method, basis=None, molecule=None, function_kwargs=None) -> "AtomicInput":
+    """Form a QCSchema for job input from the current state of Psi4 settings."""
+
+    if molecule is None:
+        molecule = core.get_active_molecule()
+
+    keywords = {k.lower(): v for k, v in prepare_options_for_set_options().items()}
+    if function_kwargs is not None:
+        keywords["function_kwargs"] = function_kwargs
+
+    kw_basis = keywords.pop("basis", None)
+    basis = basis or kw_basis
+
+    resi = qcel.models.AtomicInput(
+         **{
+            "driver": driver,
+            "extras": {
+                "wfn_qcvars_only": True,
+            },
+            "model": {
+                "method": method,
+                "basis": basis,
+            },
+            "keywords": keywords,
+            "molecule": molecule.to_schema(dtype=2),
+            "provenance": provenance_stamp(__name__),
+         })
+
+    return resi
 
 
 def mat2arr(mat):
@@ -518,27 +589,24 @@ def provenance_stamp(routine):
     return {'creator': 'Psi4', 'version': __version__, 'routine': routine}
 
 
-def plump_qcvar(val: Union[float, str, List], shape_clue: str, ret='np') -> Union[float, 'np.ndarray', 'psi4.core.Matrix']:
+def plump_qcvar(val: Union[float, str, List], shape_clue: str, ret: str = 'np') -> Union[float, np.ndarray, core.Matrix]:
     """Prepare serialized QCVariable for set_variable by convert flat arrays into shaped ones and floating strings.
 
     Parameters
     ----------
     val :
         flat (?, ) list or scalar or string, probably from JSON storage.
-    shape_clue : str
+    shape_clue
         Label that includes (case insensitive) one of the following as
         a clue to the array's natural dimensions: 'gradient', 'hessian'
-    ret : {'np', 'psi4'}
+    ret
+        {'np', 'psi4'}
         Whether to return `np.ndarray` or `psi4.core.Matrix`.
 
     Returns
     -------
-    float or np.ndarray or psi4.core.Matrix
+    float or numpy.ndarray or Matrix
         Reshaped array of type `ret` with natural dimensions of `shape_clue`.
-
-    Raises
-    ------
-    TODO
 
     """
     if isinstance(val, (np.ndarray, core.Matrix)):

@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -42,21 +42,18 @@ class Updater;
 class CCMRCC : public CCManyBody {
    public:
     // Constructor and destructor
-    CCMRCC(SharedWavefunction ref_wfn, Options &options);
+    CCMRCC(std::shared_ptr<PSIMRCCWfn> wfn, Options &options);
     ~CCMRCC() override;
 
-    // CCSD
-    void compute_energy(Updater *updater);
+    double compute_energy() override;
 
     // CCSD(T)
     void compute_perturbative_triples();
 
-    // Perturbative correction for CBS
-    void compute_first_order_amps();
-    void perturbative_cbs();
-
    private:
     Options &options_;
+
+    std::shared_ptr<Updater> updater_;
 
     bool ap_correction;
 

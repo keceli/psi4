@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -61,6 +61,7 @@ namespace psi {
 #define PSIO_ERROR_BLKEND 18
 #define PSIO_ERROR_IDENTVOLPATH 19
 #define PSIO_ERROR_MAXUNIT 20
+#define PSIO_ERROR_UNOPENED 21
 
 struct psio_address {
     /*! First page of entry */

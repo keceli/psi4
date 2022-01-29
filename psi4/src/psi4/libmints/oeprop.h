@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -277,8 +277,8 @@ class MultipolePropCalc : public Prop {
    public:
     /// Common initialization
     MultipolePropCalc(std::shared_ptr<Wavefunction> wfn, Vector3 const& origin);
-    // Output Type of multipole function, name, elec, nuc, tot
-    typedef std::vector<std::tuple<std::string, double, double, double>> MultipoleOutputTypeBase;
+    // Output Type of multipole function: name, elec, nuc, tot, order
+    typedef std::vector<std::tuple<std::string, double, double, double, int>> MultipoleOutputTypeBase;
     typedef std::shared_ptr<MultipoleOutputTypeBase> MultipoleOutputType;
     /// Compute arbitrary-order multipoles up to (and including) l=order. returns name, elec, nuc and tot as vector_ptr
     MultipoleOutputType compute_multipoles(int order, bool transition = false, bool print_output = false,
@@ -318,6 +318,8 @@ class PopulationAnalysisCalc : public Prop {
     std::tuple<SharedStdVector, SharedStdVector, SharedStdVector> compute_mulliken_charges(bool print_output = false);
     /// Compute Lowdin Charges
     std::tuple<SharedStdVector, SharedStdVector, SharedStdVector> compute_lowdin_charges(bool print_output = false);
+    /// Compute MBIS Multipoles (doi:10.1021/acs.jctc.6b00456)
+    std::tuple<SharedMatrix, SharedMatrix, SharedMatrix, SharedMatrix> compute_mbis_multipoles(bool free_atom_volumes = false, bool print_output = false);
     /// Compute Mayer Bond Indices (non-orthogoal basis)
     std::tuple<SharedMatrix, SharedMatrix, SharedMatrix, SharedVector> compute_mayer_indices(bool print_output = false);
     /// Compute Wiberg Bond Indices using Lowdin Orbitals (symmetrically orthogonal basis)
@@ -378,6 +380,8 @@ class ESPPropCalc : public Prop {
     void compute_field_over_grid(bool print_output = false);
     /// Compute electrostatic potential at grid points based on input grid, OpenMP version. input_grid is Nx3
     SharedVector compute_esp_over_grid_in_memory(SharedMatrix input_grid) const;
+    /// Compute field at grid points based on input grid, OpenMP version. input_grid is Nx3
+    SharedMatrix compute_field_over_grid_in_memory(SharedMatrix input_grid) const;
 };
 
 /**
@@ -410,6 +414,8 @@ class PSI_API OEProp : public TaskListComputer {
     void compute_mulliken_charges();
     /// Compute Lowdin Charges
     void compute_lowdin_charges();
+    /// Compute MBIS Multipoles (doi:10.1021/acs.jctc.6b00456)
+    void compute_mbis_multipoles(bool free_atom_volumes = false);
     /// Compute Mayer Bond Indices (non-orthogoal basis)
     void compute_mayer_indices();
     /// Compute Wiberg Bond Indices using Lowdin Orbitals (symmetrically orthogonal basis)

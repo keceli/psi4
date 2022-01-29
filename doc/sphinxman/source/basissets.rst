@@ -3,7 +3,7 @@
 .. #
 .. # Psi4: an open-source quantum chemistry software package
 .. #
-.. # Copyright (c) 2007-2019 The Psi4 Developers.
+.. # Copyright (c) 2007-2022 The Psi4 Developers.
 .. #
 .. # The copyrights for code used from other parties are included in
 .. # the corresponding files.
@@ -81,11 +81,15 @@ definition files at :source:`psi4/share/psi4/basis` in the source.  For basis se
 element and the default value for keyword |globals__puream|, consult
 Appendix :ref:`apdx:basisElement`.
 
-|PSIfour| uses the angular momentum convention below that, consistent
-with EMSL, skips the letter ``J``. Note that Gaussian94 convention is
-*not* to skip this letter. Another portion of the G94 format, labeling
-angular momentum with :samp:`L={l}` syntax is not presently implemented,
-though this is coming. ::
+|PSIfour| uses the angular momentum convention below that
+skips the letter ``J``. Note that Gaussian94 convention is
+*not* to skip this letter.
+|PSIfour| can use either convention for ``.gbs`` import (assuming
+angular momentum levels are not skipped), but it will always output
+in the ``HIK`` sequence. Another portion of the G94 format, labeling
+angular momentum with :samp:`L={l}` syntax is newly (August 2020)
+implemented, and this is preferred for ``L=7`` and above to
+avoid ambiguity. ::
 
     L:    0123456789...
     Psi4: SPDFGHIKLM...
@@ -177,7 +181,7 @@ input.
 Should needed elements be missing from the best
 auxiliary basis or should the orbital basis be unknown to |PSIfour|,
 the auxiliary basis will fall back on `def2 quad-zeta fitting bases
-<https://github.com/psi4/psi4/blob/master/psi4/driver/qcdb/libmintsbasisset.py#L690-L691>`_.
+<https://github.com/psi4/psi4/blob/master/psi4/driver/qcdb/libmintsbasisset.py#L762>`_.
 Note that if |mints__basis| is known to be larger than quad-zeta,
 |PSIfour| *will not* attempt to fall back on the def2 fitting bases.
 
@@ -277,7 +281,9 @@ Request the new basis set in an input file in the usual manner. ::
 
 Prepare a basis set file exactly as above. Append the directory
 containing the basis set file to the environment variable
-:envvar:`PSIPATH`.
+:envvar:`PSIPATH`. If the directory is the current working directory,
+|PSIfour| will find it automatically, and the directory does not need
+to be added to :envvar:`PSIPATH`.
 
 Request the new basis set in an input file in the usual manner. ::
 

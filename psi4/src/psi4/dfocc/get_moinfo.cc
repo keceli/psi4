@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -134,7 +134,7 @@ void DFOCC::get_moinfo() {
         }
 
         // Read orbital coefficients from reference_wavefunction
-        Ca_ = SharedMatrix(reference_wavefunction_->Ca());
+        Ca_ = reference_wavefunction_->Ca()->clone();
         CmoA = SharedTensor2d(new Tensor2d("Alpha MO Coefficients", nso_, nmo_));
         CmoA->set(Ca_);
         if (orb_opt_ == "TRUE" || qchf_ == "TRUE") {
@@ -221,6 +221,25 @@ void DFOCC::get_moinfo() {
         ntri_abAA = 0.5 * navirA * (navirA + 1);
         ntri_abBB = 0.5 * navirB * (navirB + 1);
 
+        if (naoccA == 0 && naoccB == 0) {
+            throw PSIEXCEPTION("There are no occupied orbitals with alpha or beta spin.");
+        }
+        else if (naoccA == 0) {
+            throw PSIEXCEPTION("There are no occupied orbitals with alpha spin.");
+        }
+        else if (naoccB == 0) {
+            throw PSIEXCEPTION("There are no occupied orbitals with beta spin.");
+        }
+        if (navirA == 0 && navirB == 0) {
+            throw PSIEXCEPTION("There are no virtual orbitals with alpha or beta spin.");
+        }
+        else if (navirA == 0) {
+            throw PSIEXCEPTION("There are no virtual orbitals with alpha spin.");
+        }
+        else if (navirB == 0) {
+            throw PSIEXCEPTION("There are no virtual orbitals with beta spin.");
+        }
+
         if (naoccA > 1)
             ntri_anti_ijAA = 0.5 * naoccA * (naoccA - 1);
         else
@@ -298,12 +317,12 @@ void DFOCC::get_moinfo() {
         }
 
         // Read orbital coefficients from reference_wavefunction
-        Ca_ = SharedMatrix(reference_wavefunction_->Ca());
+        Ca_ = reference_wavefunction_->Ca()->clone();
         CmoA = SharedTensor2d(new Tensor2d("Alpha MO Coefficients", nso_, nmo_));
         CmoA->set(Ca_);
         if (print_ > 2) CmoA->print();
 
-        Cb_ = SharedMatrix(reference_wavefunction_->Cb());
+        Cb_ = reference_wavefunction_->Cb()->clone();
         CmoB = SharedTensor2d(new Tensor2d("Beta MO Coefficients", nso_, nmo_));
         CmoB->set(Cb_);
         if (orb_opt_ == "TRUE" || qchf_ == "TRUE") {
@@ -351,20 +370,7 @@ void DFOCC::get_moinfo() {
     // Vso_->zero();
     // Sso_->zero();
 
-    //// Read SO-basis one-electron integrals
-    // double *so_ints = init_array(ntri_so);
-    // IWL::read_one(psio_.get(), PSIF_OEI, PSIF_SO_T, so_ints, ntri_so, 0, 0, "outfile");
-    // Tso_->set(so_ints);
-    // IWL::read_one(psio_.get(), PSIF_OEI, PSIF_SO_V, so_ints, ntri_so, 0, 0, "outfile");
-    // Vso_->set(so_ints);
-    // IWL::read_one(psio_.get(), PSIF_OEI, PSIF_SO_S, so_ints, ntri_so, 0, 0, "outfile");
-    // Sso_->set(so_ints);
-    // free(so_ints);
-    // Hso_->copy(Tso_);
-    // Hso_->add(Vso_);
-    // Tso_.reset();
-    // Vso_.reset();
-    // CDS: Migrate these from disk reads to grabbing off Wavefunction
+    // Grab SO-basis one-electron integrals off Wavefunction
     Hso = SharedTensor2d(new Tensor2d("SO-basis One-electron Ints", nso_, nso_));
     Hso->set(H_);
     Sso = SharedTensor2d(new Tensor2d("SO-basis Overlap Ints", nso_, nso_));

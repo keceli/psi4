@@ -3,7 +3,7 @@
 #
 # Psi4: an open-source quantum chemistry software package
 #
-# Copyright (c) 2007-2019 The Psi4 Developers.
+# Copyright (c) 2007-2022 The Psi4 Developers.
 #
 # The copyrights for code used from other parties are included in
 # the corresponding files.
@@ -55,7 +55,7 @@ def run_cfour(name, **kwargs):
     Also processes results back into Psi4 format.
 
     This function is not called directly but is instead called by
-    :py:func:`~driver.energy` or :py:func:`~driver.optimize` when a Cfour
+    :py:func:`~psi4.energy` or :py:func:`~psi4.optimize` when a Cfour
     method is requested (through *name* argument). In order to function
     correctly, the Cfour executable ``xcfour`` must be present in
     :envvar:`PATH` or :envvar:`PSIPATH`.
@@ -67,7 +67,7 @@ def run_cfour(name, **kwargs):
        * Python dictionary of associated file constants accessible as ``P4C4_INFO['zmat']``, ``P4C4_INFO['output']``, ``P4C4_INFO['grd']``, *etc.*
 
 
-    :type name: string
+    :type name: str
     :param name: ``'c4-scf'`` || ``'c4-ccsd(t)'`` || ``'cfour'`` || etc.
 
         First argument, usually unlabeled. Indicates the computational
@@ -79,7 +79,7 @@ def run_cfour(name, **kwargs):
         Indicates whether to delete the Cfour scratch directory upon
         completion of the Cfour job.
 
-    :type path: string
+    :type path: str
     :param path:
 
         Indicates path to Cfour scratch directory (with respect to Psi4
@@ -88,7 +88,7 @@ def run_cfour(name, **kwargs):
 
         If specified, GENBAS and/or ZMAT within will be used.
 
-    :type genbas: string
+    :type genbas: str
     :param genbas:
 
         Indicates that contents should be used for GENBAS file.
@@ -417,6 +417,11 @@ def cfour_list():
 def cfour_gradient_list():
     """Form list of Cfour analytic :py:func:`~driver.gradient` arguments."""
     return qcdb.cfour.cfour_gradient_list()
+
+
+def cfour_hessian_list():
+    """Form list of Cfour analytic :py:func:`~driver.gradient` arguments."""
+    return qcdb.cfour.cfour_hessian_list()
 
 
 def cfour_psivar_list():

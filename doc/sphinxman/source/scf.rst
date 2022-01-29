@@ -3,7 +3,7 @@
 .. #
 .. # Psi4: an open-source quantum chemistry software package
 .. #
-.. # Copyright (c) 2007-2019 The Psi4 Developers.
+.. # Copyright (c) 2007-2022 The Psi4 Developers.
 .. #
 .. # The copyrights for code used from other parties are included in
 .. # the corresponding files.
@@ -120,6 +120,8 @@ which are useful in elucidating the stability and reactivity of the system.
 .. index::
    pair: SCF; theory
 
+.. _`sec:scftheory`:
+
 Theory
 ~~~~~~
 
@@ -216,6 +218,8 @@ The formation of the Coulomb matrix :math:`J` and the exchange matrix
 very large systems, diagonalization of the Fock matrix can also present a
 significant hurdle.
 
+.. _`sec:scfinput`:
+
 Minimal Input
 ~~~~~~~~~~~~~
 
@@ -236,6 +240,8 @@ energy and density convergence criteria (since single-point, see
 :ref:`SCF Convergence & Algorithm <table:conv_scf>`), a DF ERI algorithm, symmetric
 orthogonalization, DIIS, and a core Hamiltonian guess. For more
 information on any of these options, see the relevant section below.
+
+.. _`sec:scfsymm`:
 
 Spin/Symmetry Treatment
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -316,6 +322,8 @@ actually,::
 
     energy('scf')
 
+.. _`sec:scfbrokensymm`:
+
 Broken Symmetry
 ~~~~~~~~~~~~~~~
 
@@ -333,35 +341,66 @@ keyword to true::
     set guess_mix true
     energy('scf')
 
+.. _`sec:scflindep`:
+
 Orthogonalization
 ~~~~~~~~~~~~~~~~~
 
 One of the first steps in the SCF procedure is the determination of an
-orthogonal basis (known as the OSO basis) from the atomic orbital basis (known
-as the AO basis). The Molecular Orbital basis (MO basis) is then built as a
-particular unitary transformation of the OSO basis. In |PSIfour|, the
-determination of the OSO basis is accomplished via either symmetric or canonical
-orthogonalization. Symmetric orthogonalization uses the symmetric inverse square
-root of the overlap matrix for the orthogonalization matrix. Use of symmetric
-orthogonalization always yields the same number of OSO functions (and thereby
-MOs) as AO functions. However, this may lead to numerical problems if the
-overlap matrix has small eigenvalues, which may occur for large systems or for
-systems where diffuse basis sets are used. This problem may be avoided by using
-canonical orthogonalization, in which an asymmetric inverse square root of the
-overlap matrix is formed, with numerical stability enhanced by the elimination
-of eigenvectors corresponding to very small eigenvalues. As a few combinations
-of AO basis functions may be discarded, the number of canonical-orthogonalized
-OSOs and MOs may be slightly smaller than the number of AOs. In |PSIfour|,
-symmetric orthogonalization is used by default, unless the smallest overlap
-eigenvalue falls below the user-supplied double option |scf__s_tolerance|, which
-defaults to 1E-7. If the smallest eigenvalue is below this cutoff, canonical
-orthogonalization is forced, and all eigenvectors corresponding to eigenvalues
-below the cutoff are eliminated.  Use of canonical orthogonalization can be
-forced by setting the |scf__s_orthogonalization| option to ``CANONICAL``. Note
-that in practice, the MOs and OSOs are built separately within each irrep from
-the symmetry-adapted combinations of AOs known as Unique Symmetry Orbitals
-(USOs).  For canonical orthogonalization, this implies that the number of MOs
-and OSOs per irrep may be slightly smaller than the number of USOs per irrep.
+orthogonal basis (known as the OSO basis) from the atomic orbital
+basis (known as the AO basis). The Molecular Orbital basis (MO basis)
+is then built as a particular unitary transformation of the OSO
+basis. In |PSIfour|, the determination of the OSO basis is
+accomplished via either symmetric, canonical, or partial Cholesky
+orthogonalization.
+
+Symmetric orthogonalization uses the symmetric inverse square root of
+the overlap matrix for the orthogonalization matrix. Use of symmetric
+orthogonalization always yields the same number of OSO functions (and
+thereby MOs) as AO functions. However, this may lead to numerical
+problems if the overlap matrix has small eigenvalues, which may occur
+for large systems or for systems where diffuse basis sets are used.
+
+This problem may be avoided by using canonical orthogonalization, in
+which an asymmetric inverse square root of the overlap matrix is
+formed, with numerical stability enhanced by the elimination of
+eigenvectors corresponding to very small eigenvalues. As a few
+combinations of AO basis functions may be discarded, the number of
+canonical-orthogonalized OSOs and MOs may be slightly smaller than the
+number of AOs.
+
+When the basis set is too overcomplete, the eigendecomposition of the
+overlap matrix is no longer numerically stable. In this case the
+partial Cholesky decomposition can be used to pick a subset of basis
+functions that span a sufficiently complete set, see
+[Lehtola:2019:241102]_ and [Lehtola:2020:032504]_. This subset can then
+be orthonormalized as usual; the rest of the basis functions are
+hidden from the calculation. The Cholesky approach allows reaching
+accurate energies even in the presence of significant linear
+dependencies [Lehtola:2020:04224]_.
+
+In |PSIfour|, symmetric orthogonalization is used by default, unless
+the smallest overlap eigenvalue falls below the user-supplied double
+option |scf__s_tolerance|, which defaults to 1E-7. If the smallest
+eigenvalue is below this cutoff, canonical orthogonalization is
+forced, and all eigenvectors corresponding to eigenvalues below the
+cutoff are eliminated.
+
+If the eigendecomposition is detected to be numerically unstable - the
+reciprocal condition number of the overlap matrix to be smaller than
+the machine epsilon - the partial Cholesky decomposition is undertaken
+until |scf__s_cholesky_tolerance|, which defaults to 1E-8.
+
+Use of symmetric, canonical, and partial Cholesky orthogonalization
+can be forced by setting the |scf__s_orthogonalization| option to
+``SYMMETRIC``, ``CANONICAL``, or ``PARTIALCHOLESKY``,
+respectively.
+
+Note that in practice, the MOs and OSOs are built separately within
+each irrep from the symmetry-adapted combinations of AOs known as
+Unique Symmetry Orbitals (USOs).  For canonical orthogonalization,
+this implies that the number of MOs and OSOs per irrep may be slightly
+smaller than the number of USOs per irrep.
 
 A contrived example demonstrating OSOs/MOs vs. AOs with symmetry is shown
 below::
@@ -412,6 +451,8 @@ assigned to irrep A, and 142 of which are assigned to irrep B. Within irrep A,
 above the eigenvalue cutoff. In total, 284 molecular orbitals are chosen from
 287 AOs/USOs.
 
+.. _`sec:scfguess`:
+
 Initial Guess
 ~~~~~~~~~~~~~
 
@@ -443,16 +484,21 @@ SAD [:term:`Default <GUESS (SCF)>`]
     performed. If orbitals are needed (*e.g.*, in density fitting), a partial
     Cholesky factorization of the density matrices is used. Often extremely
     accurate, particularly for closed-shell systems.
+SADNO
+    Natural orbitals from Superposition of Atomic Densities. Similar
+    to the above, but it forms natural orbitals from the SAD density
+    matrix to get proper orbitals which are used to start the
+    calculation, see [Lehtola:2019:1593]_.
 GWH
     A generalized Wolfsberg-Helmholtz modification of the core
-    Hamiltonian matrix. May be useful in open-shell systems, but is
-    often less accurate than the core guess (see
-    doi:10.1021/acs.jctc.8b01089).
+    Hamiltonian matrix. Usually less accurate than the core guess: the
+    latter is exact for one-electron systems, GWH is not; see
+    [Lehtola:2019:1593]_).
 HUCKEL
-    An extended Hückel guess based on on-the-fly atomic UHF
-    calculations alike SAD, see doi:10.1021/acs.jctc.8b01089.
+    An extended H\ |u_dots|\ ckel guess based on on-the-fly atomic UHF
+    calculations alike SAD, see [Lehtola:2019:1593]_.
 READ
-    Read the previous orbitals from a checkpoint file, casting from
+    Read the previous orbitals from a ``wfn`` file, casting from
     one basis to another if needed. Useful for starting anion
     computations from neutral orbitals, or after small geometry
     changes. At present, casting from a different molecular point
@@ -463,16 +509,19 @@ SAP
     modification of the core Hamiltonian, which includes screening
     effects by using a radially screened effective atomic charge. The
     screening effects have been calculated at the complete basis set
-    limit with finite-element calculations. See
-    doi:10.1021/acs.jctc.8b01089 for a description of the guess and
-    its implementation. The guess is evaluated on a DFT quadrature
-    grid, so the guess energy depends slightly on the used DFT quadrature.
+    limit with finite-element calculations, see [Lehtola:2019:25945]_
+    and [Lehtola:2020:012516]_. The guess and its implementation have
+    been described in [Lehtola:2019:1593]_. The guess is evaluated on a
+    DFT quadrature grid, so the guess energy depends slightly on the
+    used DFT quadrature. The current implementation is based on
+    exchange-only local density calculations that are but nanohartree
+    away from the complete basis set limit [Lehtola:2020:012516]_.
 
 These are all set by the |scf__guess| keyword. Also, an automatic Python
 procedure has been developed for converging the SCF in a small basis, and then
 casting up to the true basis. This can be done by adding
 |scf__basis_guess| = SMALL_BASIS to the options list. We recommend the
-3-21G basis for the small basis due to its efficient mix of flexibility and
+3-21G or pcseg-0 basis for the small basis due to its efficient mix of flexibility and
 compactness. An example of performing an RHF solution of water by SAD guessing
 in a 3-21G basis and then casting up to cc-pVTZ is shown below::
 
@@ -491,8 +540,41 @@ in a 3-21G basis and then casting up to cc-pVTZ is shown below::
 
     energy('scf')
 
+.. _`sec:scfrestart`:
+
+Restarting the SCF
+~~~~~~~~~~~~~~~~~~
+
+Reading orbital data from a previous calculations is done via the ``restart_file`` option,
+where the actual file is a serialized ``wfn`` object (see :ref:`saving the wfn <sec:save_wfn>`)
+By default, the orbital data file of the converged SCF(``psi.PID.name.180.npy``) is deleted
+after |PSIfour| exits or the ``clean()`` function is called. The orbital guess is automatically
+set to ``READ`` when ``restart_file`` is given a ``wfn`` file.
+To write the orbitals after every iteration and keep the orbitals from the last iteration, the ``write_orbitals`` options is available: ::
+
+  energy('scf', write_orbitals='my_mos'),
+
+which writes a ``Wavefunction`` object converted (serialized) to a numpy file called ``my_mos.npy``.
+The restart can then be done as follows: ::
+
+  energy('scf', restart_file='my_mos')
+
+Specifying the ``.npy`` suffix when writing and reading restart files is optional.
+
+Alternatively, the restart can also be done from any previously saved ``wfn`` object. ::
+
+  energy, scf_wfn = energy('scf',return_wfn=True)
+  scf_wfn.to_file('my_wfn')
+  energy('scf', restart_file='my_wfn')
+
+
+For advanced users manipulating or writing custom wavefunction files, note
+that |PSIfour| expects the numpy file on disk to have the ``.npy`` extension, not, e.g., `.npz`.
+
 
 .. index:: DIIS, MOM, damping
+
+.. _`sec:scfconv`:
 
 Convergence Stabilization
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -528,9 +610,27 @@ MOM [Off by Default]
     be used in concert with DIIS, though care should be taken to not turn MOM on
     until the oscillatory behavior begins.
 Damping [Off by Default]
-    In some cases, a static mixing of Fock Matrices from adjacent iterations can
-    quench oscillations. This mixing, known as "damping" can be activated by setting
-    the |scf__damping_percentage| keyword to a nonzero percent.
+    In some cases, a static mixing of Fock Matrices from adjacent
+    iterations can quench oscillations. This mixing, known as
+    "damping" can be activated by setting the
+    |scf__damping_percentage| keyword to a nonzero percent. Damping is
+    turned off when the DIIS error is smaller than
+    |scf__damping_convergence|.
+Level shifting [Off by default]
+    A commonly used alternative to damping is to use level shifting,
+    which decreases the mixing of occupied and unoccupied orbitals in
+    the SCF update by moving the unoccupied orbitals up in energy. It
+    can be shown that the SCF procedure always converges with a
+    suitably large level shift; however, the larger the shift is, the
+    slower the convergence becomes, and the calculation may end up
+    converging onto a higher lying SCF solution. Because of this, in
+    practice level shifting is most useful in the initial phase of the
+    calculation to reduce the orbital error enough for DIIS to work
+    well. The level shift is controlled by the parameter
+    |scf__level_shift|, and it is turned off when the DIIS error is
+    smaller than |scf__level_shift_cutoff|. Reasonable values for
+    the shift and convergence threshold are 5.0 and 1e-2,
+    respectively.
 SOSCF [Off by Default]
     See :ref:`sec:soscf`
 
@@ -605,7 +705,29 @@ post SCF algorithms require a specific implementation.
 For some of these algorithms, Schwarz and/or density sieving can be used to
 identify negligible integral contributions in extended systems. To activate
 sieving, set the |scf__ints_tolerance| keyword to your desired cutoff
-(1.0E-12 is recommended for most applications).
+(1.0E-12 is recommended for most applications). To choose the type of sieving, set 
+the |globals__screening| keyword to your desired option. For Schwarz screening, set it
+to ``SCHWARZ``, for CSAM, ``CSAM``, and for density matrix-based screening, ``DENSITY``.
+
+SCHWARZ
+    Uses the Cauchy-Schwarz inequality to calculate an upper bounded value of a shell quartet,
+
+.. math:: (PQ|RS) <= \sqrt{(PQ|PQ)(RS|RS)}
+
+CSAM
+    An extension of the Schwarz estimate that also screens over the long range 1/r operator, described in [Thompson:2017:144101]_.
+
+DENSITY
+    An extension of the Schwarz estimate that also screens over elements of the density matrix.
+    For the RHF case, described in [Haser:1989:104]_
+
+.. math:: CON(PQ|RS) <= \sqrt{(PQ|PQ)(RS|RS)} \cdot DCON(PQ, RS)
+
+.. math:: DCON(PQ, RS) = max(4D_{PQ}, 4D_{RS}, D_{PR}, D_{PS}, D_{QR}, D_{QS})
+
+When using density-matrix based integral screening, it is useful to build the J and K matrices
+incrementally, also described in [Haser:1989:104]_, using the difference in the density matrix between iterations, rather than the
+full density matrix. To turn on this option, set |scf__incfock| to ``true``.
 
 We have added the automatic capability to use the extremely fast DF
 code for intermediate convergence of the orbitals, for |globals__scf_type|
@@ -662,7 +784,7 @@ follows:
     |scf__soscf_print|: option to print the microiterations or not
 
 
-.. _`stability_doc`:
+.. _`sec:scfstability_doc`:
 
 Stability Analysis
 ~~~~~~~~~~~~~~~~~~
@@ -789,6 +911,8 @@ for examples of computations with ECP-containing basis sets.
 
 .. warning:: ECPs have not been tested with projected basis set guesses or with FI-SAPT calculations.  If you require this functionality, please contact the developers on GitHub and/or the `forum <http://forum.psicode.org>`_.
 
+.. _`sec:scfqmmm`:
+
 External potentials and QM/MM
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -824,6 +948,8 @@ Note that if any specified fields do not fall along a symmetry axis, the
 symmetry of the calculation should be reduced accordingly; if in doubt run the
 calculation in C1 symmetry.  For examples of SCF and MP2 calculations in an
 external field, see :srcsample:`scf7` and :srcsample:`dfmp2-grad5`.
+
+.. _`sec:scfdefault`:
 
 Convergence and Algorithm Defaults
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -873,7 +999,7 @@ Convergence and Algorithm Defaults
    that use an alternate starting point, like MCSCF. SAPT computations, too,
    set tighter values.
 
-.. [#f2] This applies to properties computed through the :py:func:`~psi4.property` function.
+.. [#f2] This applies to properties computed through the :py:func:`~psi4.properties` function.
 
 .. [#f3] Post-HF methods that do not rely upon the usual 4-index AO integrals use a
    density-fitted SCF reference. That is, for DF-MP2 and SAPT, the default |globals__scf_type| is DF.
@@ -895,6 +1021,8 @@ Convergence and Algorithm Defaults
    |scf__e_convergence| and |scf__d_convergence| for SCF of HF or DFT, 11
    for |scf__e_convergence| and |scf__d_convergence| for SCF of post-HF,
    and 10 for E_CONVERGENCE for post-HF of post-HF.
+
+.. _`sec:scfrec`:
 
 Recommendations
 ~~~~~~~~~~~~~~~

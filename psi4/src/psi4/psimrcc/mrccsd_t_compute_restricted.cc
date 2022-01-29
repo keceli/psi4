@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -38,24 +38,20 @@
 #include "psi4/libmoinfo/libmoinfo.h"
 
 #include "blas.h"
-#include "debugging.h"
 #include "index_iterator.h"
 #include "mrcc.h"
 #include "mrccsd_t.h"
 #include "special_matrices.h"
 
-extern FILE* outfile;
-
 namespace psi {
 namespace psimrcc {
-extern MOInfo* moinfo;
 
 void MRCCSD_T::compute_restricted() {
     outfile->Printf("\n\n  Computing (T) correction using the restricted loop algorithm.\n");
 
     bool closed_shell_case = false;
     double closed_shell_factor = 1.0;
-    if (moinfo->get_ref_size(UniqueOpenShellRefs) == 0) {
+    if (wfn_->moinfo()->get_ref_size(UniqueOpenShellRefs) == 0) {
         closed_shell_case = true;
         closed_shell_factor = 2.0;
     }
@@ -152,7 +148,7 @@ void MRCCSD_T::compute_restricted() {
 }
 
 void MRCCSD_T::compute_ooo_triples_restricted() {
-    CCIndexIterator ijk("[ooo]");
+    CCIndexIterator ijk(wfn_, "[ooo]");
 
     size_t tot_cycles = 0;
     size_t tot_triplets = 0;
@@ -225,9 +221,9 @@ void MRCCSD_T::compute_ooo_triples_restricted() {
                     e4T[mu] = e4ST[mu] = e4DT[mu] = 0.0;
                     // Check if ijk belong to the occupied space of mu
                     if (is_aocc[mu][i_abs] && is_aocc[mu][j_abs] && is_aocc[mu][k_abs]) {
-                        double*** F_ov_mu = F_ov[mu];
-                        double*** T1_ov_mu = T1_ov[mu];
-                        double*** T2_oovv_mu = T2_oovv[mu];
+                        auto F_ov_mu = F_ov[mu];
+                        auto T1_ov_mu = T1_ov[mu];
+                        auto T2_oovv_mu = T2_oovv[mu];
 
                         double D_ijk = e_oo[mu][i_abs] + e_oo[mu][j_abs] + e_oo[mu][k_abs];
 
@@ -245,7 +241,7 @@ void MRCCSD_T::compute_ooo_triples_restricted() {
                         std::vector<double>& e_vv_mu = e_vv[mu];
                         std::vector<bool>& is_avir_mu = is_avir[mu];
 
-                        CCIndexIterator abc(vvv, ijk_sym);
+                        CCIndexIterator abc(wfn_, vvv, ijk_sym);
                         //          abc.reset();
                         //          abc.set_irrep();
                         // Loop over abc
@@ -320,7 +316,7 @@ void MRCCSD_T::compute_ooo_triples_restricted() {
 }
 
 void MRCCSD_T::compute_OOO_triples_restricted() {
-    CCIndexIterator ijk("[ooo]");
+    CCIndexIterator ijk(wfn_, "[ooo]");
 
     for (ijk.first(); !ijk.end(); ijk.next()) {
         size_t i_abs = o->get_tuple_abs_index(ijk.ind_abs<0>());
@@ -388,9 +384,9 @@ void MRCCSD_T::compute_OOO_triples_restricted() {
                     e4T[mu] = e4ST[mu] = e4DT[mu] = 0.0;
                     // Check if ijk belong to the occupied space of mu
                     if (is_bocc[mu][i_abs] && is_bocc[mu][j_abs] && is_bocc[mu][k_abs]) {
-                        double*** F_OV_mu = F_OV[mu];
-                        double*** T1_OV_mu = T1_OV[mu];
-                        double*** T2_OOVV_mu = T2_OOVV[mu];
+                        auto F_OV_mu = F_OV[mu];
+                        auto T1_OV_mu = T1_OV[mu];
+                        auto T2_OOVV_mu = T2_OOVV[mu];
 
                         double D_IJK = e_OO[mu][i_abs] + e_OO[mu][j_abs] + e_OO[mu][k_abs];
 
@@ -408,7 +404,7 @@ void MRCCSD_T::compute_OOO_triples_restricted() {
                         std::vector<double>& e_VV_mu = e_VV[mu];
                         std::vector<bool>& is_bvir_mu = is_bvir[mu];
 
-                        CCIndexIterator abc(vvv, ijk_sym);
+                        CCIndexIterator abc(wfn_, vvv, ijk_sym);
                         //          abc.reset();
                         //          abc.set_irrep();
                         // Loop over abc
@@ -483,7 +479,7 @@ void MRCCSD_T::compute_OOO_triples_restricted() {
 }
 
 void MRCCSD_T::compute_ooO_triples_restricted() {
-    CCIndexIterator ijk("[ooo]");
+    CCIndexIterator ijk(wfn_, "[ooo]");
 
     for (ijk.first(); !ijk.end(); ijk.next()) {
         size_t i_abs = o->get_tuple_abs_index(ijk.ind_abs<0>());
@@ -565,12 +561,12 @@ void MRCCSD_T::compute_ooO_triples_restricted() {
                     e4T[mu] = e4ST[mu] = e4DT[mu] = 0.0;
                     // Check if ijk belong to the occupied space of mu
                     if (is_aocc[mu][i_abs] && is_aocc[mu][j_abs] && is_bocc[mu][k_abs]) {
-                        double*** F_ov_mu = F_ov[mu];
-                        double*** F_OV_mu = F_OV[mu];
-                        double*** T1_ov_mu = T1_ov[mu];
-                        double*** T1_OV_mu = T1_OV[mu];
-                        double*** T2_oovv_mu = T2_oovv[mu];
-                        double*** T2_oOvV_mu = T2_oOvV[mu];
+                        auto F_ov_mu = F_ov[mu];
+                        auto F_OV_mu = F_OV[mu];
+                        auto T1_ov_mu = T1_ov[mu];
+                        auto T1_OV_mu = T1_OV[mu];
+                        auto T2_oovv_mu = T2_oovv[mu];
+                        auto T2_oOvV_mu = T2_oOvV[mu];
 
                         double D_ijK = e_oo[mu][i_abs] + e_oo[mu][j_abs] + e_OO[mu][k_abs];
 
@@ -590,7 +586,7 @@ void MRCCSD_T::compute_ooO_triples_restricted() {
                         std::vector<bool>& is_avir_mu = is_avir[mu];
                         std::vector<bool>& is_bvir_mu = is_bvir[mu];
 
-                        CCIndexIterator abc(vvv, ijk_sym);
+                        CCIndexIterator abc(wfn_, vvv, ijk_sym);
                         //          abc.reset();
                         //          abc.set_irrep();
                         // Loop over abc
@@ -667,7 +663,7 @@ void MRCCSD_T::compute_ooO_triples_restricted() {
 }
 
 void MRCCSD_T::compute_oOO_triples_restricted() {
-    CCIndexIterator ijk("[ooo]");
+    CCIndexIterator ijk(wfn_, "[ooo]");
 
     for (ijk.first(); !ijk.end(); ijk.next()) {
         size_t i_abs = o->get_tuple_abs_index(ijk.ind_abs<0>());
@@ -747,12 +743,12 @@ void MRCCSD_T::compute_oOO_triples_restricted() {
                     e4T[mu] = e4ST[mu] = e4DT[mu] = 0.0;
                     // Check if ijk belong to the occupied space of mu
                     if (is_aocc[mu][i_abs] && is_bocc[mu][j_abs] && is_bocc[mu][k_abs]) {
-                        double*** F_ov_mu = F_ov[mu];
-                        double*** F_OV_mu = F_OV[mu];
-                        double*** T1_ov_mu = T1_ov[mu];
-                        double*** T1_OV_mu = T1_OV[mu];
-                        double*** T2_oOvV_mu = T2_oOvV[mu];
-                        double*** T2_OOVV_mu = T2_OOVV[mu];
+                        auto F_ov_mu = F_ov[mu];
+                        auto F_OV_mu = F_OV[mu];
+                        auto T1_ov_mu = T1_ov[mu];
+                        auto T1_OV_mu = T1_OV[mu];
+                        auto T2_oOvV_mu = T2_oOvV[mu];
+                        auto T2_OOVV_mu = T2_OOVV[mu];
 
                         double D_iJK = e_oo[mu][i_abs] + e_OO[mu][j_abs] + e_OO[mu][k_abs];
 
@@ -772,7 +768,7 @@ void MRCCSD_T::compute_oOO_triples_restricted() {
                         std::vector<bool>& is_avir_mu = is_avir[mu];
                         std::vector<bool>& is_bvir_mu = is_bvir[mu];
 
-                        CCIndexIterator abc(vvv, ijk_sym);
+                        CCIndexIterator abc(wfn_, vvv, ijk_sym);
                         //          abc.reset();
                         //          abc.set_irrep();
                         // Loop over abc

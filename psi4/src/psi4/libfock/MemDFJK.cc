@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -32,7 +32,6 @@
 #include "psi4/libqt/qt.h"
 #include "psi4/psi4-dec.h"
 #include "psi4/psifiles.h"
-#include "psi4/libmints/sieve.h"
 #include "psi4/libmints/matrix.h"
 #include "psi4/libmints/basisset.h"
 #include "psi4/libmints/vector.h"
@@ -80,29 +79,29 @@ void MemDFJK::preiterations() {
     dfh_->set_memory(memory_ - memory_overhead());
     dfh_->set_do_wK(do_wK_);
     dfh_->set_omega(omega_);
+    if (do_wK_) { 
+        dfh_->set_wcombine(wcombine_); 
+    } else {
+        dfh_->set_wcombine(false);
+        wcombine_ = false;
+    }
+    dfh_->set_omega_alpha(omega_alpha_);
+    dfh_->set_omega_beta(omega_beta_);
 
     // we need to prepare the AOs here, and that's it.
     // DFHelper takes care of all the housekeeping
 
-    if (do_wK_) {
-        // TODO add wK integrals.
-        // DFHelper class will throw
-        // initialize_wK()
-        throw PSIEXCEPTION("MemDFJK does not yet support wK builds.");
-    } else {
-        dfh_->initialize();
-    }
+    dfh_->initialize();
 }
 void MemDFJK::compute_JK() {
-    dfh_->build_JK(C_left_ao_, C_right_ao_, D_ao_, J_ao_, K_ao_, max_nocc(), do_J_, do_K_, do_wK_, lr_symmetric_);
-}
-void set_do_wK(bool do_wK) {
-    if (do_wK) {
-        std::stringstream message;
-        message << "MemDFJK cannot compute wK integrals. Please use DiskDFJK." << std::endl;
-        message << "  If you are not a developer or using Psi4NumPy please report this issue at github.com/psi4/psi4."
-                << std::endl;
-        throw PSIEXCEPTION(message.str());
+    dfh_->build_JK(C_left_ao_, C_right_ao_, D_ao_, J_ao_, K_ao_, wK_ao_, max_nocc(), do_J_, do_K_, do_wK_,
+                   lr_symmetric_);
+    if (lr_symmetric_) {
+        if (do_wK_) {
+            for (size_t N = 0; N < wK_ao_.size(); N++) {
+                wK_ao_[N]->hermitivitize();
+            }
+        }
     }
 }
 void MemDFJK::postiterations() {}
@@ -133,4 +132,19 @@ int MemDFJK::max_nocc() const {
     }
     return max_nocc;
 }
+void MemDFJK::set_omega_alpha(double alpha) {
+    omega_alpha_ = alpha;
+    dfh_->set_omega_alpha(omega_alpha_);
 }
+void MemDFJK::set_omega_beta(double beta){
+    omega_beta_ = beta;
+    dfh_->set_omega_beta(omega_beta_);
+}
+void MemDFJK::set_do_wK(bool tf) { do_wK_ = tf; dfh_->set_do_wK(tf); }
+void MemDFJK::set_wcombine(bool wcombine) { 
+    wcombine_ = wcombine;
+    if (dfh_) {
+        dfh_->set_wcombine(wcombine); 
+    }
+}
+}  // namespace psi

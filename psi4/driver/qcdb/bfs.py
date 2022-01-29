@@ -3,7 +3,7 @@
 #
 # Psi4: an open-source quantum chemistry software package
 #
-# Copyright (c) 2007-2019 The Psi4 Developers.
+# Copyright (c) 2007-2022 The Psi4 Developers.
 #
 # The copyrights for code used from other parties are included in
 # the corresponding files.
@@ -60,7 +60,7 @@ def BFS(geom, elem, seed_atoms=None, bond_threshold=1.20):
     Notes
     -----
     Relies upon van der Waals radii and so faulty for close (especially
-        hydrogen-bonded) fragments. `seed_atoms` can help.
+    hydrogen-bonded) fragments. `seed_atoms` can help.
 
     Authors
     -------

@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -173,11 +173,9 @@ void OCCWave::trans_ints_rhf() {
     }
 
     else if (orb_opt_ == "FALSE") {
-        for (int h = 0; h < nirrep_; ++h) {
-            for (int i = 0; i < occpiA[h]; ++i) FockA->set(h, i, i, epsilon_a_->get(h, i));
-            for (int a = 0; a < virtpiA[h]; ++a)
-                FockA->set(h, a + occpiA[h], a + occpiA[h], epsilon_a_->get(h, a + occpiA[h]));
-        }
+        // Assume that the Fock matrix is up-to-date.
+        FockA = Fa_->clone();
+        FockA->transform(Ca_);
     }
 
     timer_on("Build Denominators");
@@ -194,7 +192,7 @@ void OCCWave::trans_ints_rhf() {
 void OCCWave::denominators_rhf() {
     // outfile->Printf("\n denominators is starting... \n");
     dpdbuf4 D;
-    dpdfile2 Fo, Fv;
+    dpdfile2 Fo, Fv, Fd;
 
     auto *aOccEvals = new double[nacooA];
     auto *aVirEvals = new double[nacvoA];
@@ -294,6 +292,16 @@ void OCCWave::denominators_rhf() {
         global_dpd_->file2_mat_print(&Fv, "outfile");
         global_dpd_->file2_close(&Fv);
     }
+
+    auto zero = Dimension(nirrep_);
+
+    global_dpd_->file2_init(&Fd, PSIF_LIBTRANS_DPD, 0, ID('O'), ID('O'), "FD <O|O>");
+    FockA->get_block({frzcpi_, nalphapi_}, {frzcpi_, nalphapi_})->write_to_dpdfile2(&Fd);
+    global_dpd_->file2_close(&Fd);
+
+    global_dpd_->file2_init(&Fd, PSIF_LIBTRANS_DPD, 0, ID('V'), ID('V'), "FD <V|V>");
+    FockA->get_block({nalphapi_, nmopi_ - frzvpi_}, {nalphapi_, nmopi_ - frzvpi_})->write_to_dpdfile2(&Fd);
+    global_dpd_->file2_close(&Fd);
 
     // outfile->Printf("\n denominators done. \n");
 }  // end denominators

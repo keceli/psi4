@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -55,7 +55,6 @@
 #include "psi4/libmints/sointegral_onebody.h"
 #include "psi4/libmints/factory.h"
 #include "psi4/libdiis/diismanager.h"
-#include "psi4/libdiis/diisentry.h"
 #include "psi4/libfock/jk.h"
 #include "psi4/lib3index/dfhelper.h"
 #include "psi4/libpsi4util/PsiOutStream.h"
@@ -509,13 +508,12 @@ void SADGuess::get_uhf_atomic_density(std::shared_ptr<BasisSet> bas, std::shared
     int iteration = 0;
 
     // Setup DIIS
-    DIISManager diis_manager(6, "SAD DIIS", DIISManager::LargestError, DIISManager::InCore);
-    diis_manager.set_error_vector_size(2, DIISEntry::Matrix, gradient_a.get(), DIISEntry::Matrix, gradient_b.get());
-    diis_manager.set_vector_size(2, DIISEntry::Matrix, Fa.get(), DIISEntry::Matrix, Fb.get());
+    DIISManager diis_manager(6, "SAD DIIS", DIISManager::RemovalPolicy::LargestError, DIISManager::StoragePolicy::InCore);
+    diis_manager.set_error_vector_size(gradient_a.get(), gradient_b.get());
+    diis_manager.set_vector_size(Fa.get(), Fb.get());
 
     // Setup JK
     std::unique_ptr<JK> jk;
-
     // Need a very special auxiliary basis here
     if (SAD_use_fitting(options_)) {
         MemDFJK* dfjk = new MemDFJK(bas, fit);
@@ -524,15 +522,24 @@ void SADGuess::get_uhf_atomic_density(std::shared_ptr<BasisSet> bas, std::shared
         dfjk->dfh()->set_print_lvl(0);
         jk = std::unique_ptr<JK>(dfjk);
     } else {
-        DirectJK* directjk(new DirectJK(bas));
+        DirectJK* directjk(new DirectJK(bas, options_));
         if (options_["DF_INTS_NUM_THREADS"].has_changed())
             directjk->set_df_ints_num_threads(options_.get_int("DF_INTS_NUM_THREADS"));
         jk = std::unique_ptr<JK>(directjk);
     }
 
+    // JK object primary libint2::Engine used to construct Schwarz externally, so need to zero precision for SAD scope
+    std::string ints_tolerance_key = "INTS_TOLERANCE";
+    auto ints_tolerance_value = Process::environment.options.get_double(ints_tolerance_key);
+    auto ints_tolerance_changed = Process::environment.options.use_local(ints_tolerance_key).has_changed();
+    Process::environment.options.set_double("SCF", ints_tolerance_key, 0.0);
+
     jk->set_memory((size_t)(0.5 * (Process::environment.get_memory() / 8L)));
     jk->initialize();
     if (print_ > 1) jk->print_header();
+
+    Process::environment.options.set_double("SCF", ints_tolerance_key, ints_tolerance_value);
+    if (!ints_tolerance_changed) Process::environment.options.use_local(ints_tolerance_key).dechanged();
 
     // These are static so lets just grab them now
     std::vector<SharedMatrix>& jkC = jk->C_left();
@@ -584,8 +591,8 @@ void SADGuess::get_uhf_atomic_density(std::shared_ptr<BasisSet> bas, std::shared
                                 : std::max(gradient_a->absmax(), gradient_b->absmax());
 
         // Add and extrapolate DIIS
-        diis_manager.add_entry(4, gradient_a.get(), gradient_b.get(), Fa.get(), Fb.get());
-        diis_manager.extrapolate(2, Fa.get(), Fb.get());
+        diis_manager.add_entry(gradient_a.get(), gradient_b.get(), Fa.get(), Fb.get());
+        diis_manager.extrapolate(Fa.get(), Fb.get());
 
         // Diagonalize Fa and Fb to from Ca and Cb and Da and Db
         form_C_and_D(X, Fa, Ca, Ea, Ca_occ, occ_a, Da);
@@ -752,7 +759,7 @@ SharedMatrix SADGuess::huckel_guess() {
 
     return huckel;
 }
-void HF::compute_SAD_guess() {
+void HF::compute_SAD_guess(bool natorb) {
     if (sad_basissets_.empty()) {
         throw PSIEXCEPTION("  SCF guess was set to SAD, but sad_basissets_ was empty!\n\n");
     }
@@ -767,40 +774,72 @@ void HF::compute_SAD_guess() {
 
     guess->compute_guess();
 
-    SharedMatrix Ca_sad = guess->Ca();
-    SharedMatrix Cb_sad = guess->Cb();
-    Da_->copy(guess->Da());
-    Db_->copy(guess->Db());
-    Dimension sad_dim(Da_->nirrep(), "SAD Dimensions");
+    if (natorb) {
+        // SAD natural orbitals (doi:10.1021/acs.jctc.8b01089)
 
-    for (int h = 0; h < Da_->nirrep(); h++) {
-        int nso = Ca_sad->rowspi()[h];
-        int nmo = Ca_sad->colspi()[h];
-        if (nmo > X_->colspi()[h]) nmo = X_->colspi()[h];
+        // Number of basis functions
+        auto nbf(basisset_->nbf());
+        // Grab the density matrix
+        auto Dhelp = std::make_shared<Matrix>("Helper density matrix", AO2SO_->colspi(), AO2SO_->colspi());
+        Dhelp->copy(guess->Da());
+        // Take its negative so that most strongly occupied orbitals come first
+        Dhelp->scale(-1.0);
 
-        sad_dim[h] = nmo;
-
-        if (!nso || !nmo) continue;
-
-        double** Cap = Ca_->pointer(h);
-        double** Cbp = Cb_->pointer(h);
-        double** Ca2p = Ca_sad->pointer(h);
-        double** Cb2p = Cb_sad->pointer(h);
-
-        for (int i = 0; i < nso; i++) {
-            ::memcpy((void*)Cap[i], (void*)Ca2p[i], nmo * sizeof(double));
-            ::memcpy((void*)Cbp[i], (void*)Cb2p[i], nmo * sizeof(double));
+        // Transfrom to an orthonormal basis
+        Dhelp->transform(S_);
+        Dhelp->transform(X_);
+        if (debug_) {
+            outfile->Printf("SAD Density Matrix (orthonormal basis):\n");
+            Dhelp->print();
         }
+
+        // Diagonalize the SAD density and form the natural orbitals
+        auto Cno_temp_ = SharedMatrix(factory_->create_matrix("SAD NO temp"));
+        Dhelp->diagonalize(Cno_temp_, epsilon_a_);
+        if (debug_) {
+            outfile->Printf("SAD Natural Orbital Occupations:\n");
+            epsilon_a_->print();
+        }
+        Ca_->gemm(false, false, 1.0, X_, Cno_temp_, 0.0);
+
+        // Same orbitals for beta
+        Cb_->copy(Ca_);
+        epsilon_b_->copy(*epsilon_a_);
+
+    } else {
+        SharedMatrix Ca_sad = guess->Ca();
+        SharedMatrix Cb_sad = guess->Cb();
+        Da_->copy(guess->Da());
+        Db_->copy(guess->Db());
+        Dimension sad_dim(Da_->nirrep(), "SAD Dimensions");
+
+        for (int h = 0; h < Da_->nirrep(); h++) {
+            int nso = Ca_sad->rowspi()[h];
+            int nmo = Ca_sad->colspi()[h];
+            if (nmo > X_->colspi()[h]) nmo = X_->colspi()[h];
+
+            sad_dim[h] = nmo;
+
+            if (!nso || !nmo) continue;
+
+            double** Cap = Ca_->pointer(h);
+            double** Cbp = Cb_->pointer(h);
+            double** Ca2p = Ca_sad->pointer(h);
+            double** Cb2p = Cb_sad->pointer(h);
+            for (int i = 0; i < nso; i++) {
+                C_DCOPY(nmo, Ca2p[i], 1, Cap[i], 1);
+                C_DCOPY(nmo, Cb2p[i], 1, Cbp[i], 1);
+            }
+        }
+
+        nalphapi_ = sad_dim;
+        nbetapi_ = sad_dim;
+        nalpha_ = sad_dim.sum();
+        nbeta_ = sad_dim.sum();
+        doccpi_ = sad_dim;
+        soccpi_ = Dimension(Da_->nirrep(), "SAD SOCC dim (0's)");
+        energies_["Total Energy"] = 0.0;  // This is the -1th iteration
     }
-
-    nalphapi_ = sad_dim;
-    nbetapi_ = sad_dim;
-    nalpha_ = sad_dim.sum();
-    nbeta_ = sad_dim.sum();
-    doccpi_ = sad_dim;
-    soccpi_ = Dimension(Da_->nirrep(), "SAD SOCC dim (0's)");
-
-    energies_["Total Energy"] = 0.0;  // This is the -1th iteration
 }
 void HF::compute_huckel_guess() {
     if (sad_basissets_.empty()) {

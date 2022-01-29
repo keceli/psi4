@@ -3,7 +3,7 @@
 .. #
 .. # Psi4: an open-source quantum chemistry software package
 .. #
-.. # Copyright (c) 2007-2019 The Psi4 Developers.
+.. # Copyright (c) 2007-2022 The Psi4 Developers.
 .. #
 .. # The copyrights for code used from other parties are included in
 .. # the corresponding files.
@@ -69,6 +69,7 @@ Release (e.g., ``v1.3``)
 * `Publish to main conda label`_
 * `Build Psi4conda set`_
 * `Generate download page for psicode.org`_
+* `Collect documentation snapshot`_
 * `Publish GitHub release`_
 * `Publish psicode release`_
 * `Finalize release`_
@@ -88,6 +89,7 @@ Post-Release (e.g., ``v1.3.1``)
 * `Publish to main conda label`_
 * `Build Psi4conda set`_
 * `Generate download page for psicode.org`_
+* `Collect documentation snapshot`_
 * `Publish GitHub postrelease`_
 * `Publish psicode release`_
 * `Finalize release`_
@@ -135,8 +137,7 @@ Anticipate next release
 -----------------------
 
 * Bump version in ``codemeta.json``, https://github.com/psi4/psi4/blob/master/codemeta.json#L9
-* Add to branch list in ``.travis.yml``, https://github.com/psi4/psi4/blob/master/.travis.yml#L179
-* Add to branch list in ``azure-pipelines.yml``, https://github.com/psi4/psi4/blob/master/azure-pipelines.yml#L4
+* Add to branch list in ``azure-pipelines.yml``, :source:`azure-pipelines.yml`
 
 
 Build Conda ecosystem stack
@@ -144,7 +145,7 @@ Build Conda ecosystem stack
 
 By "ecosystem stack", mean packages that are upstream, downstream, required, and optional for a fully featured Psi4 build and which we can't get from "defaults" or "conda-forge" channels.
 
-* Main directions are in [cbcy](https://github.com/psi4/psi4meta/blob/master/conda-recipes/conda_build_config.yaml#L90-L103) and [poodle](https://github.com/psi4/psi4meta/blob/master/psinet-nightly/kitandkapoodle.py#L357-L411)
+* Main directions are in [cbcy](https://github.com/psi4/psi4meta/blob/master/conda-recipes/conda_build_config.yaml) and [poodle](https://github.com/psi4/psi4meta/blob/master/psinet-nightly/kitandkapoodle.py)
 * A couple weeks before the first "rc" is planned, start going through L/LT in poodle, checking with upstream to see if new versions have been released. If good changes present, rebuild the packages, changing the version numbers in the respective recipes
 * When L/LT all built and passed, edit the individual package version numbers in cbcy and increment to a new ``ltrtver`` with updated version numbers and/or build numbers (only if code changes)
 * Build L/PSI4. If any trouble, edit psi4 code. Iterate until builds and passes. This stage is the only full ctest & pytest on Psi4+upstream
@@ -185,8 +186,8 @@ Tweak Conda for postrelease
 Do final pass before release tag
 --------------------------------
 
-* Check that ``external/`` repos and commits have been updated to match conda recipes sources. Also check versions with ``conda_build_config.yaml``
-* Check ``docs/sphinxman/source/introduction.rst`` for any compiler and Python minimum requirements to edit.
+* Check that :source:`external/` repos and commits have been updated to match conda recipes sources. Also check versions with ``conda_build_config.yaml``
+* Check :source:`doc/sphinxman/source/introduction.rst` for any compiler and Python minimum requirements to edit.
 
 
 Tag (pre)release
@@ -219,6 +220,12 @@ Tag (pre)release
     >>> git log --oneline | head -1
     bc8d7f5 v1.3rc2
     >>> git tag -a v1.3rc2 bc8d7f5 -m "v1.3rc2"
+
+    # pause here and push to upstream and let Azure complete if want an
+    #       on-tag Windows conda package, not just tag+1.dev1
+    #       below pushes commit and tag together so only one CI
+    #       > git push --atomic upstream master v1.5
+    #       also, grab the docs build from GHA artifacts
 
     >>> vi psi4/metadata.py
     >>> git diff
@@ -300,13 +307,14 @@ Initialize release branch
     Switched to a new branch '1.3.x'
     >>> git push upstream 1.3.x
 
-* set up new branch as protected branch through GitHub psi4 org Settings
+* set up new branch as protected branch through GitHub psi4 org Settings. Should be already covered under 1.*.x rule.
 
 
 Build Conda Psi4 stack at specific commit
 -----------------------------------------
 
-By "Psi4 stack", mean packages ``psi4``, ``psi4-rt``, ``psi4-dev``, ``psi4-docs``.
+By "Psi4 stack", mean packages ``psi4``, ``psi4-rt``, ``psi4-dev``.
+Package ``psi4-docs`` used to be in "Psi4 stack", but it's handled by GHA and netlify now, not Conda, so skip directions below.
 Other packages, the "ecosystem stack" (e.g., ``libint``, ``v2rdm_casscf``) should be already built.
 
 * Check poodle for stray channels that may have crept in for dependencies (like c-f for ACS season). Copy over new dependencies if needed to psi4 channel
@@ -331,15 +339,15 @@ Publish to main conda label
 
 * Go through each active conda package off https://anaconda.org/psi4/repo
 
-  - Find the most recent build set (Linux/Mac, active py versions) that psi/psi-rt/psi-dev is using
+  - Find the most recent build set (Linux/Mac, active py versions) that ``psi4``/``psi4-rt``/``psi4-dev`` is using
   - _add_ (not replace) the ``main`` label.
 
 * This makes a ``conda install psi4 -c psi4`` get everything psi4 needs. For the moment ``conda install psi4 -c psi4/label/dev`` will get the same set, until package psi4-1.4a1.dev1 gets uploaded. May help to check versions and build versions against ltrtver in ``conda_build_config.yaml``.
 * This step is manual, so takes a while. (It gets checked when Psi4conda installers are built b/c that pulls from "main", not "dev")
 
 
-Build Psi4conda set
--------------------
+Build Psi4conda set (pre-Spring 2021)
+-------------------------------------
 
 Installers are build using the project ``constructor`` and build binary bash scripts, one per OS per Python version. In analogy to Miniconda, they're called Psi4Conda. They can be built anywhere (Mac can be built on Linux) and get served from vergil (cdsgroup webserver).
 
@@ -377,6 +385,29 @@ Installers are build using the project ``constructor`` and build binary bash scr
 * Log in to vergil root and make WindowsWSL symlinks
 
 
+Build Psi4conda set
+-------------------
+
+Installers are build using the project ``constructor`` and build binary bash or exe scripts, one per OS per Python version. In analogy to Miniconda, they're called Psi4Conda. They are built through GHA on the psi4meta repo and get served from vergil (cdsgroup webserver).
+
+* Edit recipe https://github.com/psi4/psi4meta/blob/master/installers/construct.yaml
+
+  - Edit the top matter for Configuration. See snapshots in directory for examples.
+  
+    - Edit ``release`` fields. (Windows is often ``dev1`` unless separate steps.)
+    - Edit ``ltrtver`` field. This matches the current setting in ``conda_build_config.yaml``
+    - For prereleases, ``"channel_tag": "/label/dev"``, while for (post)releases, it should be the empty string
+  - Edit the packages and channels info if necessary. Probably long-term stable. 
+
+* Edit the GHA control file https://github.com/psi4/psi4meta/blob/master/.github/workflows/Installers.yml matrix.cfg
+* All conda packages must already have been built and in the right ``channel_tag`` channel.
+* Commit ``construct.yaml`` to trigger installer builds.
+* When all build successfully, hover over the artifacts, and note the consecutive numbers GH has assigned them. These artifacts only linger for a day.
+* Log in to vergil root and move to ``/var/www/html/psicode-download``.
+* Use the pull_gha_installers script to download the installers from GH to vergil. First two arguments are first and last of the artifact numbers, and third argument is an auth token. ``bash pull_gha_installers.sh 47226565 47226573 715...4f3``.
+* Make WindowsWSL and any other symlinks the script head matter advises.
+
+
 Generate download page for psicode.org
 --------------------------------------
 
@@ -394,6 +425,16 @@ Generate download page for psicode.org
 
 * Commit the new files, PR, and deploy psicode site
 * Petition on Slack for testers
+
+
+Collect documentation snapshot
+------------------------------
+
+* Documentation is built automatically by GHA from the latest psi4 master commit. It gets pushed to the psi4/psi4docs repository and thence served by netlify to a site independent of psicode.org. The netlify psicode.org site has a redirect so that psicode.org/psi4manual/master presents the psi4docs netlify content.
+* GHA controller is https://github.com/psi4/psi4/blob/master/.github/workflows/docs.yml
+* This setup works great for "latest" docs, but it won't build a nice copy on the tag because the tag commit is pushed before the tag itself, so the version shows up "undefined".
+* So, anytime after "Tag (pre)release" is over, navigate on psi4 GH to the tag commit (not the record commit) and retrigger the docs GHA. Download the artifact (zipped docs dir) at the end to a local computer.
+* In your hugo site clone, create a new directory under ``static/psi4manual``. Copy the zipped docs there, unpack, rearrange so that ``static/psi4manual/<new-tag>/index.html`` is present. Check in.
 
 
 Publish GitHub release
@@ -432,7 +473,6 @@ Finalize release
 * Make new PR with
   * edits to main ``README.md`` badges, python versions, etc.
   * edits to ``CMakeLists.txt`` ``find_package(PythonLibsNew 3.6 REQUIRED)``
-* On godaddy, grab the exact tag 1.3 manual before it gets overwritten and preserve it: ``cp -pR master 1.3``
 * Tweet about release
 
 

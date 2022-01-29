@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -37,16 +37,19 @@ namespace psimrcc {
 /**
         @author Francesco Evangelista <frank@ccc.uga.edu>
 */
+
+// All the MP2_CCSD code is "dead," but talk to Francesco Evangelista before removing it.
+// He's considering finishing the project that was for.
 class MP2_CCSD : public CCManyBody {
    public:
-    MP2_CCSD(SharedWavefunction ref_wfn, Options &options);
+    MP2_CCSD(std::shared_ptr<PSIMRCCWfn> wfn, Options &options);
     ~MP2_CCSD() override;
-    void compute_mp2_ccsd_energy();
+    double compute_energy() override;
 
    private:
     void add_matrices();
     void read_mp2_ccsd_integrals();
-    double compute_energy();
+    double compute_iteration_energy();
     void compute_mp2_components();
     void compute_mp2_ccsd_components();
     void synchronize_amps();

@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -40,6 +40,7 @@
 #include "psi4/libmints/dimension.h"
 #include "psi4/libmints/petitelist.h"
 #include "psi4/libmints/sobasis.h"
+#include "psi4/libmints/mintshelper.h"
 #include "psi4/libmints/integral.h"
 #include "psi4/libmints/factory.h"
 #include "psi4/libmints/vector3.h"
@@ -59,6 +60,19 @@
 #include <cmath>
 #include <algorithm>
 #include <tuple>
+
+#ifdef USING_BrianQC
+
+#include <use_brian_wrapper.h>
+#include <brian_macros.h>
+#include <brian_common.h>
+
+extern void checkBrian();
+extern BrianCookie brianCookie;
+extern bool brianEnable;
+extern brianInt brianRestrictionType;
+
+#endif
 
 using namespace psi;
 
@@ -108,6 +122,7 @@ Wavefunction::Wavefunction(std::shared_ptr<Molecule> molecule, std::shared_ptr<B
 
     // Create an SO basis...we need the point group for this part.
     integral_ = std::make_shared<IntegralFactory>(basisset_, basisset_, basisset_, basisset_);
+    mintshelper_ = std::make_shared<MintsHelper>(basisset_, options_);
     sobasisset_ = std::make_shared<SOBasisSet>(basisset_, integral_);
 
     // set matrices
@@ -150,6 +165,7 @@ Wavefunction::Wavefunction(std::shared_ptr<Molecule> molecule, std::shared_ptr<B
 
     // set strings
     name_ = strings["name"];
+    module_ = strings["module"];
 
     // set booleans
     PCM_enabled_ = booleans["PCM_enabled"];
@@ -174,8 +190,8 @@ void Wavefunction::shallow_copy(SharedWavefunction other) { shallow_copy(other.g
 
 void Wavefunction::shallow_copy(const Wavefunction *other) {
     name_ = other->name_;
+    module_ = other->module_;
     basisset_ = other->basisset_;
-    basissets_ = other->basissets_;
     sobasisset_ = other->sobasisset_;
     AO2SO_ = other->AO2SO_;
     S_ = other->S_;
@@ -183,6 +199,7 @@ void Wavefunction::shallow_copy(const Wavefunction *other) {
 
     psio_ = other->psio_;
     integral_ = other->integral_;
+    mintshelper_ = other->mintshelper_;
     factory_ = other->factory_;
     memory_ = other->memory_;
     nalpha_ = other->nalpha_;
@@ -252,10 +269,14 @@ void Wavefunction::deep_copy(const Wavefunction *other) {
     /// From typical constructor
     /// Some member data is not clone-able so we will copy
     name_ = other->name_;
+    module_ = other->module_;
     molecule_ = std::make_shared<Molecule>(other->molecule_->clone());
     basisset_ = other->basisset_;
-    basissets_ = other->basissets_;  // Still cannot copy basissets
     integral_ = std::make_shared<IntegralFactory>(basisset_, basisset_, basisset_, basisset_);
+    mintshelper_ = std::make_shared<MintsHelper>(basisset_, options_);
+    for (auto kv : other->mintshelper_->basissets()) {
+        mintshelper_->set_basisset(kv.first, kv.second);
+    }
     sobasisset_ = std::make_shared<SOBasisSet>(basisset_, integral_);
     factory_ = std::make_shared<MatrixFactory>();
     factory_->init_with(other->nsopi_, other->nsopi_);
@@ -340,7 +361,9 @@ std::shared_ptr<Wavefunction> Wavefunction::c1_deep_copy(std::shared_ptr<BasisSe
     /// From typical constructor
     /// Some member data is not clone-able so we will copy
     wfn->name_ = name_;
+    wfn->module_ = module_;
     wfn->integral_ = std::make_shared<IntegralFactory>(wfn->basisset_, wfn->basisset_, wfn->basisset_, wfn->basisset_);
+    wfn->mintshelper_ = std::make_shared<MintsHelper>(wfn->basisset_, wfn->options_);
     wfn->sobasisset_ = std::make_shared<SOBasisSet>(wfn->basisset_, wfn->integral_);
     wfn->factory_ = std::make_shared<MatrixFactory>();
 
@@ -455,6 +478,7 @@ void Wavefunction::common_init() {
 
     // Create an SO basis...we need the point group for this part.
     integral_ = std::make_shared<IntegralFactory>(basisset_, basisset_, basisset_, basisset_);
+    mintshelper_ = std::make_shared<MintsHelper>(basisset_, options_);
     sobasisset_ = std::make_shared<SOBasisSet>(basisset_, integral_);
 
     auto pet = std::make_shared<PetiteList>(basisset_, integral_);
@@ -581,6 +605,94 @@ void Wavefunction::common_init() {
             outfile->Printf("PERTURB_H is true, but PERTURB_WITH not found, applying no perturbation.\n");
         }
     }
+
+#ifdef USING_BrianQC
+    if (brianEnable) {
+        if (molecule_->point_group()->bits() != PointGroups::Groups::C1) {
+            throw PSIEXCEPTION("BrianQC can only be used with C1 symmetry\n");
+        }
+
+        brianInt atomCount = molecule_->nallatom();
+
+        brianInt totalCharge = (brianInt)round(molecule_->molecular_charge());
+        brianInt spinMultiplicity = multiplicity;
+
+        std::vector<brianInt> atomicNumbers;
+        std::vector<double> atomCoordinates;
+        for (unsigned int atomIndex = 0; atomIndex < molecule_->nallatom(); atomIndex++) {
+            atomicNumbers.push_back(molecule_->ftrue_atomic_number(atomIndex));
+            atomCoordinates.push_back(molecule_->fx(atomIndex));
+            atomCoordinates.push_back(molecule_->fy(atomIndex));
+            atomCoordinates.push_back(molecule_->fz(atomIndex));
+        }
+
+        brianCOMSetMolecule(&brianCookie, &totalCharge, &spinMultiplicity, &atomCount, atomCoordinates.data(), atomicNumbers.data());
+        checkBrian();
+
+        std::vector<brianInt> shellSchemas(basisset_->max_am() + 1, -1);
+        for (unsigned int shellIndex = 0; shellIndex < basisset_->nshell(); shellIndex++) {
+            int shellType = basisset_->shell(shellIndex).am();
+            brianInt shellSchema = basisset_->shell(shellIndex).is_pure() ? BRIAN_SHELL_SCHEMA_SPHERICAL_PSI4 : BRIAN_SHELL_SCHEMA_CARTESIAN_STANDARD;
+
+            if (shellSchemas[shellType] != -1 and shellSchemas[shellType] != shellSchema) {
+                throw PSIEXCEPTION("BrianQC needs shells of the same angular momentum to be either all pure or all cartesian\n");
+            }
+
+            shellSchemas[shellType] = shellSchema;
+        }
+
+        brianInt shellCount = basisset_->nshell();
+
+        std::vector<brianInt> shellAtomIndices;
+        std::vector<brianInt> shellMinTypes;
+        std::vector<brianInt> shellMaxTypes;
+        std::vector<brianInt> shellContractionDegrees;
+        std::vector<brianInt> shellExponentOffsets;
+        std::vector<double> exponents;
+        std::vector<brianInt> shellPrefactorOffsets;
+        std::vector<double> prefactors;
+        for (unsigned int shellIndex = 0; shellIndex < basisset_->nshell(); shellIndex++) {
+            const GaussianShell& shell = basisset_->shell(shellIndex);
+            shellAtomIndices.push_back(shell.ncenter());
+            shellMinTypes.push_back(shell.am());
+            shellMaxTypes.push_back(shell.am());
+            shellContractionDegrees.push_back(shell.nprimitive());
+            shellExponentOffsets.push_back(exponents.size());
+            shellPrefactorOffsets.push_back(prefactors.size());
+            for (unsigned int primitiveIndex = 0; primitiveIndex < shell.nprimitive(); primitiveIndex++) {
+                exponents.push_back(shell.exp(primitiveIndex));
+                prefactors.push_back(shell.coef(primitiveIndex));
+            }
+        }
+
+        brianInt basisRole = BRIAN_BASIS_ROLE_ORBITAL;
+
+        // NOTE: if we ever want to use BrianQC's SAD initial guess, then we will need to find the basis name here and map it to the macro value
+        brianInt basisSetID = BRIAN_BASIS_SET_CUSTOM;
+        brianCOMSetBasis(&brianCookie, &basisRole, &basisSetID, shellSchemas.data(), &shellCount, shellAtomIndices.data(), shellMinTypes.data(), shellMaxTypes.data(), shellContractionDegrees.data(), shellExponentOffsets.data(), exponents.data(), shellPrefactorOffsets.data(), prefactors.data());
+        checkBrian();
+
+        if (options_.get_str("REFERENCE") == "RHF" or options_.get_str("REFERENCE") == "RKS") {
+            brianRestrictionType = BRIAN_RESTRICTION_TYPE_RHF;
+        }
+        else if (options_.get_str("REFERENCE") == "UHF" or options_.get_str("REFERENCE") == "UKS" or options_.get_str("REFERENCE") == "CUHF") {
+            // CUHF is different from UHF, but Fock building works the same, so for the time being we just set BrianQC to UHF
+            brianRestrictionType = BRIAN_RESTRICTION_TYPE_UHF;
+        }
+        else if (options_.get_str("REFERENCE") == "ROHF") {
+            brianRestrictionType = BRIAN_RESTRICTION_TYPE_ROHF;
+        }
+        else {
+            throw PSIEXCEPTION("Currently, BrianQC can only handle RHF, RKS, UHF, UKS, CUHF and ROHF calculations");
+        }
+
+        brianCOMSetRestriction(&brianCookie, &brianRestrictionType);
+        checkBrian();
+
+        brianCOMInitIntegrator(&brianCookie);
+        checkBrian();
+    }
+#endif
 }
 
 std::array<double, 3> Wavefunction::get_dipole_field_strength() const { return dipole_field_strength_; }
@@ -593,7 +705,7 @@ Dimension Wavefunction::map_irreps(const Dimension &dimpi) {
     // If the parent symmetry hasn't been set, no displacements have been made
     if (ps == "") return dimpi;
 
-    auto full = std::make_shared<PointGroup> (ps);
+    auto full = std::make_shared<PointGroup>(ps);
     std::shared_ptr<PointGroup> sub = molecule_->point_group();
 
     // If the point group between the full and sub are the same return
@@ -649,33 +761,17 @@ Options &Wavefunction::options() const { return options_; }
 
 std::shared_ptr<IntegralFactory> Wavefunction::integral() const { return integral_; }
 
+std::shared_ptr<MintsHelper> Wavefunction::mintshelper() const { return mintshelper_; }
+
 std::shared_ptr<BasisSet> Wavefunction::basisset() const { return basisset_; }
 
-std::shared_ptr<BasisSet> Wavefunction::get_basisset(std::string label) {
-    // This may be slightly confusing, but better than changing this in 800 other places
-    if (label == "ORBITAL") {
-        return basisset_;
-    } else if (basissets_.count(label) == 0) {
-        outfile->Printf("Could not find requested basisset (%s).", label.c_str());
-        throw PSIEXCEPTION("Wavefunction::get_basisset: Requested basis set (" + label + ") was not set!\n");
-    } else {
-        return basissets_[label];
-    }
-}
-void Wavefunction::set_basisset(std::string label, std::shared_ptr<BasisSet> basis) {
-    if (label == "ORBITAL") {
-        throw PSIEXCEPTION("Cannot set the ORBITAL basis after the Wavefunction is built!");
-    } else {
-        basissets_[label] = basis;
-    }
-}
+std::map<std::string, std::shared_ptr<BasisSet>> Wavefunction::basissets() const { return mintshelper_->basissets(); }
 
-bool Wavefunction::basisset_exists(std::string label) {
-    if (basissets_.count(label) == 0)
-        return false;
-    else
-        return true;
-}
+std::shared_ptr<BasisSet> Wavefunction::get_basisset(std::string label) { return mintshelper_->get_basisset(label); }
+
+void Wavefunction::set_basisset(std::string label, std::shared_ptr<BasisSet> basis) { return mintshelper_->set_basisset(label, basis); }
+
+bool Wavefunction::basisset_exists(std::string label) { return mintshelper_->basisset_exists(label); }
 
 std::shared_ptr<SOBasisSet> Wavefunction::sobasisset() const { return sobasisset_; }
 
@@ -872,149 +968,12 @@ SharedVector Wavefunction::epsilon_subset_helper(SharedVector epsilon, const Dim
     return C2;
 }
 
-SharedMatrix Wavefunction::F_subset_helper(SharedMatrix F, SharedMatrix C, const std::string &basis) const {
-    if (basis == "AO") {
-        double *temp = new double[AO2SO_->max_ncol() * AO2SO_->max_nrow()];
-        auto F2 = std::make_shared<Matrix>("Fock (AO basis)", basisset_->nbf(), basisset_->nbf());
-        int symm = F->symmetry();
-        for (int h = 0; h < AO2SO_->nirrep(); ++h) {
-            int nao = AO2SO_->rowspi()[0];
-            int nsol = AO2SO_->colspi()[h];
-            int nsor = AO2SO_->colspi()[h ^ symm];
-            if (!nsol || !nsor) continue;
-            double **Ulp = AO2SO_->pointer(h);
-            double **Urp = AO2SO_->pointer(h ^ symm);
-            double **FSOp = F->pointer(h);
-            double **FAOp = F2->pointer();
-            C_DGEMM('N', 'T', nsol, nao, nsor, 1.0, FSOp[0], nsor, Urp[0], nsor, 0.0, temp, nao);
-            C_DGEMM('N', 'N', nao, nao, nsol, 1.0, Ulp[0], nsol, temp, nao, 1.0, FAOp[0], nao);
-        }
-        delete[] temp;
-        return F2;
-    } else if (basis == "SO") {
-        return SharedMatrix(F->clone());
-    } else if (basis == "MO") {
-        auto F2 = std::make_shared<Matrix>("Fock (MO Basis)", C->colspi(), C->colspi());
-
-        int symm = F->symmetry();
-        int nirrep = F->nirrep();
-
-        double *SC = new double[C->max_ncol() * C->max_nrow()];
-        double *temp = new double[C->max_ncol() * C->max_nrow()];
-        for (int h = 0; h < nirrep; h++) {
-            int nmol = C->colspi()[h];
-            int nmor = C->colspi()[h ^ symm];
-            int nsol = C->rowspi()[h];
-            int nsor = C->rowspi()[h ^ symm];
-            if (!nmol || !nmor || !nsol || !nsor) continue;
-            double **Slp = S_->pointer(h);
-            double **Srp = S_->pointer(h ^ symm);
-            double **Clp = C->pointer(h);
-            double **Crp = C->pointer(h ^ symm);
-            double **Fmop = F2->pointer(h);
-            double **Fsop = F->pointer(h);
-
-            C_DGEMM('N', 'N', nsor, nmor, nsor, 1.0, Srp[0], nsor, Crp[0], nmor, 0.0, SC, nmor);
-            C_DGEMM('N', 'N', nsol, nmor, nsor, 1.0, Fsop[0], nsor, SC, nmor, 0.0, temp, nmor);
-            C_DGEMM('N', 'N', nsol, nmol, nsol, 1.0, Slp[0], nsol, Clp[0], nmol, 0.0, SC, nmol);
-            C_DGEMM('T', 'N', nmol, nmor, nsol, 1.0, SC, nmol, temp, nmor, 0.0, Fmop[0], nmor);
-        }
-        delete[] temp;
-        delete[] SC;
-        return F2;
-    } else {
-        throw PSIEXCEPTION("Invalid basis requested, use AO, SO, or MO");
-    }
-}
-
-SharedMatrix Wavefunction::D_subset_helper(SharedMatrix D, SharedMatrix C, const std::string &basis) const {
-    if (basis == "AO") {
-        double *temp = new double[AO2SO_->max_ncol() * AO2SO_->max_nrow()];
-        auto D2 = std::make_shared<Matrix>("D (AO basis)", basisset_->nbf(), basisset_->nbf());
-        int symm = D->symmetry();
-        for (int h = 0; h < AO2SO_->nirrep(); ++h) {
-            int nao = AO2SO_->rowspi()[0];
-            int nsol = AO2SO_->colspi()[h];
-            int nsor = AO2SO_->colspi()[h ^ symm];
-            if (!nsol || !nsor) continue;
-            double **Ulp = AO2SO_->pointer(h);
-            double **Urp = AO2SO_->pointer(h ^ symm);
-            double **DSOp = D->pointer(h);
-            double **DAOp = D2->pointer();
-            C_DGEMM('N', 'T', nsol, nao, nsor, 1.0, DSOp[0], nsor, Urp[0], nsor, 0.0, temp, nao);
-            C_DGEMM('N', 'N', nao, nao, nsol, 1.0, Ulp[0], nsol, temp, nao, 1.0, DAOp[0], nao);
-        }
-        delete[] temp;
-        return D2;
-    } else if (basis == "CartAO") {
-        /*
-         * Added by ACS. Rob's definition of AO is simply a desymmetrized SO (i.e. using spherical basis
-         * functions).  In cases like EFP and PCM where many OE integral evaluations are needed, we want
-         * to avoid the spherical transformation, so we need to back transform the density matrix all the
-         * way back to Cartesian AOs.
-         */
-
-        PetiteList petite(basisset_, integral_, true);
-        SharedMatrix my_aotoso = petite.aotoso();
-        double *temp = new double[my_aotoso->max_ncol() * my_aotoso->max_nrow()];
-        auto D2 = std::make_shared<Matrix>("D (ao basis)", basisset_->nao(), basisset_->nao());
-        int symm = D->symmetry();
-        for (int h = 0; h < my_aotoso->nirrep(); ++h) {
-            int nao = my_aotoso->rowspi()[0];
-            int nsol = my_aotoso->colspi()[h];
-            int nsor = my_aotoso->colspi()[h ^ symm];
-            if (!nsol || !nsor) continue;
-            double **Ulp = my_aotoso->pointer(h);
-            double **Urp = my_aotoso->pointer(h ^ symm);
-            double **DSOp = D->pointer(h);
-            double **DAOp = D2->pointer();
-            C_DGEMM('N', 'T', nsol, nao, nsor, 1.0, DSOp[0], nsor, Urp[0], nsor, 0.0, temp, nao);
-            C_DGEMM('N', 'N', nao, nao, nsol, 1.0, Ulp[0], nsol, temp, nao, 1.0, DAOp[0], nao);
-        }
-        delete[] temp;
-        return D2;
-    } else if (basis == "SO") {
-        return SharedMatrix(D->clone());
-    } else if (basis == "MO") {
-        auto D2 = std::make_shared<Matrix>("D (MO Basis)", C->colspi(), C->colspi());
-
-        int symm = D->symmetry();
-        int nirrep = D->nirrep();
-
-        double *SC = new double[C->max_ncol() * C->max_nrow()];
-        double *temp = new double[C->max_ncol() * C->max_nrow()];
-        for (int h = 0; h < nirrep; h++) {
-            int nmol = C->colspi()[h];
-            int nmor = C->colspi()[h ^ symm];
-            int nsol = C->rowspi()[h];
-            int nsor = C->rowspi()[h ^ symm];
-            if (!nmol || !nmor || !nsol || !nsor) continue;
-            double **Slp = S_->pointer(h);
-            double **Srp = S_->pointer(h ^ symm);
-            double **Clp = C->pointer(h);
-            double **Crp = C->pointer(h ^ symm);
-            double **Dmop = D2->pointer(h);
-            double **Dsop = D->pointer(h);
-
-            C_DGEMM('N', 'N', nsor, nmor, nsor, 1.0, Srp[0], nsor, Crp[0], nmor, 0.0, SC, nmor);
-            C_DGEMM('N', 'N', nsol, nmor, nsor, 1.0, Dsop[0], nsor, SC, nmor, 0.0, temp, nmor);
-            C_DGEMM('N', 'N', nsol, nmol, nsol, 1.0, Slp[0], nsol, Clp[0], nmol, 0.0, SC, nmol);
-            C_DGEMM('T', 'N', nmol, nmor, nsol, 1.0, SC, nmol, temp, nmor, 0.0, Dmop[0], nmor);
-        }
-        delete[] temp;
-        delete[] SC;
-        return D2;
-    } else {
-        throw PSIEXCEPTION("Invalid basis requested, use AO, CartAO, SO, or MO");
-    }
-}
-
 SharedMatrix Wavefunction::matrix_subset_helper(SharedMatrix M, SharedMatrix C, const std::string &basis,
                                                 const std::string matrix_basename) const {
     if (basis == "AO") {
-        double *temp = new double[AO2SO_->max_ncol() * AO2SO_->max_nrow()];
+        auto temp = std::vector<double>(AO2SO_->max_ncol() * AO2SO_->max_nrow());
         std::string m2_name = matrix_basename + " (AO basis)";
-        SharedMatrix M2 = SharedMatrix(new Matrix(m2_name, basisset_->nbf(), basisset_->nbf()));
+        auto M2 = std::make_shared<Matrix>(m2_name, basisset_->nbf(), basisset_->nbf());
         int symm = M->symmetry();
         for (int h = 0; h < AO2SO_->nirrep(); ++h) {
             int nao = AO2SO_->rowspi()[0];
@@ -1025,10 +984,9 @@ SharedMatrix Wavefunction::matrix_subset_helper(SharedMatrix M, SharedMatrix C, 
             double **Urp = AO2SO_->pointer(h ^ symm);
             double **MSOp = M->pointer(h);
             double **MAOp = M2->pointer();
-            C_DGEMM('N', 'T', nsol, nao, nsor, 1.0, MSOp[0], nsor, Urp[0], nsor, 0.0, temp, nao);
-            C_DGEMM('N', 'N', nao, nao, nsol, 1.0, Ulp[0], nsol, temp, nao, 1.0, MAOp[0], nao);
+            C_DGEMM('N', 'T', nsol, nao, nsor, 1.0, MSOp[0], nsor, Urp[0], nsor, 0.0, temp.data(), nao);
+            C_DGEMM('N', 'N', nao, nao, nsol, 1.0, Ulp[0], nsol, temp.data(), nao, 1.0, MAOp[0], nao);
         }
-        delete[] temp;
         return M2;
     } else if (basis == "CartAO") {
         /*
@@ -1040,9 +998,9 @@ SharedMatrix Wavefunction::matrix_subset_helper(SharedMatrix M, SharedMatrix C, 
 
         PetiteList petite(basisset_, integral_, true);
         SharedMatrix my_aotoso = petite.aotoso();
-        double *temp = new double[my_aotoso->max_ncol() * my_aotoso->max_nrow()];
+        auto temp = std::vector<double>(my_aotoso->max_ncol() * my_aotoso->max_nrow());
         std::string m2_name = matrix_basename + " (CartAO basis)";
-        SharedMatrix M2 = SharedMatrix(new Matrix(m2_name, basisset_->nao(), basisset_->nao()));
+        auto M2 = std::make_shared<Matrix>(m2_name, basisset_->nao(), basisset_->nao());
         int symm = M->symmetry();
         for (int h = 0; h < my_aotoso->nirrep(); ++h) {
             int nao = my_aotoso->rowspi()[0];
@@ -1053,10 +1011,9 @@ SharedMatrix Wavefunction::matrix_subset_helper(SharedMatrix M, SharedMatrix C, 
             double **Urp = my_aotoso->pointer(h ^ symm);
             double **MSOp = M->pointer(h);
             double **MAOp = M2->pointer();
-            C_DGEMM('N', 'T', nsol, nao, nsor, 1.0, MSOp[0], nsor, Urp[0], nsor, 0.0, temp, nao);
-            C_DGEMM('N', 'N', nao, nao, nsol, 1.0, Ulp[0], nsol, temp, nao, 1.0, MAOp[0], nao);
+            C_DGEMM('N', 'T', nsol, nao, nsor, 1.0, MSOp[0], nsor, Urp[0], nsor, 0.0, temp.data(), nao);
+            C_DGEMM('N', 'N', nao, nao, nsol, 1.0, Ulp[0], nsol, temp.data(), nao, 1.0, MAOp[0], nao);
         }
-        delete[] temp;
         return M2;
     } else if (basis == "SO") {
         SharedMatrix M2 = M->clone();
@@ -1065,13 +1022,13 @@ SharedMatrix Wavefunction::matrix_subset_helper(SharedMatrix M, SharedMatrix C, 
         return M2;
     } else if (basis == "MO") {
         std::string m2_name = matrix_basename + " (MO basis)";
-        SharedMatrix M2(new Matrix(m2_name, C->colspi(), C->colspi()));
+        auto M2 = std::make_shared<Matrix>(m2_name, C->colspi(), C->colspi());
 
         int symm = M->symmetry();
         int nirrep = M->nirrep();
 
-        double *SC = new double[C->max_ncol() * C->max_nrow()];
-        double *temp = new double[C->max_ncol() * C->max_nrow()];
+        auto SC = std::vector<double>(C->max_ncol() * C->max_nrow());
+        auto temp = std::vector<double>(C->max_ncol() * C->max_nrow());
         for (int h = 0; h < nirrep; h++) {
             int nmol = C->colspi()[h];
             int nmor = C->colspi()[h ^ symm];
@@ -1085,13 +1042,11 @@ SharedMatrix Wavefunction::matrix_subset_helper(SharedMatrix M, SharedMatrix C, 
             double **Mmop = M2->pointer(h);
             double **Msop = M->pointer(h);
 
-            C_DGEMM('N', 'N', nsor, nmor, nsor, 1.0, Srp[0], nsor, Crp[0], nmor, 0.0, SC, nmor);
-            C_DGEMM('N', 'N', nsol, nmor, nsor, 1.0, Msop[0], nsor, SC, nmor, 0.0, temp, nmor);
-            C_DGEMM('N', 'N', nsol, nmol, nsol, 1.0, Slp[0], nsol, Clp[0], nmol, 0.0, SC, nmol);
-            C_DGEMM('T', 'N', nmol, nmor, nsol, 1.0, SC, nmol, temp, nmor, 0.0, Mmop[0], nmor);
+            C_DGEMM('N', 'N', nsor, nmor, nsor, 1.0, Srp[0], nsor, Crp[0], nmor, 0.0, SC.data(), nmor);
+            C_DGEMM('N', 'N', nsol, nmor, nsor, 1.0, Msop[0], nsor, SC.data(), nmor, 0.0, temp.data(), nmor);
+            C_DGEMM('N', 'N', nsol, nmol, nsol, 1.0, Slp[0], nsol, Clp[0], nmol, 0.0, SC.data(), nmol);
+            C_DGEMM('T', 'N', nmol, nmor, nsol, 1.0, SC.data(), nmol, temp.data(), nmor, 0.0, Mmop[0], nmor);
         }
-        delete[] temp;
-        delete[] SC;
         return M2;
     } else {
         throw PSIEXCEPTION("Invalid basis requested, use AO, CartAO, SO, or MO");
@@ -1276,8 +1231,6 @@ SharedMatrix Wavefunction::Fa() const { return Fa_; }
 
 SharedMatrix Wavefunction::Fb() const { return Fb_; }
 
-SharedMatrix Wavefunction::Lagrangian() const { return Lagrangian_; }
-
 SharedVector Wavefunction::epsilon_a() const { return epsilon_a_; }
 
 SharedVector Wavefunction::epsilon_b() const { return epsilon_b_; }
@@ -1286,23 +1239,19 @@ const SharedMatrix Wavefunction::Da() const { return Da_; }
 
 SharedMatrix Wavefunction::Db() const { return Db_; }
 
-SharedMatrix Wavefunction::X() const { return Lagrangian_; }
+SharedMatrix Wavefunction::lagrangian() const { return Lagrangian_; }
 
-void Wavefunction::set_energy(double ene) {
-    set_scalar_variable("CURRENT ENERGY", ene);
-}
+void Wavefunction::set_lagrangian(SharedMatrix X) { Lagrangian_ = X; }
+
+void Wavefunction::set_energy(double ene) { set_scalar_variable("CURRENT ENERGY", ene); }
 
 SharedMatrix Wavefunction::gradient() const { return gradient_; }
 
-void Wavefunction::set_gradient(SharedMatrix grad) {
-    set_array_variable("CURRENT GRADIENT", grad);
-}
+void Wavefunction::set_gradient(SharedMatrix grad) { set_array_variable("CURRENT GRADIENT", grad); }
 
 SharedMatrix Wavefunction::hessian() const { return hessian_; }
 
-void Wavefunction::set_hessian(SharedMatrix hess) {
-    set_array_variable("CURRENT HESSIAN", hess);
-}
+void Wavefunction::set_hessian(SharedMatrix hess) { set_array_variable("CURRENT HESSIAN", hess); }
 
 SharedVector Wavefunction::frequencies() const { return frequencies_; }
 
@@ -1316,7 +1265,7 @@ std::shared_ptr<Vector> Wavefunction::get_esp_at_nuclei() const {
     std::shared_ptr<std::vector<double>> v = esp_at_nuclei();
 
     int n = molecule_->natom();
-    std::shared_ptr<Vector> v_vector(new Vector(n));
+    auto v_vector = std::make_shared<Vector>(n);
     for (int i = 0; i < n; ++i) v_vector->set(i, (*v)[i]);
     return v_vector;
 }
@@ -1326,10 +1275,10 @@ std::vector<SharedVector> Wavefunction::get_mo_extents() const {
 
     int n = nmo_;
     std::vector<SharedVector> mo_vectors;
-    mo_vectors.push_back(SharedVector(new Vector("<x^2>", basisset_->nbf())));
-    mo_vectors.push_back(SharedVector(new Vector("<y^2>", basisset_->nbf())));
-    mo_vectors.push_back(SharedVector(new Vector("<z^2>", basisset_->nbf())));
-    mo_vectors.push_back(SharedVector(new Vector("<r^2>", basisset_->nbf())));
+    mo_vectors.push_back(std::make_shared<Vector>("<x^2>", basisset_->nbf()));
+    mo_vectors.push_back(std::make_shared<Vector>("<y^2>", basisset_->nbf()));
+    mo_vectors.push_back(std::make_shared<Vector>("<z^2>", basisset_->nbf()));
+    mo_vectors.push_back(std::make_shared<Vector>("<r^2>", basisset_->nbf()));
     for (int i = 0; i < n; i++) {
         mo_vectors[0]->set(0, i, m[0]->get(0, i));
         mo_vectors[1]->set(0, i, m[1]->get(0, i));
@@ -1370,6 +1319,8 @@ bool Wavefunction::has_scalar_variable(const std::string &key) { return variable
 
 bool Wavefunction::has_array_variable(const std::string &key) { return arrays_.count(to_upper_copy(key)); }
 
+bool Wavefunction::has_potential_variable(const std::string &key) { return potentials_.count(to_upper_copy(key)); }
+
 double Wavefunction::scalar_variable(const std::string &key) {
     std::string uc_key = to_upper_copy(key);
 
@@ -1392,6 +1343,17 @@ SharedMatrix Wavefunction::array_variable(const std::string &key) {
     }
 }
 
+std::shared_ptr<ExternalPotential> Wavefunction::potential_variable(const std::string &key) {
+    std::string uc_key = to_upper_copy(key);
+
+    auto search = potentials_.find(uc_key);
+    if (search != potentials_.end()) {
+        return search->second;
+    } else {
+        throw PSIEXCEPTION("Wavefunction::potential_variable: Requested variable " + uc_key + " was not set!\n");
+    }
+}
+
 void Wavefunction::set_scalar_variable(const std::string &key, double val) {
     variables_[to_upper_copy(key)] = val;
 
@@ -1405,13 +1367,21 @@ void Wavefunction::set_array_variable(const std::string &key, SharedMatrix val) 
     if (to_upper_copy(key) == "CURRENT HESSIAN") hessian_ = val->clone();
 }
 
+void Wavefunction::set_potential_variable(const std::string &key, std::shared_ptr<ExternalPotential> val) {
+    potentials_[to_upper_copy(key)] = val;
+}
+
 int Wavefunction::del_scalar_variable(const std::string &key) { return variables_.erase(to_upper_copy(key)); }
 
 int Wavefunction::del_array_variable(const std::string &key) { return arrays_.erase(to_upper_copy(key)); }
 
+int Wavefunction::del_potential_variable(const std::string &key) { return potentials_.erase(to_upper_copy(key)); }
+
 std::map<std::string, double> Wavefunction::scalar_variables() { return variables_; }
 
 std::map<std::string, SharedMatrix> Wavefunction::array_variables() { return arrays_; }
+
+std::map<std::string, std::shared_ptr<ExternalPotential>> Wavefunction::potential_variables() { return potentials_; }
 
 double Wavefunction::get_variable(const std::string &key) { return scalar_variable(key); }
 SharedMatrix Wavefunction::get_array(const std::string &key) { return array_variable(key); }

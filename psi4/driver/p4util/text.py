@@ -3,7 +3,7 @@
 #
 # Psi4: an open-source quantum chemistry software package
 #
-# Copyright (c) 2007-2019 The Psi4 Developers.
+# Copyright (c) 2007-2022 The Psi4 Developers.
 #
 # The copyrights for code used from other parties are included in
 # the corresponding files.
@@ -32,8 +32,9 @@ to data tables and text.
 import sys
 import warnings
 
-from psi4 import core
 from psi4.driver import constants
+
+from psi4 import core
 
 
 class Table(object):
@@ -226,3 +227,40 @@ def find_approximate_string_matches(seq1, options, max_distance):
     """Find list of approximate (within `max_distance`) matches to string `seq1` among `options`."""
 
     return [seq2 for seq2 in options if (levenshtein(seq1, seq2) <= max_distance)]
+
+def message_box(message: str = None, max_width: int = 80, min_width: int = 30):
+    """ put a message string into a box for extra attention
+
+    Parameters
+    -----------
+    message
+       message string to be boxed
+
+    max_width
+        maximal character width of the box
+
+    Returns
+    --------
+    str
+       box containing the message as a multiline string
+    """
+    from textwrap import wrap
+
+    # ensure box is within min/max boundaries
+    msg = message.splitlines()
+    max_line = len(max(msg, key=len))
+    box_width = max(min(max_width, max_line), min_width)
+
+    error_str = []
+    error_str.append('\n!' + '-' * box_width + '--!\n')
+    error_str.append('!' + ' ' * box_width + '  !\n')
+
+    fmt = "! {:" + str(box_width) + "} !\n"
+    for line in msg[:]:
+        error_str.extend([fmt.format(x) for x in wrap(line, box_width, subsequent_indent="    ")])
+
+    error_str.append('!' + ' ' * box_width + '  !\n')
+    error_str.append('!' + '-' * box_width + '--!\n')
+    error_str = ''.join(error_str)
+
+    return error_str

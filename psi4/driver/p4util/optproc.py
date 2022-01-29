@@ -3,7 +3,7 @@
 #
 # Psi4: an open-source quantum chemistry software package
 #
-# Copyright (c) 2007-2019 The Psi4 Developers.
+# Copyright (c) 2007-2022 The Psi4 Developers.
 #
 # The copyrights for code used from other parties are included in
 # the corresponding files.
@@ -32,6 +32,7 @@ import sys
 from contextlib import contextmanager
 
 from psi4 import core
+
 from .exceptions import ValidationError
 
 
@@ -95,7 +96,7 @@ class OptionState(object):
 
 
 class OptionsState(object):
-    """Class to contain multiple :py:func:`~optproc.OptionsState` objects.
+    """Class to contain multiple :py:func:`~psi4.driver.p4util.OptionState` objects.
     Used in python driver functions to collect several options before altering
     them, then restoring before function return. ::
 

@@ -3,7 +3,7 @@
 #
 # Psi4: an open-source quantum chemistry software package
 #
-# Copyright (c) 2007-2019 The Psi4 Developers.
+# Copyright (c) 2007-2022 The Psi4 Developers.
 #
 # The copyrights for code used from other parties are included in
 # the corresponding files.
@@ -27,16 +27,17 @@
 #
 
 import os
-import sys
 import struct
+import sys
 import textwrap
+
+from .color import *
 
 if sys.version_info[0] == 2:
     from StringIO import StringIO
 elif sys.version_info[0] > 2:
     from io import StringIO
 
-from .color import *
 
 _debug = False
 _verbose = False
@@ -150,8 +151,8 @@ def terminal_size():
 
     def ioctl_GWINSZ(fd):
         try:
-            import fcntl # Not available on Windows
-            import termios # Not available on Windows
+            import fcntl  # Not available on Windows
+            import termios  # Not available on Windows
             rc = struct.unpack('hh', fcntl.ioctl(fd, termios.TIOCGWINSZ, '1234'))
         except:
             return

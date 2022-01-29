@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -33,6 +33,7 @@
 #include "psi4/liboptions/liboptions.h"
 #include "psi4/libciomr/libciomr.h"
 #include "psi4/libscf_solver/rhf.h"
+#include "psi4/libscf_solver/uhf.h"
 
 namespace psi{
 namespace scfgrad {
@@ -43,10 +44,6 @@ SharedMatrix scfgrad(SharedWavefunction ref_wfn, Options &options)
 
     SCFDeriv grad(ref_wfn, options);
     SharedMatrix G = grad.compute_gradient();
-
-    Process::environment.arrays["SCF TOTAL GRADIENT"] = G;
-    Process::environment.arrays["CURRENT GRADIENT"] = G;
-    Process::environment.set_gradient(G);
 
     tstop();
     return G;
@@ -62,7 +59,8 @@ SharedMatrix scfhess(SharedWavefunction ref_wfn, Options &options)
         RSCFDeriv hessian_computer(std::dynamic_pointer_cast<scf::RHF>(ref_wfn), options);
         H = hessian_computer.compute_hessian();
     } else {
-        throw PSIEXCEPTION("Only RHF hessians are supported at this time.");
+        USCFDeriv hessian_computer(std::dynamic_pointer_cast<scf::UHF>(ref_wfn), options);
+        H = hessian_computer.compute_hessian();
     }
     ref_wfn->set_hessian(H);
 

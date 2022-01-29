@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -52,24 +52,75 @@
 #include <omp.h>
 #endif
 
+#ifdef USING_BrianQC
+
+#include <use_brian_wrapper.h>
+#include <brian_macros.h>
+#include <brian_common.h>
+
+extern void checkBrian();
+extern BrianCookie brianCookie;
+extern bool brianEnable;
+extern bool brianEnableDFT;
+
+// auxiliary structures passing the grid to BrianQC
+struct BrianRadialPoint {
+    double r;
+    double w;
+};
+
+struct BrianAngularPoint {
+    double x, y, z;
+    double w;
+};
+
+struct BrianBlock {
+    std::vector<BrianRadialPoint> radialPoints;
+    std::vector<BrianAngularPoint> angularPoints;
+};
+
+static std::array<std::vector<std::vector<BrianBlock>>, 4> brianStandardGrids;
+std::vector<BrianBlock>* brianStoreGridDataInto = nullptr;
+
+struct BrianGrid {
+    std::vector<brianInt> atomBlockCounts;
+    std::vector<brianInt> atomBlockOffsets;
+
+    std::vector<brianInt> blockRadialCounts;
+    std::vector<brianInt> blockRadialOffsets;
+    std::vector<double> radialCoordinates;
+    std::vector<double> radialWeights;
+
+    std::vector<brianInt> blockAngularCounts;
+    std::vector<brianInt> blockAngularOffsets;
+    std::vector<double> angularCoordinates;
+    std::vector<double> angularWeights;
+
+    std::vector<double> atomRotationMatrices;
+};
+
+bool brianBuildingNLCGrid = false;
+
+#endif
+
 using namespace psi;
 
-namespace {
+namespace psi {
 
 // clang-format off
 double GetBSRadius(unsigned Z) {
     // Bragg-Slater radii  J.C. Slater JCP 41, (1964), 3199 [bohr]
     static const std::vector<double> BSRadius ={ 1.00,
       0.661,                                                                                                                0.661, // He
-      2.740, 1.984,                                                                      1.606, 1.323, 1.228, 1.134, 0.945, 0.900, //-Ne
-      3.402, 2.835,                                                                      2.362, 2.079, 1.890, 1.890, 1.890, 1.890, //Ar
-      4.157, 3.402, 3.024, 2.656, 2.551, 2.656, 2.656, 2.656, 2.551, 2.551, 2.551, 2551, 2.457, 2.362, 2.173, 2.173, 2.173, 2.173, //Kr
+      2.740, 1.984,                                                                       1.606, 1.323, 1.228, 1.134, 0.945, 0.900, //-Ne
+      3.402, 2.835,                                                                       2.362, 2.079, 1.890, 1.890, 1.890, 1.890, //Ar
+      4.157, 3.402, 3.024, 2.656, 2.551, 2.656, 2.656, 2.656, 2.551, 2.551, 2.551, 2.551, 2.457, 2.362, 2.173, 2.173, 2.173, 2.173, //Kr
       4.441, 3.780, 3.402, 2.929, 2.740, 2.740, 2.551, 2.457, 2.551, 2.646, 3.024, 2.929, 2.929, 2.740, 2.740, 2.646, 2.646, 2.646, // Xe
       4.913, 4.063,                                                                //Ba
-             3.685, 3.496,3.496,3.496,3.496,3.496,3.496,3.402,3.307,3.307,3.307,3.307,3.307,3.307,3.307,//*La-Lu
+             3.685, 3.496, 3.496, 3.496, 3.496, 3.496, 3.496, 3.402, 3.307, 3.307, 3.307, 3.307, 3.307, 3.307, 3.307,//*La-Lu
       2.929, 2.740, 2.551, 2.551, 2.457, 2.551, 2.551, 2.551, 2.835, 3.591, 3.024, 3.024, 3.591, 3.591, 3.591, // Rn
       4.063, 4.063,                                                                //Fr-Ra
-             3.685, 3.401,3.401,3.307,3.307,3.307,3.307,3.307,3.307,3.307,3.307,3.307,3.307,3.307,3.307,//Ac-Lr
+             3.685, 3.401, 3.401, 3.307, 3.307, 3.307, 3.307, 3.307, 3.307, 3.307, 3.307, 3.307, 3.307, 3.307, 3.307,//Ac-Lr
     };
     if (Z < BSRadius.size())
        {
@@ -1945,7 +1996,7 @@ MassPoint const *LebedevGridMgr::mk5810ptGrid() {
 
 class RadialGridMgr {
    private:
-    // See P. Gill and S. Chien,  J. Comput. Chem. 24 (2003) 732–740
+    // See P. Gill and S. Chien,  J. Comput. Chem. 24 (2003) 732-740
     static double multiexp_r(double x) { return -log(x); }
     static double multiexp_dr(double x) {
         double logx = log(x);
@@ -2493,12 +2544,36 @@ const MassPoint *StandardGridMgr::GetSG1grid(int Z) {
 void StandardGridMgr::makeCubatureGridFromPruneSpec(PruneSpec const &spec, int radscheme, MassPoint *grid_out) {
     std::vector<double> r(spec.nrad), wr(spec.nrad);
     RadialGridMgr::makeRadialGrid(spec.nrad, radscheme, r.data(), wr.data(), spec.rparam);
+#ifdef USING_BrianQC
+    if (brianStoreGridDataInto != nullptr) {
+        int groupCount = 0;
+        for (groupCount = 0; spec.group[groupCount].npts != 0; groupCount++) {
+        }
+
+        brianStoreGridDataInto->resize(groupCount);
+    }
+#endif
 
     int k_grid = 0;  // Will index into `grid'.
     int k_rad = 0;   // Will index into `r' and `wr'
     for (int i_grp = 0; spec.group[i_grp].npts != 0; i_grp++) {
         int numAngPoints = spec.group[i_grp].npts;
         const MassPoint *anggrid = LebedevGridMgr::findGridByNPoints(numAngPoints);
+#ifdef USING_BrianQC
+        if (brianStoreGridDataInto != nullptr) {
+            (*brianStoreGridDataInto)[i_grp].radialPoints.resize(spec.group[i_grp].nreps);
+            for (int i_rep = 0; i_rep < spec.group[i_grp].nreps; i_rep++) {
+                (*brianStoreGridDataInto)[i_grp].radialPoints[i_rep] = {r[k_rad + i_rep], wr[k_rad + i_rep]};
+            }
+
+            (*brianStoreGridDataInto)[i_grp].angularPoints.resize(numAngPoints);
+            for (int i_ang = 0; i_ang < numAngPoints; i_ang++) {
+                // we compensate for an extra factor of 4*pi in Psi4's angular grid generation
+                (*brianStoreGridDataInto)[i_grp].angularPoints[i_ang] = {anggrid[i_ang].x, anggrid[i_ang].y, anggrid[i_ang].z, anggrid[i_ang].w / (4.0 * M_PI)};
+            }
+        }
+#endif
+
         // Iterate over repetitions within the group
         for (int i_rep = 0; i_rep < spec.group[i_grp].nreps; i_rep++) {
             // Iterate over angular points...
@@ -2534,7 +2609,7 @@ void StandardGridMgr::ReleaseMemory() {
 }
 
 void StandardGridMgr::Initialize_SG0() {
-    // See S. Chien and P. Gill,  J. Comput. Chem. 27 (2006) 730–739.
+    // See S. Chien and P. Gill,  J. Comput. Chem. 27 (2006) 730-739.
     // This is Table 1 from that paper, with {0,0} terminators at the end of each row.
     //
     // We need an 18-point rule; this is not a Lebedev rule, but we
@@ -2590,15 +2665,31 @@ void StandardGridMgr::Initialize_SG0() {
         {Cl_grp,  26, 1480, 1.45}};
     // clang-format on
 
+#ifdef USING_BrianQC
+    if (brianEnableDFT) {
+        brianStandardGrids[0].resize(18);
+    }
+#endif
+
     for (int Z = 0; Z < 18; Z++) {
         if (SG0specs[Z].rparam == 0) {
             SG0_grids_[Z] = nullptr;
             SG0_sizes_[Z] = 0;
         } else {
+#ifdef USING_BrianQC
+            if (brianEnableDFT) {
+                brianStoreGridDataInto = &(brianStandardGrids[0][Z]);
+            }
+#endif
             MassPoint *grid = (MassPoint *)malloc(SG0specs[Z].npts * sizeof(MassPoint));
             makeCubatureGridFromPruneSpec(SG0specs[Z], RadialGridMgr::WhichScheme("MULTIEXP"), grid);
             SG0_grids_[Z] = grid;
             SG0_sizes_[Z] = SG0specs[Z].npts;
+#ifdef USING_BrianQC
+            if (brianEnableDFT) {
+                brianStoreGridDataInto = nullptr;
+            }
+#endif
         }
     }
 }
@@ -2646,7 +2737,18 @@ void StandardGridMgr::Initialize_SG1() {
     static const PruneSpec SG1specs[] = {
         {row1spec, 50, 3752, 0}, {row2spec, 50, 3816, 0}, {row3spec, 50, 3760, 0}, {row4spec, 50, 7828, 0}};
 
+#ifdef USING_BrianQC
+    if (brianEnableDFT) {
+        brianStandardGrids[1].resize(19);
+    }
+#endif
+
     for (int Z = 1; Z <= 18; Z++) {
+#ifdef USING_BrianQC
+        if (brianEnableDFT) {
+            brianStoreGridDataInto = &(brianStandardGrids[1][Z]);
+        }
+#endif
         int whichRow = rows[Z];  // Which row of the periodic table are we looking at?
         PruneSpec spec = SG1specs[whichRow - 1];
         spec.rparam = SG1radii[Z];
@@ -2655,6 +2757,11 @@ void StandardGridMgr::Initialize_SG1() {
         makeCubatureGridFromPruneSpec(spec, RadialGridMgr::WhichScheme("EM"), grid);
         SG1_grids_[Z] = grid;
         SG1_sizes_[Z] = spec.npts;
+#ifdef USING_BrianQC
+        if (brianEnableDFT) {
+            brianStoreGridDataInto = nullptr;
+        }
+#endif
     }
 }
 
@@ -2932,13 +3039,13 @@ class OrientationMgr {
     }
     static inline LVector normalToTriangle(LVector a, LVector b, LVector c) { return vcross(vsub(b, a), vsub(c, a)); }
 
-    static inline LVector mvtimes(LMatrix Q, LVector v) {
+    static inline LVector mvtimes(const LMatrix &Q, const LVector &v) {
         LVector out = {Q.xx * v.x + Q.xy * v.y + Q.xz * v.z, Q.yx * v.x + Q.yy * v.y + Q.yz * v.z,
                        Q.zx * v.x + Q.zy * v.y + Q.zz * v.z};
         return out;
     }
 
-    static inline LMatrix mmtimes(LMatrix A, LMatrix B) {
+    static inline LMatrix mmtimes(const LMatrix &A, const LMatrix &B) {
         LMatrix C;
         C.xx = A.xx * B.xx + A.xy * B.yx + A.xz * B.zx;
         C.xy = A.xx * B.xy + A.xy * B.yy + A.xz * B.zy;
@@ -2952,7 +3059,7 @@ class OrientationMgr {
         return C;
     }
 
-    static inline LMatrix cycleXtoZ(LMatrix in) {
+    static inline LMatrix cycleXtoZ(const LMatrix &in) {
         // We want to swap the x-row with the z-row, but that
         // can interfere with chirality, so we instead rotate
         // x->z, z->x, x->y.
@@ -3475,7 +3582,7 @@ OrientationMgr::OrientationMgr(std::shared_ptr<Molecule> mol) {
     rotation_ = Q;
 }
 
-}  // namespace
+}  // namespace psi
 
 namespace psi {
 
@@ -3558,7 +3665,7 @@ int RadialPruneMgr::TreutlerShellPruning(int ri, int Z, int radial_pts) {
     // H, He always 1 smaller
     if (Z <= 2) {
         pruned_order = nominal_order_ - 1;
-    }; 
+    };
 
     int region1 = 7;  // 5, as in the paper, is too small. 7 appears to favored also by other programs.
     int region2 = 11;
@@ -3589,7 +3696,7 @@ int RadialPruneMgr::ShellPruning(int ri, int Z, int radial_pts) {
     // H, He always reduced by 1
     if (Z <= 2) {
         pruned_order = nominal_order_ - 1;
-    };  
+    };
 
     // dvide BS shell into 4 equal regions
     double nr = (double)radial_pts / 4.0;
@@ -3631,11 +3738,33 @@ void MolecularGrid::buildGridFromOptions(MolecularGridOptions const &opt) {
         spherical_grids_.resize(molecule_->natom());
     }
 
+#ifdef USING_BrianQC
+    std::vector<std::vector<double>> atomRotations(molecule_->natom());
+    std::vector<std::vector<BrianBlock>> atomBlocks(molecule_->natom());
+#endif
+
+    // Check grid per-atom first so throws happen outside threaded block
+    for (int A = 0; A < molecule_->natom(); A++) {
+        int Z = molecule_->true_atomic_number(A);
+
+        if (opt.namedGrid != -1) {  // Using a named grid
+            assert(opt.namedGrid == 0 || opt.namedGrid == 1);
+            int npts = (opt.namedGrid == 0) ? StandardGridMgr::GetSG0size(Z) : StandardGridMgr::GetSG1size(Z);
+        }
+    }
+
 // Iterate over atoms
 #pragma omp parallel for schedule(static)
     for (int A = 0; A < molecule_->natom(); A++) {
         int Z = molecule_->true_atomic_number(A);
         double stratmannCutoff = nuc.GetStratmannCutoff(A);
+
+#ifdef USING_BrianQC
+        if (brianEnable and brianEnableDFT) {
+            std::shared_ptr<Matrix> rotationMatrix = orientation_->transpose();
+            atomRotations[A] = std::vector<double>(rotationMatrix->get_pointer(0), rotationMatrix->get_pointer(0) + 9);
+        }
+#endif
 
         if (opt.namedGrid == -1) {  // Not using a named grid
             std::vector<double> r(opt.nradpts), wr(opt.nradpts);
@@ -3648,6 +3777,7 @@ void MolecularGrid::buildGridFromOptions(MolecularGridOptions const &opt) {
             std::vector<std::shared_ptr<SphericalGrid>> spheres;
             spherical_grids_[A] = spheres;
 
+            int currentBlockIndex = -1;
             for (int i = 0; i < opt.nradpts; i++) {
                 int numAngPts = 0;
                 if (opt.prunetype == "REGION") {
@@ -3661,6 +3791,22 @@ void MolecularGrid::buildGridFromOptions(MolecularGridOptions const &opt) {
                 }
                 assert(numAngPts > 0);
                 const MassPoint *anggrid = LebedevGridMgr::findGridByNPoints(numAngPts);
+
+#ifdef USING_BrianQC
+                if (brianEnable and brianEnableDFT) {
+                    if (currentBlockIndex == -1 or atomBlocks[A][currentBlockIndex].angularPoints.size() != numAngPts) {
+                        atomBlocks[A].push_back(BrianBlock());
+                        currentBlockIndex++;
+
+                        for (int j = 0; j < numAngPts; j++) {
+                            // we compensate for an extra factor of 4*pi in Psi4's angular grid generation
+                            atomBlocks[A][currentBlockIndex].angularPoints.push_back({anggrid[j].x, anggrid[j].y, anggrid[j].z, anggrid[j].w / (4.0 * M_PI)});
+                        }
+                    }
+
+                    atomBlocks[A][currentBlockIndex].radialPoints.push_back({r[i], wr[i]});
+                }
+#endif
 
                 // RMP: And this stuff! This whole thing is completely and utterly FUBAR.
                 spherical_grids_[A].push_back(SphericalGrid::build("Unknown", numAngPts, anggrid));
@@ -3676,6 +3822,11 @@ void MolecularGrid::buildGridFromOptions(MolecularGridOptions const &opt) {
             }
         } else {
             assert(opt.namedGrid == 0 || opt.namedGrid == 1);
+#ifdef USING_BrianQC
+            if (brianEnable and brianEnableDFT) {
+                atomBlocks[A] = brianStandardGrids.at(opt.namedGrid).at(Z);
+            }
+#endif
             int npts = (opt.namedGrid == 0) ? StandardGridMgr::GetSG0size(Z) : StandardGridMgr::GetSG1size(Z);
             const MassPoint *sg =
                 (opt.namedGrid == 0) ? StandardGridMgr::GetSG0grid(Z) : StandardGridMgr::GetSG1grid(Z);
@@ -3690,6 +3841,79 @@ void MolecularGrid::buildGridFromOptions(MolecularGridOptions const &opt) {
             }
         }
     }
+
+#ifdef USING_BrianQC
+    // TODO: do the same for the other version of buildGridFromOptions below
+    if (brianEnable and brianEnableDFT) {
+        BrianGrid brianGrid;
+        brianInt atomBlockOffset = 0;
+        brianInt radialOffset = 0;
+        brianInt angularOffset = 0;
+
+        for (int A = 0; A < molecule_->natom(); A++) {
+            brianGrid.atomRotationMatrices.insert(brianGrid.atomRotationMatrices.end(), atomRotations[A].begin(), atomRotations[A].end());
+
+            brianGrid.atomBlockCounts.push_back(atomBlocks[A].size());
+            brianGrid.atomBlockOffsets.push_back(atomBlockOffset);
+            for (int blockIndex = 0; blockIndex < atomBlocks[A].size(); blockIndex++) {
+
+                brianGrid.blockRadialCounts.push_back(atomBlocks[A][blockIndex].radialPoints.size());
+                brianGrid.blockRadialOffsets.push_back(radialOffset);
+                for (int radialIndex = 0; radialIndex < atomBlocks[A][blockIndex].radialPoints.size(); radialIndex++)
+                {
+                    brianGrid.radialCoordinates.push_back(atomBlocks[A][blockIndex].radialPoints[radialIndex].r);
+                    brianGrid.radialWeights.push_back(atomBlocks[A][blockIndex].radialPoints[radialIndex].w);
+                }
+                radialOffset += atomBlocks[A][blockIndex].radialPoints.size();
+
+                brianGrid.blockAngularCounts.push_back(atomBlocks[A][blockIndex].angularPoints.size());
+                brianGrid.blockAngularOffsets.push_back(angularOffset);
+                for (int angularIndex = 0; angularIndex < atomBlocks[A][blockIndex].angularPoints.size(); angularIndex++)
+                {
+                    brianGrid.angularCoordinates.push_back(atomBlocks[A][blockIndex].angularPoints[angularIndex].x);
+                    brianGrid.angularCoordinates.push_back(atomBlocks[A][blockIndex].angularPoints[angularIndex].y);
+                    brianGrid.angularCoordinates.push_back(atomBlocks[A][blockIndex].angularPoints[angularIndex].z);
+                    brianGrid.angularWeights.push_back(atomBlocks[A][blockIndex].angularPoints[angularIndex].w);
+                }
+                angularOffset += atomBlocks[A][blockIndex].angularPoints.size();
+            }
+
+            atomBlockOffset += atomBlocks[A].size();
+        }
+
+        if (brianBuildingNLCGrid) {
+            brianCOMSetNLCGrid(&brianCookie,
+                brianGrid.atomBlockCounts.data(),
+                brianGrid.atomBlockOffsets.data(),
+                brianGrid.blockRadialCounts.data(),
+                brianGrid.blockRadialOffsets.data(),
+                brianGrid.radialCoordinates.data(),
+                brianGrid.radialWeights.data(),
+                brianGrid.blockAngularCounts.data(),
+                brianGrid.blockAngularOffsets.data(),
+                brianGrid.angularCoordinates.data(),
+                brianGrid.angularWeights.data(),
+                brianGrid.atomRotationMatrices.data()
+            );
+            checkBrian();
+        } else {
+            brianCOMSetDFTGrid(&brianCookie,
+                brianGrid.atomBlockCounts.data(),
+                brianGrid.atomBlockOffsets.data(),
+                brianGrid.blockRadialCounts.data(),
+                brianGrid.blockRadialOffsets.data(),
+                brianGrid.radialCoordinates.data(),
+                brianGrid.radialWeights.data(),
+                brianGrid.blockAngularCounts.data(),
+                brianGrid.blockAngularOffsets.data(),
+                brianGrid.angularCoordinates.data(),
+                brianGrid.angularWeights.data(),
+                brianGrid.atomRotationMatrices.data()
+            );
+            checkBrian();
+        }
+    }
+#endif
 
     npoints_ = 0;
     for (int i = 0; i < grid.size(); ++i) {
@@ -3718,7 +3942,6 @@ void MolecularGrid::buildGridFromOptions(MolecularGridOptions const &opt, const 
                                          const std::vector<std::vector<double>> &ws,
                                          const std::vector<std::vector<int>> &Ls) {
     options_ = opt;  // Save a copy
-
     // std::vector<MassPoint> grid; // This is just for the first pass.
     std::vector<std::vector<MassPoint>> grid(molecule_->natom());  // This is just for the first pass.
 
@@ -4022,7 +4245,7 @@ void BlockOPoints::populate() {
 }
 void BlockOPoints::print(std::string out, int print) {
     std::shared_ptr<psi::PsiOutStream> printer = (out == "outfile" ? outfile : std::make_shared<PsiOutStream>(out));
-    printer->Printf("   => BlockOPoints: %d Points <=\n\n", npoints_);
+    printer->Printf("   => BlockOPoints: %zu Points <=\n\n", npoints_);
 
     printer->Printf("    Center = <%11.3E,%11.3E,%11.3E>, R = %11.3E\n\n", xc_[0], xc_[1], xc_[2], R_);
 
@@ -4104,11 +4327,12 @@ void DFTGrid::buildGridFromOptions(std::map<std::string, int> int_opts_map,
     static const std::vector<std::string> function_names = {"FLAT",       "P_SLATER",   "D_SLATER",    "LOG_SLATER",
                                                             "P_GAUSSIAN", "D_GAUSSIAN", "LOG_GAUSSIAN"};
     static const std::vector<std::string> region_names = {"ROBUST", "TREUTLER"};
-    opt.prunescheme = options_.get_str("DFT_PRUNING_SCHEME");
+    opt.prunescheme = full_str_options["DFT_PRUNING_SCHEME"];
 
     for (auto key : region_names) {
         if (opt.prunescheme == key) {
             opt.prunetype = "REGION";
+            opt.prunefunction = RadialPruneMgr::WhichPruneFunction("FLAT");
         }
     }
     for (auto key : function_names) {
@@ -4302,14 +4526,14 @@ void MolecularGrid::print_details(std::string out, int /*print*/) const {
     std::shared_ptr<psi::PsiOutStream> printer = (out == "outfile" ? outfile : std::make_shared<PsiOutStream>(out));
     printer->Printf("   > Grid Details <\n\n");
     for (size_t A = 0; A < radial_grids_.size(); A++) {
-        printer->Printf("    Atom: %4d, Nrad = %6d, Alpha = %11.3E:\n", A, radial_grids_[A]->npoints(),
+        printer->Printf("    Atom: %4zu, Nrad = %6d, Alpha = %11.3E:\n", A, radial_grids_[A]->npoints(),
                         radial_grids_[A]->alpha());
         for (size_t R = 0; R < spherical_grids_[A].size(); R++) {
             double Rval = radial_grids_[A]->r()[R];
             double Wval = radial_grids_[A]->w()[R];
             int Nsphere = spherical_grids_[A][R]->npoints();
             int Lsphere = spherical_grids_[A][R]->order();
-            printer->Printf("    Node: %4d, R = %11.3E, WR = %11.3E, Nsphere = %6d, Lsphere = %6d\n", R, Rval, Wval,
+            printer->Printf("    Node: %4zu, R = %11.3E, WR = %11.3E, Nsphere = %6d, Lsphere = %6d\n", R, Rval, Wval,
                             Nsphere, Lsphere);
         }
     }
@@ -4341,7 +4565,7 @@ void NaiveGridBlocker::block() {
     npoints_ = npoints_ref_;
     max_points_ = tol_max_points_;
     max_functions_ = extents_->basis()->nbf();
-    collocation_size_ = max_points_ * max_functions_;
+    collocation_size_ = static_cast<size_t>(max_points_) * max_functions_;
 
     x_ = new double[npoints_];
     y_ = new double[npoints_];
@@ -4430,7 +4654,7 @@ void OctreeGridBlocker::block() {
                     XC[0] /= block.size();
                     XC[1] /= block.size();
                     XC[2] /= block.size();
-                    printer->Printf("   %4d %5d %15.6E %15.6E %15.6E\n", tree_level, A, XC[0], XC[1], XC[2]);
+                    printer->Printf("   %4d %5zu %15.6E %15.6E %15.6E\n", tree_level, A, XC[0], XC[1], XC[2]);
                 }
 
                 std::vector<int> left;
@@ -4643,7 +4867,7 @@ std::shared_ptr<RadialGrid> RadialGrid::build(const std::string &scheme, int npo
     if (scheme == "BECKE") {
         return RadialGrid::build_becke(npoints, alpha, Z);
     } else if (scheme == "TREUTLER") {
-        return RadialGrid::build_becke(npoints, alpha, Z);
+        return RadialGrid::build_treutler(npoints, alpha, Z);
     } else {
         throw PSIEXCEPTION("RadialGrid::build: Unrecognized radial grid.");
     }
@@ -4690,15 +4914,15 @@ std::shared_ptr<RadialGrid> RadialGrid::build_treutler(int npoints, double alpha
     // // Treutler/Ahlrichs 1995 mapping parameters
     // clang-format off
     static const std::vector<double> TreutlerEta =  { 1.0,
-      0.800, 0.900,                                                                
-      1.800, 1.400,                      1.300, 1.100, 0.900, 0.900, 0.900, 0.900, 
-      1.400, 1.300,                      1.300, 1.200, 1.100, 1.000, 1.000, 1.000, 
-      1.500, 1.400,1.300, 1.200, 1.200, 1.200, 1.200, 1.200, 1.200, 1.100, 1.100, 1.100,1.100, 1.000, 0.900, 0.900, 0.900, 0.900,     
-      2.000, 1.700,1.500, 1.500, 1.350, 1.350, 1.250, 1.200, 1.250, 1.300, 1.500, 1.500, 1.300, 1.200, 1.200, 1.150, 1.150, 1.150,     
-      2.500, 2.200,                                                                
-             2.500, 1.500,1.500,1.500,1.500,1.500,1.500,1.500,1.500,1.500,1.500,1.500,1.500,1.500,1.500,                                                                             
-      1.500, 1.500, 1.500, 1.500, 1.500, 1.500, 1.500, 1.500, 1.500, 1.500, 1.500, 1.500, 1.500, 1.500, 1.500, 
-      2.500, 2.100,                                                                
+      0.800, 0.900,
+      1.800, 1.400,                                                                       1.300, 1.100, 0.900, 0.900, 0.900, 0.900,
+      1.400, 1.300,                                                                       1.300, 1.200, 1.100, 1.000, 1.000, 1.000,
+      1.500, 1.400, 1.300, 1.200, 1.200, 1.200, 1.200, 1.200, 1.200, 1.100, 1.100, 1.100, 1.100, 1.000, 0.900, 0.900, 0.900, 0.900,
+      2.000, 1.700, 1.500, 1.500, 1.350, 1.350, 1.250, 1.200, 1.250, 1.300, 1.500, 1.500, 1.300, 1.200, 1.200, 1.150, 1.150, 1.150,
+      2.500, 2.200,
+             2.500, 1.500,1.500,1.500,1.500,1.500,1.500,1.500,1.500,1.500,1.500,1.500,1.500,1.500,1.500,
+             1.500, 1.500, 1.500, 1.500, 1.500, 1.500, 1.500, 1.500, 1.500, 1.500, 1.500, 1.500, 1.500, 1.500, 1.500,
+      2.500, 2.100,
              3.685,1.500,1.500,1.500,1.500,1.500,1.500,1.500,1.500,1.500,1.500,1.500,1.500,1.500,1.500,
     };
 

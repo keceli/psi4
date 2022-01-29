@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -29,6 +29,9 @@
 #ifndef _psi_src_lib_libmints_basisset_h_
 #define _psi_src_lib_libmints_basisset_h_
 
+#ifdef _MSC_VER
+#include <libint2/shell.h>
+#endif
 #include "gshell.h"
 
 #include "psi4/pragma.h"
@@ -44,6 +47,9 @@ PRAGMA_WARNING_IGNORE_DEPRECATED_DECLARATIONS
 #include <memory>
 PRAGMA_WARNING_POP
 
+namespace libint2 {
+    struct Shell;
+}
 namespace psi {
 
 class Molecule;
@@ -72,12 +78,11 @@ class PSI_API BasisSet {
     std::string target_;
 
     //! Array of gaussian shells
-    GaussianShell *shells_;
+    std::vector<GaussianShell> shells_;
     //! Array of ECP shells
-    GaussianShell *ecp_shells_;
-
-    //! vector of shells numbers sorted in ascending AM order.
-    std::vector<int> sorted_ao_shell_list_;
+    std::vector<GaussianShell> ecp_shells_;
+    //! Array of Libint2 shells
+    std::vector<libint2::Shell> l2_shells_;
 
     //! The number of core electrons for each atom type
     std::map<std::string, int> ncore_;
@@ -120,46 +125,46 @@ class PSI_API BasisSet {
      * Arrays
      */
     /// The number of primitives (and exponents) in each shell
-    int *n_prim_per_shell_;
+    std::vector<int> n_prim_per_shell_;
     /// The first (Cartesian) atomic orbital in each shell
-    int *shell_first_ao_;
+    std::vector<int> shell_first_ao_;
     /// The first (Cartesian / spherical) basis function in each shell
-    int *shell_first_basis_function_;
+    std::vector<int> shell_first_basis_function_;
     /// Shell number to atomic center.
-    int *shell_center_;
+    std::vector<int> shell_center_;
     /// ECP Shell number to atomic center.
-    int *ecp_shell_center_;
+    std::vector<int> ecp_shell_center_;
     /// Which shell does a given (Cartesian / spherical) function belong to?
-    int *function_to_shell_;
+    std::vector<int> function_to_shell_;
     /// Which shell does a given Cartesian function belong to?
-    int *ao_to_shell_;
+    std::vector<int> ao_to_shell_;
     /// Which center is a given function on?
-    int *function_center_;
+    std::vector<int> function_center_;
     /// How many shells are there on each center?
-    int *center_to_nshell_;
+    std::vector<int> center_to_nshell_;
     /// What's the first shell on each center?
-    int *center_to_shell_;
+    std::vector<int> center_to_shell_;
     /// How many ECP shells are there on each center?
-    int *center_to_ecp_nshell_;
+    std::vector<int> center_to_ecp_nshell_;
     /// What's the first ECP shell on each center?
-    int *center_to_ecp_shell_;
+    std::vector<int> center_to_ecp_shell_;
 
     /// The flattened lists of unique exponents
-    double *uexponents_;
+    std::vector<double> uexponents_;
     /// The flattened lists of unique contraction coefficients (normalized)
-    double *ucoefficients_;
+    std::vector<double> ucoefficients_;
     /// The flattened lists of unique contraction coefficients (as provided by the user)
-    double *uoriginal_coefficients_;
+    std::vector<double> uoriginal_coefficients_;
     /// The flattened lists of unique ECP exponents
-    double *uecpexponents_;
+    std::vector<double> uecpexponents_;
     /// The flattened lists of unique ECP contraction coefficients (normalized)
-    double *uecpcoefficients_;
-    /// The flattened list of r exponenets for ECP calculations
-    int *uecpns_;
+    std::vector<double> uecpcoefficients_;
+    /// The flattened list of r exponents for ECP calculations
+    std::vector<int> uecpns_;
     /// The flattened lists of ERD normalized contraction coefficients
-    double *uerd_coefficients_;
+    std::vector<double> uerd_coefficients_;
     /// The flattened list of Cartesian coordinates for each atom
-    double *xyz_;
+    std::vector<double> xyz_;
 
    public:
     BasisSet();
@@ -167,6 +172,8 @@ class PSI_API BasisSet {
     BasisSet(const std::string &basistype, SharedMolecule mol,
              std::map<std::string, std::map<std::string, std::vector<ShellInfo> > > &shell_map,
              std::map<std::string, std::map<std::string, std::vector<ShellInfo> > > &ecp_shell_map);
+
+    ~BasisSet();
 
     /** Builder factory method
      * @param molecule the molecule to build the BasisSet around
@@ -270,6 +277,12 @@ class PSI_API BasisSet {
      *  @return A shared pointer to the GaussianShell object for the i'th shell.
      */
     const GaussianShell &ecp_shell(int si) const;
+
+    /** Return the si'th Gaussian shell
+     *  @param si Shell number
+     *  @return A shared pointer to the libint2::Shell object for the i'th shell.
+     */
+    const libint2::Shell &l2_shell(int si) const;
 
     /** Return the i'th Gaussian shell on center
      *  @param center atomic center
@@ -381,11 +394,6 @@ class PSI_API BasisSet {
 
     /// Global arrays of x, y, z exponents
     static std::vector<Vector3> exp_ao[];
-
-    //! Returns the value of the sorted shell list.
-    int get_ao_sorted_shell(const int &i) { return sorted_ao_shell_list_[i]; }
-    //! Returns the vector of sorted shell list.
-    std::vector<int> get_ao_sorted_list() { return sorted_ao_shell_list_; }
 
     // Translate a given atom by a given amount.  Used for debugging/finite difference purposes.  Does NOT modify the
     // underlying molecule object.

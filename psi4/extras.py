@@ -3,7 +3,7 @@
 #
 # Psi4: an open-source quantum chemistry software package
 #
-# Copyright (c) 2007-2019 The Psi4 Developers.
+# Copyright (c) 2007-2022 The Psi4 Developers.
 #
 # The copyrights for code used from other parties are included in
 # the corresponding files.
@@ -26,10 +26,10 @@
 # @END LICENSE
 #
 
-import os
 import atexit
 import datetime
-from typing import Union
+import os
+from typing import List, Union
 
 from qcelemental.util import which, which_import
 
@@ -53,18 +53,20 @@ def clean_numpy_files():
 atexit.register(clean_numpy_files)
 
 
-def exit_printing(start_time=None):
+def exit_printing(start_time: datetime.datetime = None, success: bool = None) -> None:
     """Prints the exit time and status.
 
     Parameters
     ----------
-    start_time : datetime.datetime, optional
-        starting time from which the elapsed time is computed.
- 
+    start_time
+         starting time from which the elapsed time is computed.
+    success
+        Provides a success flag, otherwise uses the ``_success_flag_`` global variable
+
     Returns
     -------
     None
- 
+
     """
     end_time = datetime.datetime.now()
     core.print_out("\n    Psi4 stopped on: {}".format(end_time.strftime('%A, %d %B %Y %I:%M%p')))
@@ -73,7 +75,11 @@ def exit_printing(start_time=None):
         run_time = str(run_time).split('.')
         run_time = run_time[0] + '.' + run_time[1][:2]
         core.print_out("\n    Psi4 wall time for execution: {}\n".format(run_time))
-    if _success_flag_:
+
+    if success is None:
+        success = _success_flag_
+
+    if success:
         core.print_out("\n*** Psi4 exiting successfully. Buy a developer a beer!\n")
     else:
         core.print_out("\n*** Psi4 encountered an error. Buy a developer more coffee!\n")
@@ -126,10 +132,13 @@ _addons_ = {
     "ambit": _CMake_to_Py_boolean("@ENABLE_ambit@"),
     "chemps2": _CMake_to_Py_boolean("@ENABLE_CheMPS2@"),
     "dkh": _CMake_to_Py_boolean("@ENABLE_dkh@"),
+    "ecpint": _CMake_to_Py_boolean("@ENABLE_ecpint@"),
     "libefp": which_import("pylibefp", return_bool=True),
     "erd": _CMake_to_Py_boolean("@ENABLE_erd@"),
     "gdma": _CMake_to_Py_boolean("@ENABLE_gdma@"),
+    "ipi": which_import("ipi", return_bool=True),
     "pcmsolver": _CMake_to_Py_boolean("@ENABLE_PCMSolver@"),
+    "cppe": which_import("cppe", return_bool=True),
     "simint": _CMake_to_Py_boolean("@ENABLE_simint@"),
     "dftd3": psi4_which("dftd3", return_bool=True),
     "cfour": psi4_which("xcfour", return_bool=True),
@@ -140,10 +149,15 @@ _addons_ = {
     "forte": which_import("forte", return_bool=True),
     "snsmp2": which_import("snsmp2", return_bool=True),
     "resp": which_import("resp", return_bool=True),
+    "psi4fockci": which_import("psi4fockci", return_bool=True),
+    "adcc": which_import("adcc", return_bool=True),
+    "mdi": which_import("mdi", return_bool=True),
+    "cct3": which_import("cct3", return_bool=True),
+    "dftd4": which_import("dftd4", return_bool=True),
 }
 
 
-def addons(request=None):
+def addons(request: str = None) -> Union[bool, List[str]]:
     """Returns boolean of whether Add-On *request* is available to Psi4,
     either compiled in or searchable in $PSIPATH:$PATH, as relevant. If
     *request* not passed, returns list of available Add-Ons.
@@ -155,18 +169,20 @@ def addons(request=None):
 
 
 # Testing
-def test(extent='full', extras=None):
+def test(extent: str = "full", extras: List = None) -> int:
     """Runs a test suite through pytest.
 
     Parameters
     ----------
-    extent : {'smoke', 'quick', 'full', 'long'}
+    extent
+        {'smoke', 'quick', 'full', 'long'}
         All choices are defined, but choices may be redundant in some projects.
-        _smoke_ will be minimal "is-working?" test(s).
-        _quick_ will be as much coverage as can be got quickly, approx. 1/3 tests.
-        _full_ will be the whole test suite, less some exceedingly long outliers.
-        _long_ will be the whole test suite.
-    extras : list
+
+          * _smoke_ will be minimal "is-working?" test(s).
+          * _quick_ will be as much coverage as can be got quickly, approx. 1/3 tests.
+          * _full_ will be the whole test suite, less some exceedingly long outliers.
+          * _long_ will be the whole test suite.
+    extras
         Additional arguments to pass to `pytest`.
 
     Returns
@@ -196,3 +212,4 @@ def test(extent='full', extras=None):
 
     retcode = pytest.main(command)
     return retcode
+

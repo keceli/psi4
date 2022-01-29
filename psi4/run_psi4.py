@@ -1,11 +1,11 @@
-#!@PYTHON_EXECUTABLE@
+#!@Python_EXECUTABLE@
 
 #
 # @BEGIN LICENSE
 #
 # Psi4: an open-source quantum chemistry software package
 #
-# Copyright (c) 2007-2019 The Psi4 Developers.
+# Copyright (c) 2007-2022 The Psi4 Developers.
 #
 # The copyrights for code used from other parties are included in
 # the corresponding files.
@@ -28,17 +28,17 @@
 # @END LICENSE
 #
 
-import atexit
-import sys
-import os
-import json
-import datetime
 import argparse
-from argparse import RawTextHelpFormatter
+import atexit
+import datetime
+import json
+import os
+import sys
+import warnings
 from pathlib import Path
 
 # yapf: disable
-parser = argparse.ArgumentParser(description="Psi4: Open-Source Quantum Chemistry", formatter_class=RawTextHelpFormatter)
+parser = argparse.ArgumentParser(description="Psi4: Open-Source Quantum Chemistry", formatter_class=argparse.RawTextHelpFormatter)
 parser.add_argument("-i", "--input", default="input.dat",
                     help="Input file name. Default: input.dat.")
 parser.add_argument("-o", "--output", help="""\
@@ -52,14 +52,15 @@ parser.add_argument("-V", "--version", action='store_true',
                     help="Prints version information.")
 parser.add_argument("-n", "--nthread", default=1,
                     help="Number of threads to use. Psi4 disregards OMP_NUM_THREADS/MKL_NUM_THREADS.")
+parser.add_argument("--memory", default=524288000,
+                    help="The amount of memory to use. Can be specified with units (e.g., '10MB') otherwise bytes is assumed.")
 parser.add_argument("-s", "--scratch",
                     help="Scratch directory to use. Overrides PSI_SCRATCH.")
 parser.add_argument("-m", "--messy", action='store_true',
                     help="Leaves temporary files after the run is completed.")
 # parser.add_argument("-d", "--debug", action='store_true', help="Flush the outfile at every print statement.")
 # parser.add_argument("-r", "--restart", action='store_true', help="Number to be used instead of process id.")
-parser.add_argument("-p", "--prefix",
-                    help="Prefix name for psi files. Default psi")
+# parser.add_argument("-p", "--prefix", help="Prefix name for psi files. Default psi")
 parser.add_argument("--psiapi-path", action='store_true',
                     help="""Generates a bash command to source correct Python """
                          """interpreter and path for ``python -c "import psi4"``""")
@@ -70,10 +71,14 @@ parser.add_argument("-l", "--psidatadir",
                     help="Specifies where to look for the Psi4 data directory. Overrides PSIDATADIR. !Warning! expert option.")
 parser.add_argument("-k", "--skip-preprocessor", action='store_true',
                     help="Skips input preprocessing. !Warning! expert option.")
+parser.add_argument("--qcschema", "--schema", action='store_true',
+                    help="Runs input file as QCSchema. Can either be JSON or MessagePack input.")
 parser.add_argument("--json", action='store_true',
-                    help="Runs a JSON input file. !Warning! experimental option.")
+                    help="Runs a JSON input file. !Warning! depcrated option in 1.4, use --qcschema instead.")
 parser.add_argument("-t", "--test", nargs='?', const='smoke', default=None,
                     help="Runs pytest tests. If `pytest-xdist` installed, parallel with `--nthread`.")
+parser.add_argument("--mdi", default=None,
+                    help="Sets MDI configuration options")
 
 # For plugins
 parser.add_argument("--plugin-name", help="""\
@@ -129,10 +134,10 @@ if len(unknown) > 0:
 if len(unknown) > 1:
     args["output"] = unknown[1]
 if len(unknown) > 2:
-    raise KeyError("Too many unknown arguments: %s" % str(unknown))
+    raise KeyError(f"Too many unknown arguments: {unknown}")
 
 # Figure out output arg
-if args["output"] is None:
+if (args["output"] is None) and (args["qcschema"] is False):
     if args["input"] == "input.dat":
         args["output"] = "output.dat"
     elif args["input"].endswith(".in"):
@@ -155,7 +160,7 @@ if args['plugin_compile']:
         print("""Install "psi4-dev" via `conda install psi4-dev -c psi4[/label/dev]`, then reissue command.""")
 
 if args['psiapi_path']:
-    pyexe_dir = os.path.dirname("@PYTHON_EXECUTABLE@")
+    pyexe_dir = os.path.dirname("@Python_EXECUTABLE@")
     bin_dir = Path(cmake_install_prefix) / 'bin'
     print(f"""export PATH={pyexe_dir}:$PATH  # python interpreter\nexport PATH={bin_dir}:$PATH  # psi4 executable\nexport PYTHONPATH={lib_dir}:$PYTHONPATH  # psi4 pymodule""")
     sys.exit()
@@ -171,12 +176,11 @@ if args["psidatadir"] is not None:
 def custom_formatwarning(msg, *args, **kwargs):
     return str(msg) + '\n'
 
-import warnings
 warnings.formatwarning = custom_formatwarning
 
 # Import installed psi4
 sys.path.insert(1, lib_dir)
-import psi4
+import psi4  # isort:skip
 
 if args["version"]:
     print(psi4.__version__)
@@ -193,7 +197,7 @@ if args['plugin_name']:
         args['plugin_template'] = 'basic'
 
     # This call does not return.
-    psi4.plugin.create_plugin(args['plugin_name'], args['plugin_template'])
+    psi4.pluginutil.create_plugin(args['plugin_name'], args['plugin_template'])
 
     sys.exit()
 
@@ -213,21 +217,26 @@ if not os.path.isfile(args["input"]):
     raise KeyError("The file %s does not exist." % args["input"])
 args["input"] = os.path.normpath(args["input"])
 
+# Setup scratch_messy
+_clean_functions = [psi4.core.clean, psi4.extras.clean_numpy_files]
+
 # Setup outfile
 if args["append"] is None:
     args["append"] = False
-if args["output"] != "stdout":
+if (args["output"] != "stdout") and (args["qcschema"] is False):
     psi4.core.set_output_file(args["output"], args["append"])
 
 # Set a few options
-if args["prefix"] is not None:
-    psi4.core.set_psi_file_prefix(args["prefix"])
-
 psi4.core.set_num_threads(int(args["nthread"]), quiet=True)
-psi4.core.set_memory_bytes(524288000, True)
+psi4.set_memory(args["memory"], quiet=True)
 psi4.extras._input_dir_ = os.path.dirname(os.path.abspath(args["input"]))
-psi4.print_header()
+if args["qcschema"] is False:
+    psi4.print_header()
 start_time = datetime.datetime.now()
+
+# Initialize MDI
+if args["mdi"] is not None:
+    psi4.mdi_engine.mdi_init(args["mdi"])
 
 # Prepare scratch for inputparser
 if args["scratch"] is not None:
@@ -235,7 +244,50 @@ if args["scratch"] is not None:
         raise Exception("Passed in scratch is not a directory (%s)." % args["scratch"])
     psi4.core.IOManager.shared_object().set_default_path(os.path.abspath(os.path.expanduser(args["scratch"])))
 
-# If this is a json call, compute and stop
+# If this is a json or qcschema call, compute and stop
+if args["qcschema"]:
+    import qcelemental as qcel
+
+    # Handle the reading and deserialization manually
+    filename = args["input"]
+    if filename.endswith("json"):
+        encoding = "json"
+        with open(filename, 'r') as handle:
+            # No harm in attempting to read json-ext over json
+            data = qcel.util.deserialize(handle.read(), "json-ext")
+    elif filename.endswith("msgpack"):
+        encoding = "msgpack-ext"
+        with open(filename, 'rb') as handle:
+            data = qcel.util.deserialize(handle.read(), "msgpack-ext")
+    else:
+        raise Exception("qcschema files must either end in '.json' or '.msgpack'.")
+
+    psi4.extras._success_flag_ = True
+    clean = True
+    if args["messy"]:
+        clean = False
+        for func in _clean_functions:
+            atexit.unregister(func)
+
+    ret = psi4.schema_wrapper.run_qcschema(data, clean=clean)
+
+    if args["output"] is not None:
+        filename = args["output"]
+        if filename.endswith("json"):
+            encoding = "json"
+        elif filename.endswith("msgpack"):
+            encoding = "msgpack-ext"
+        # Else write with whatever encoding came in
+
+    if encoding == "json":
+        with open(filename, 'w') as handle:
+            handle.write(ret.serialize(encoding))
+    elif encoding == "msgpack-ext":
+        with open(filename, 'wb') as handle:
+            handle.write(ret.serialize(encoding))
+
+    sys.exit()
+
 if args["json"]:
 
     with open(args["input"], 'r') as f:
@@ -243,7 +295,7 @@ if args["json"]:
 
     psi4.extras._success_flag_ = True
     psi4.extras.exit_printing(start_time)
-    json_data = psi4.json_wrapper.run_json(json_data)
+    json_data = psi4.schema_wrapper.run_json(json_data)
 
     with open(args["input"], 'w') as f:
         json.dump(json_data, f)
@@ -269,20 +321,12 @@ if args["verbose"]:
     psi4.core.print_out('-' * 75)
 
 # Handle Messy
-_clean_functions = [psi4.core.clean, psi4.extras.clean_numpy_files]
 if args["messy"]:
-
-    if sys.version_info >= (3, 0):
-        for func in _clean_functions:
-            atexit.unregister(func)
-    else:
-        for handler in atexit._exithandlers:
-            for func in _clean_functions:
-                if handler[0] == func:
-                    atexit._exithandlers.remove(handler)
+    for func in _clean_functions:
+        atexit.unregister(func)
 
 # Register exit printing, failure GOTO coffee ELSE beer
-atexit.register(psi4.extras.exit_printing, start_time)
+atexit.register(psi4.extras.exit_printing, start_time=start_time)
 
 # Run the program!
 try:
@@ -303,15 +347,26 @@ except Exception as exception:
 
     in_str = "Printing out the relevant lines from the Psithon --> Python processed input file:\n"
     lines = content.splitlines()
-    suspect_lineno = traceback.extract_tb(exc_traceback)[1].lineno - 1  # -1 for 0 indexing
-    first_line = max(0, suspect_lineno - 5)  # Try to show five lines back...
-    last_line = min(len(lines), suspect_lineno + 6)  # Try to show five lines forward
-    for lineno in range(first_line, last_line):
-        mark = "--> " if lineno == suspect_lineno else "    "
-        in_str += mark + lines[lineno] + "\n"
-    psi4.core.print_out(in_str)
+    try:
+        suspect_lineno = traceback.extract_tb(exc_traceback)[1].lineno - 1  # -1 for 0 indexing
+    except IndexError:
+        # module error where lineno useless (e.g., `print "asdf"`)
+        pass
+    else:
+        first_line = max(0, suspect_lineno - 5)  # Try to show five lines back...
+        last_line = min(len(lines), suspect_lineno + 6)  # Try to show five lines forward
+        for lineno in range(first_line, last_line):
+            mark = "--> " if lineno == suspect_lineno else "    "
+            in_str += mark + lines[lineno] + "\n"
+        psi4.core.print_out(in_str)
 
+    # extract exception message and print it in a box for attention.
+    ex = ','.join(traceback.format_exception_only(type(exception), exception))
+    ex_list = ex.split(":", 1)[-1]
+    error = ''.join(ex_list)
+    psi4.core.print_out(psi4.driver.p4util.text.message_box(error))
     if psi4.core.get_output_file() != "stdout":
         print(tb_str)
         print(in_str)
+        print(psi4.driver.p4util.text.message_box(error))
     sys.exit(1)

@@ -3,7 +3,7 @@
 #
 # Psi4: an open-source quantum chemistry software package
 #
-# Copyright (c) 2007-2019 The Psi4 Developers.
+# Copyright (c) 2007-2022 The Psi4 Developers.
 #
 # The copyrights for code used from other parties are included in
 # the corresponding files.
@@ -43,25 +43,36 @@ procedures = {
         'hf'            : proc.run_scf,
         'scf'           : proc.run_scf,
         'mcscf'         : proc.run_mcscf,
-        'dcft'          : proc.run_dcft,
+        'dct'           : proc.run_dct,
         'ep2'           : proc.run_dfep2,
-        'mp3'           : proc.select_mp3,
-        'mp2.5'         : proc.select_mp2p5,
         'mp2'           : proc.select_mp2,
+        'scs-mp2'       : proc.run_occ,
+        'scs(n)-mp2'    : proc.run_occ,
+        'scs-mp2-vdw'   : proc.run_occ,
+        'sos-mp2'       : proc.run_occ,
+        'sos-pi-mp2'    : proc.run_occ,
+        'custom-scs-mp2': proc.run_occ,
         'omp2'          : proc.select_omp2,
         'scs-omp2'      : proc.run_occ,
-        'scs(n)-omp2'   : proc.run_occ,
-        'scs-omp2-vdw'  : proc.run_occ,
-        'sos-omp2'      : proc.run_occ,
-        'sos-pi-omp2'   : proc.run_occ,
+        'sos-omp2'       : proc.run_occ,
+        'custom-scs-omp2' : proc.run_occ,
+        'dlpno-mp2'     : proc.run_dlpnomp2,
+        'scs-dlpno-mp2' : proc.run_dlpnomp2,
+        'mp2.5'         : proc.select_mp2p5,
+        'custom-scs-mp2.5' : proc.run_occ,
+        'omp2.5'        : proc.select_omp2p5,
+        'custom-scs-omp2.5' : proc.run_occ,
+        'mp3'           : proc.select_mp3,
+        'scs-mp3'       : proc.run_occ,
+        'custom-scs-mp3' : proc.run_occ,
         'omp3'          : proc.select_omp3,
         'scs-omp3'      : proc.run_occ,
-        'scs(n)-omp3'   : proc.run_occ,
-        'scs-omp3-vdw'  : proc.run_occ,
         'sos-omp3'      : proc.run_occ,
-        'sos-pi-omp3'   : proc.run_occ,
+        'custom-scs-omp3' : proc.run_occ,
+        'lccd'          : proc.select_lccd,
+        'custom-scs-lccd' : proc.run_occ,
         'olccd'         : proc.select_olccd,
-        'omp2.5'        : proc.select_omp2p5,
+        'custom-scs-olccd' : proc.run_occ,
         'dfocc'         : proc.run_dfocc,  # full control over dfocc
         'qchf'          : proc.run_qchf,
         'ccd'           : proc.run_dfocc,
@@ -94,7 +105,9 @@ procedures = {
         'ccenergy'      : proc.run_ccenergy,  # full control over ccenergy
         'ccsd'          : proc.select_ccsd,
         'ccsd(t)'       : proc.select_ccsd_t_,
-        'ccsd(at)'      : proc.select_ccsd_at_,
+        'ccsd(at)'      : proc.select_ccsd_at_,  # alias
+        'a-ccsd(t)'     : proc.select_ccsd_at_,
+        'lambda-ccsd(t)': proc.select_ccsd_at_,  # alias
         'cc2'           : proc.run_ccenergy,
         'cc3'           : proc.run_ccenergy,
         'mrcc'          : proc.run_mrcc,  # interface to Kallay's MRCC program
@@ -113,7 +126,6 @@ procedures = {
         'fci'           : proc.run_detci,
         'casscf'        : proc.run_detcas,
         'rasscf'        : proc.run_detcas,
-        'adc'           : proc.run_adc,
         'psimrcc'       : proc.run_psimrcc,
         'psimrcc_scf'   : proc.run_psimrcc_scf,
         'qcisd'         : proc.run_fnocc,
@@ -135,7 +147,6 @@ procedures = {
         'fno-acpf'      : proc.run_cepa,
         'fno-aqcc'      : proc.run_cepa,
         'fno-cisd'      : proc.run_cepa,
-        'lccd'          : proc.select_lccd,
         'lccsd'         : proc.run_cepa,
         'cepa(0)'       : proc.run_cepa,
         'cepa(1)'       : proc.run_cepa,
@@ -146,6 +157,15 @@ procedures = {
         'dmrg-scf'      : proc.run_dmrgscf,
         'dmrg-caspt2'   : proc.run_dmrgscf,
         'dmrg-ci'       : proc.run_dmrgci,
+        'adc'           : proc.run_adc_deprecated,
+        'adc(1)'        : proc.run_adcc,
+        'adc(2)'        : proc.select_adc2,
+        'adc(2)-x'      : proc.run_adcc,
+        'adc(3)'        : proc.run_adcc,
+        'cvs-adc(1)'    : proc.run_adcc,
+        'cvs-adc(2)'    : proc.run_adcc,
+        'cvs-adc(2)-x'  : proc.run_adcc,
+        'cvs-adc(3)'    : proc.run_adcc,
         # Upon adding a method to this list, add it to the docstring in energy() below
         # Aliases are discouraged. If you must add an alias to this list (e.g.,
         #    lccsd/cepa(0)), please search the whole driver to find uses of
@@ -160,7 +180,7 @@ procedures = {
         'ccsd(t)'       : proc.select_ccsd_t__gradient,
         'mp2'           : proc.select_mp2_gradient,
         'eom-ccsd'      : proc.run_eom_cc_gradient,
-        'dcft'          : proc.run_dcft_gradient,
+        'dct'           : proc.run_dct_gradient,
         'omp2'          : proc.select_omp2_gradient,
         'omp3'          : proc.select_omp3_gradient,
         'mp3'           : proc.select_mp3_gradient,
@@ -171,35 +191,56 @@ procedures = {
         'lccd'          : proc.select_lccd_gradient,
         'olccd'         : proc.select_olccd_gradient,
         'ccd'           : proc.run_dfocc_gradient,
-        # Upon adding a method to this list, add it to the docstring in optimize() below
+        # Upon adding a method to this list, add it to the docstring in driver.optimize below
     },
     'hessian' : {
-        # Upon adding a method to this list, add it to the docstring in frequency() below
+        # Upon adding a method to this list, add it to the docstring in driver.frequency
         'hf'            : proc.run_scf_hessian,
         'scf'           : proc.run_scf_hessian,
     },
     'properties' : {
-        'hf'       : proc.run_scf_property,
-        'scf'      : proc.run_scf_property,
-        'mp2'      : proc.select_mp2_property,
-        'cc2'      : proc.run_cc_property,
-        'ccsd'     : proc.run_cc_property,
-        'eom-cc2'  : proc.run_cc_property,
-        'eom-ccsd' : proc.run_cc_property,
-        'detci'    : proc.run_detci_property,  # full control over detci
-        'cisd'     : proc.run_detci_property,
-        'cisdt'    : proc.run_detci_property,
-        'cisdtq'   : proc.run_detci_property,
-        'ci'       : proc.run_detci_property,  # arbitrary order ci(n)
-        'fci'      : proc.run_detci_property,
-        'rasscf'   : proc.run_detci_property,
-        'casscf'   : proc.run_detci_property,
+        'hf'           : proc.run_scf_property,
+        'scf'          : proc.run_scf_property,
+        'mp2'          : proc.select_mp2_property,
+        'cc2'          : proc.run_cc_property,
+        'ccsd'         : proc.run_cc_property,
+        'eom-cc2'      : proc.run_cc_property,
+        'eom-ccsd'     : proc.run_cc_property,
+        'dct'          : proc.run_dct_property,
+        'detci'        : proc.run_detci_property,  # full control over detci
+        'cisd'         : proc.run_detci_property,
+        'cisdt'        : proc.run_detci_property,
+        'cisdtq'       : proc.run_detci_property,
+        'ci'           : proc.run_detci_property,  # arbitrary order ci(n)
+        'fci'          : proc.run_detci_property,
+        'rasscf'       : proc.run_detci_property,
+        'casscf'       : proc.run_detci_property,
+        'omp2'         : proc.select_omp2_property,
+        'omp2.5'       : proc.select_omp2p5_property,
+        'omp3'         : proc.select_omp3_property,
+        'olccd'        : proc.select_olccd_property,
+        'adc(1)'       : proc.run_adcc_property,
+        'adc(2)'       : proc.run_adcc_property,
+        'adc(2)-x'     : proc.run_adcc_property,
+        'adc(3)'       : proc.run_adcc_property,
+        'cvs-adc(1)'   : proc.run_adcc_property,
+        'cvs-adc(2)'   : proc.run_adcc_property,
+        'cvs-adc(2)-x' : proc.run_adcc_property,
+        'cvs-adc(3)'   : proc.run_adcc_property,
         # Upon adding a method to this list, add it to the docstring in property() below
     }} # yapf: disable
 
 # Will only allow energy to be run for the following methods
 energy_only_methods = [x for x in procedures['energy'].keys() if 'sapt' in x]
-energy_only_methods += ['adc', 'efp', 'cphf', 'tdhf', 'cis']
+energy_only_methods += ['efp', 'cphf', 'tdhf', 'cis']
+
+# Catch all SAPT-D variants
+for key in functionals:
+    # Grab the available -Ds from HF, since that's what SAPT0-D calls
+    if key.startswith('hf-d'):
+        disp = key.split('-')[-1]
+        procedures['energy']['sapt0-' + disp] = proc.run_sapt
+        procedures['energy']['fisapt0-' + disp] = proc.run_fisapt
 
 # Will complete modelchem spec with basis='(auto)' for following methods
 integrated_basis_methods = ['g2', 'gaussian-2', 'hf3c', 'hf-3c', 'pbeh3c', 'pbeh-3c', 'sns-mp2']
@@ -217,9 +258,10 @@ for key in functionals:
     # Gradients
     if not (ssuper.is_c_hybrid() or ssuper.is_c_lrc() or ssuper.needs_vv10()):
         procedures['gradient'][key] = proc.run_scf_gradient
+        procedures['energy']['td-' + key] = proc.run_tdscf_energy
 
     # Hessians
-    if not ssuper.needs_xc():
+    if not ssuper.is_gga(): # N.B. this eliminates both GGA and m-GGA, as the latter contains GGA terms
         procedures['hessian'][key] = proc.run_scf_hessian
 
 # Integrate CFOUR with driver routines
@@ -228,6 +270,9 @@ for ssuper in interface_cfour.cfour_list():
 
 for ssuper in interface_cfour.cfour_gradient_list():
     procedures['gradient'][ssuper.lower()] = interface_cfour.run_cfour
+
+for ssuper in interface_cfour.cfour_hessian_list():
+    procedures['hessian'][ssuper.lower()] = interface_cfour.run_cfour
 
 # dictionary to register pre- and post-compute hooks for driver routines
 hooks = dict((k1, dict((k2, []) for k2 in ['pre', 'post'])) for k1 in ['energy', 'optimize', 'frequency'])

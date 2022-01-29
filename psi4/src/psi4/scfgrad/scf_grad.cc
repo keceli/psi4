@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -48,11 +48,23 @@
 #include "psi4/libfunctional/superfunctional.h"
 #include "psi4/libdisp/dispersion.h"
 #include "psi4/libscf_solver/hf.h"
+#include "psi4/libscf_solver/uhf.h"
 #include "psi4/libscf_solver/rhf.h"
 #include "psi4/libpsi4util/PsiOutStream.h"
 #include "psi4/libpsi4util/process.h"
 
 #include "jk_grad.h"
+
+#ifdef USING_BrianQC
+
+#include <brian_types.h>
+
+extern bool brianCPHFFlag;
+extern BrianCookie brianCookie;
+extern bool brianEnable;
+extern bool brianEnableDFT;
+
+#endif
 
 namespace psi {
 namespace scfgrad {
@@ -79,7 +91,7 @@ SCFDeriv::~SCFDeriv()
 void SCFDeriv::common_init()
 {
 
-
+    module_ = "scf";
     print_ = options_.get_int("PRINT");
     debug_ = options_.get_int("DEBUG");
 }
@@ -212,7 +224,7 @@ SharedMatrix SCFDeriv::compute_gradient()
     // => Two-Electron Gradient <= //
     timer_on("Grad: JK");
 
-    std::shared_ptr<JKGrad> jk = JKGrad::build_JKGrad(1, basisset_, basissets_["DF_BASIS_SCF"]);
+    auto jk = JKGrad::build_JKGrad(1, mintshelper_);
     jk->set_memory((size_t) (options_.get_double("SCF_MEM_SAFETY_FACTOR") * memory_ / 8L));
 
     jk->set_Ca(Ca_occ);
@@ -236,16 +248,27 @@ SharedMatrix SCFDeriv::compute_gradient()
 
     jk->print_header();
     jk->compute_gradient();
+    
+    double alpha = functional_->x_alpha();
+    double beta = functional_->x_beta();
+    
+#ifdef USING_BrianQC
+    if (brianEnable and brianEnableDFT) {
+        // BrianQC multiplies with the exact exchange factors inside the Fock building, so we must not do it here
+        alpha = 1.0;
+        beta = 1.0;
+    }
+#endif
 
     std::map<std::string, SharedMatrix>& jk_gradients = jk->gradients();
     gradients_["Coulomb"] = jk_gradients["Coulomb"];
     if (functional_->is_x_hybrid()) {
         gradients_["Exchange"] = jk_gradients["Exchange"];
-        gradients_["Exchange"]->scale(-functional_->x_alpha());
+        gradients_["Exchange"]->scale(-alpha);
     }
     if (functional_->is_x_lrc()) {
         gradients_["Exchange,LR"] = jk_gradients["Exchange,LR"];
-        gradients_["Exchange,LR"]->scale(-functional_->x_beta());
+        gradients_["Exchange,LR"]->scale(-beta);
     }
     timer_off("Grad: JK");
 
@@ -287,6 +310,7 @@ SharedMatrix SCFDeriv::compute_gradient()
 
     return gradients_["Total"];
 }
+
 SharedMatrix SCFDeriv::compute_hessian()
 {
     // => Echo <= //
@@ -320,7 +344,6 @@ SharedMatrix SCFDeriv::compute_hessian()
     hessian_terms.push_back("XC");
     hessian_terms.push_back("-D Hessian");
     hessian_terms.push_back("Response");
-    hessian_terms.push_back("Total");
 
     // => Densities <= //
     SharedMatrix Da;
@@ -354,16 +377,14 @@ SharedMatrix SCFDeriv::compute_hessian()
     }
 
     // => Potential/Functional <= //
-    std::shared_ptr<SuperFunctional> functional;
     std::shared_ptr<VBase> potential;
 
     if (functional_->needs_xc()) {
-        throw PSIEXCEPTION("Missing XC derivatives for Hessians");
-        // if (options_.get_str("REFERENCE") == "RKS") {
-        //     potential_->set_D({Da_});
-        // } else {
-        //     potential_->set_D({Da_, Db_});
-        // }
+        if (options_.get_str("REFERENCE") == "RKS") {
+            potential_->set_D({Da_});
+        } else {
+            potential_->set_D({Da_, Db_});
+        }
     }
 
     // => Sizings <= //
@@ -376,7 +397,13 @@ SharedMatrix SCFDeriv::compute_hessian()
     hessians_["Nuclear"] = SharedMatrix(molecule_->nuclear_repulsion_energy_deriv2().clone());
     hessians_["Nuclear"]->set_name("Nuclear Hessian");
 
-    auto Zxyz = std::make_shared<Matrix>("Zxyz", 1, 4);
+    // => XC Hessian <= //
+    timer_on("Hess: XC");
+    if (functional_->needs_xc()) {
+        potential_->print_header();
+        hessians_["XC"] = potential_->compute_hessian();
+    }
+    timer_off("Hess: XC");
 
     // => Potential Hessian <= //
     timer_on("Hess: V");
@@ -983,7 +1010,7 @@ SharedMatrix SCFDeriv::compute_hessian()
 
     timer_on("Hess: JK");
 
-    std::shared_ptr<JKGrad> jk = JKGrad::build_JKGrad(2, basisset_, basissets_["DF_BASIS_SCF"]);
+    auto jk = JKGrad::build_JKGrad(2, mintshelper_);
     jk->set_memory((size_t) (options_.get_double("SCF_MEM_SAFETY_FACTOR") * memory_ / 8L));
 
     jk->set_Ca(Ca);
@@ -991,16 +1018,16 @@ SharedMatrix SCFDeriv::compute_hessian()
     jk->set_Da(Da);
     jk->set_Db(Db);
     jk->set_Dt(Dt);
-    if (functional) {
+    if (functional_) {
         jk->set_do_J(true);
-        if (functional->is_x_hybrid()) {
+        if (functional_->is_x_hybrid()) {
             jk->set_do_K(true);
         } else {
             jk->set_do_K(false);
         }
-        if (functional->is_x_lrc()) {
+        if (functional_->is_x_lrc()) {
             jk->set_do_wK(true);
-            jk->set_omega(functional->x_omega());
+            jk->set_omega(functional_->x_omega());
         } else {
             jk->set_do_wK(false);
         }
@@ -1014,15 +1041,15 @@ SharedMatrix SCFDeriv::compute_hessian()
     jk->compute_hessian();
 
     std::map<std::string, SharedMatrix>& jk_hessians = jk->hessians();
-    if (functional) {
+    if (functional_) {
         hessians_["Coulomb"] = jk_hessians["Coulomb"];
-        if (functional->is_x_hybrid()) {
+        if (functional_->is_x_hybrid()) {
             hessians_["Exchange"] = jk_hessians["Exchange"];
-            hessians_["Exchange"]->scale(-functional->x_alpha());
+            hessians_["Exchange"]->scale(-functional_->x_alpha());
         }
-        if (functional->is_x_lrc()) {
+        if (functional_->is_x_lrc()) {
             hessians_["Exchange,LR"] = jk_hessians["Exchange,LR"];
-            hessians_["Exchange,LR"]->scale(-functional->x_beta());
+            hessians_["Exchange,LR"]->scale(-functional_->x_beta());
         }
     } else {
         hessians_["Coulomb"] = jk_hessians["Coulomb"];
@@ -1031,26 +1058,24 @@ SharedMatrix SCFDeriv::compute_hessian()
     }
     timer_off("Hess: JK");
 
-    // => XC Hessian <= //
-    timer_on("Hess: XC");
-    if (functional) {
-        potential->print_header();
-        throw PSIEXCEPTION("KS Hessians not implemented");
-        //hessians_["XC"] = potential->compute_hessian();
-    }
-    timer_off("Hess: XC");
-
     // => Response Terms (Brace Yourself) <= //
-    if (options_.get_str("REFERENCE") == "RHF") {
+#ifdef USING_BrianQC
+    brianCPHFFlag = true;
+#endif
+    if (options_.get_str("REFERENCE") == "RHF" || 
+        options_.get_str("REFERENCE") == "RKS" || 
+        options_.get_str("REFERENCE") == "UHF") {
         hessians_["Response"] = hessian_response();
     } else {
         throw PSIEXCEPTION("SCFHessian: Response not implemented for this reference");
     }
+#ifdef USING_BrianQC
+    brianCPHFFlag = false;
+#endif
 
     // => Total Hessian <= //
     SharedMatrix total = SharedMatrix(hessians_["Nuclear"]->clone());
     total->zero();
-
     for (int i = 0; i < hessian_terms.size(); i++) {
         if (hessians_.count(hessian_terms[i])) {
             total->add(hessians_[hessian_terms[i]]);
@@ -1065,12 +1090,12 @@ SharedMatrix SCFDeriv::compute_hessian()
     if (print_ > 1) {
         for (int i = 0; i < hessian_terms.size(); i++) {
             if (hessians_.count(hessian_terms[i])) {
-                printf("%s\n", hessian_terms[i].c_str());
+                outfile->Printf("%s\n", hessian_terms[i].c_str());
                 hessians_[hessian_terms[i]]->print();
             }
         }
     }
-    // hessians_["Total"]->print();
+    hessians_["Total"]->print();
 
     return hessians_["Total"];
 }

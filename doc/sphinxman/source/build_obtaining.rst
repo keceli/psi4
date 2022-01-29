@@ -3,7 +3,7 @@
 .. #
 .. # Psi4: an open-source quantum chemistry software package
 .. #
-.. # Copyright (c) 2007-2019 The Psi4 Developers.
+.. # Copyright (c) 2007-2022 The Psi4 Developers.
 .. #
 .. # The copyrights for code used from other parties are included in
 .. # the corresponding files.
@@ -48,7 +48,6 @@ select outright among:
 #. :ref:`faq:clonepsi4public`
 #. :ref:`faq:forkpsi4public` (only path to develop |PSIfour|)
 #. :ref:`faq:tarballpsi4public`
-#. :ref:`faq:psi3sourceforge`
 
 
 .. _`faq:quiz`:
@@ -63,8 +62,7 @@ though the below remains valid.
   developing anything to contribute back to the code base.
 
   * Provided I still get good, threaded BLAS/LAPACK, OpenMP parallelism,
-    and optimization for a variety of processor architectures (except
-    Mac, which is least common denominator), I'm willing to forgo
+    and optimization for a variety of processor architectures, I'm willing to forgo
     architecture tuning wizardry to avoid compiling it myself.
 
     * I'm on Linux or Mac or Windows with Ubuntu Bash Shell.
@@ -106,7 +104,7 @@ though the below remains valid.
       :ref:`plugins through conda <sec:condaplugins>`
 
 * I really like parentheses and/or DBOC, so I want Psi3. |w---w|
-  :ref:`Goto Psi3-from-SourceForge <faq:psi3sourceforge>`
+  Psi3 is available from `sourceforge <https://sourceforge.net/projects/psicode/files/psi/3.4.0/>`_, but you're on your own.
 
 .. comment * I am a core |PSIfour| developer, yet I'm still taking this quiz.
 .. comment 
@@ -122,8 +120,9 @@ Binary Installer
 
 * **Get Initially**
 
-  Just go to http://www.psicode.org/downloads.html and follow the
-  instructions there.
+  Just go to http://www.psicode.org/downloads.html, select "Installer",
+  "Stable Release", and your choice of architecture and Python version,
+  and follow the instructions there.
 
 * **Build**
 
@@ -156,6 +155,14 @@ Conda Binary Package
 
      >>> conda create -n p4env psi4 -c psi4
      >>> conda activate p4env
+
+  .. code-block:: bash
+
+     >>> # nightly build
+     >>> conda create -n p4env psi4 -c psi4/label/dev
+     >>> # Windows
+     >>> conda create -n p4env psi4 -c psi4 -c conda-forge
+
 
 * **Build**
 
@@ -294,32 +301,6 @@ Tarball from GitHub Repository
 * **Contribute Back**
 
   Not applicable as source not under git control.
-
-
-.. _`faq:psi3sourceforge`:
-
-Psi3 from SourceForge
----------------------
-
-* **Get Initially**
-
-  A tarball of the most recent version of Psi3 (3.4.0 circa 2009) is
-  available from `SourceForge
-  <http://sourceforge.net/projects/psicode/files/psi/3.4.0/>`_
-
-* **Build**
-
-  Follow the ``INSTALL`` file that comes with the distribution. An old
-  computer is probably handy for generating a working executable.
-
-* **Get Updates**
-
-  Updates are not forthcoming.
-
-* **Contribute Back**
-
-  This code is not under any development.
-
 
 .. _`faq:githubworkflow`:
 

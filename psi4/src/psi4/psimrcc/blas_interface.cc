@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -35,32 +35,29 @@
 
 #include "blas.h"
 #include "index.h"
-#include "debugging.h"
 #include "matrix.h"
 
 namespace psi {
 
 namespace psimrcc {
-extern MOInfo* moinfo;
-extern MemoryManager* memory_manager;
 
 void CCBLAS::add_index(const char* cstr) {
     // Make sure that the element that we are adding is not present
     std::string str(cstr);
     to_lower(str);
     if (indices.find(str) == indices.end()) {
-        indices.insert(make_pair(str, new CCIndex(str)));
+        indices.insert(make_pair(str, new CCIndex(wfn_, str)));
     }
 }
 
 void CCBLAS::add_Matrix(const char* cstr) {
     std::string str(cstr);
-    std::vector<std::string> names = moinfo->get_matrix_names(str);
+    std::vector<std::string> names = wfn_->moinfo()->get_matrix_names(str);
     for (size_t n = 0; n < names.size(); ++n) add_Matrix_ref(names[n]);
 }
 
 void CCBLAS::add_Matrix(std::string str) {
-    std::vector<std::string> names = moinfo->get_matrix_names(str);
+    std::vector<std::string> names = wfn_->moinfo()->get_matrix_names(str);
     for (size_t n = 0; n < names.size(); ++n) add_Matrix_ref(names[n]);
 }
 
@@ -210,36 +207,25 @@ double CCBLAS::get_scalar(std::string str) {
 }
 
 void CCBLAS::load(CCMatrix* Matrix) {
-    if (Matrix->is_allocated()) {
-        DEBUGGING(2, outfile->Printf("\nCCBLAS::load(%s): matrix is in core.", Matrix->get_label().c_str()););
-    } else {
-        DEBUGGING(2, outfile->Printf("\nCCBLAS::load(%s): matrix is not in core. Loading it :[",
-                                     Matrix->get_label().c_str()););
+    if (!Matrix->is_allocated()) {
         // Do we have enough memory to fit the entire matrix in core?
         size_t memory_required = Matrix->get_memory2();
         make_space(memory_required);
         Matrix->load();
-        DEBUGGING(2, outfile->Printf("\n] <- done."););
     }
 }
 
 void CCBLAS::load_irrep(CCMatrix* Matrix, int h) {
-    if (Matrix->is_block_allocated(h)) {
-        DEBUGGING(2, outfile->Printf("\nCCBLAS::load_irrep(%s,%d): matrix block is in core.",
-                                     Matrix->get_label().c_str(), h);)
-    } else {
-        DEBUGGING(2, outfile->Printf("\nCCBLAS::load_irrep(%s,%d): matrix block is not in core. Loading it : [",
-                                     Matrix->get_label().c_str(), h);)
+    if (!Matrix->is_block_allocated(h)) {
         // Do we have enough memory to fit the entire matrix in core?
         size_t memory_required = Matrix->get_memorypi2(h);
         make_space(memory_required);
         Matrix->load_irrep(h);
-        DEBUGGING(2, outfile->Printf("\n] <- done.");)
     }
 }
 
 void CCBLAS::make_space(size_t memory_required) {
-    if (memory_required < memory_manager->get_FreeMemory())
+    if (memory_required < wfn_->free_memory_)
         return;
     else {
         outfile->Printf("\nCCBLAS::make_space() not implemented yet!!!");

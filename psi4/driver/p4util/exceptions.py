@@ -3,7 +3,7 @@
 #
 # Psi4: an open-source quantum chemistry software package
 #
-# Copyright (c) 2007-2019 The Psi4 Developers.
+# Copyright (c) 2007-2022 The Psi4 Developers.
 #
 # The copyrights for code used from other parties are included in
 # the corresponding files.
@@ -27,8 +27,7 @@
 #
 """Module with non-generic exceptions classes."""
 
-from psi4 import core
-from psi4 import extras
+from psi4 import core, extras
 
 
 class PsiException(Exception):
@@ -100,7 +99,7 @@ class UpgradeHelper(PsiException):
 
 
 class ConvergenceError(PsiException):
-    """Error called for problems with converging and iterative method.
+    """Error called for problems with converging an iterative method.
 
     Parameters
     ----------
@@ -111,12 +110,14 @@ class ConvergenceError(PsiException):
 
     """
 
-    def __init__(self, eqn_description, iteration):
-        msg = "Could not converge %s in %d iterations." % (eqn_description, iteration)
+    def __init__(self, eqn_description, iteration, additional_info=None):
+        msg = f"Could not converge {eqn_description:s} in {iteration:d} iterations."
+        if additional_info is not None:
+            msg += f"\n\n{additional_info}"
         PsiException.__init__(self, msg)
         self.iteration = iteration
         self.message = msg
-        core.print_out('\nPsiException: %s\n\n' % (msg))
+        core.print_out(f'\nPsiException: {msg:s}\n\n')
 
 
 class OptimizationConvergenceError(ConvergenceError):
@@ -148,6 +149,44 @@ class SCFConvergenceError(ConvergenceError):
         self.wfn = wfn
 
 
+class TDSCFConvergenceError(ConvergenceError):
+    """Error called for problems with TDSCF iterations.
+
+    Parameters
+    ----------
+    wfn : psi4.core.Wavefunction
+        Wavefunction at time of exception
+    what : str
+        What we were trying to solve for (singlets/triplets, irrep) when we failed to converge
+    stats : Dict
+        Dictionary of convergence statistics of last iteration.
+        Keys are:
+
+          count : int, iteration number
+          res_norm : np.ndarray (nroots, ), the norm of residual vector for each roots
+          val : np.ndarray (nroots, ), the eigenvalue corresponding to each root
+          delta_val : np.ndarray (nroots, ), the change in eigenvalue from the last iteration to this ones
+          collapse : bool, if a subspace collapse was performed
+          product_count : int, the running total of product evaluations that was performed
+          done : bool, if all roots were converged
+    """
+
+    def __init__(self, iteration, wfn, what, stats):
+        # prepare message, including excitation energies and residual norm
+        conv_info = "==> Convergence statistics from last iteration <==\n\n"
+        conv_info += "Excitation Energy".center(21) + f" {'D[value]':^15}" + "|R|".center(11) + "\n"
+        conv_info += f"{'-':->20} {'-':->15} {'-':->15}\n"
+        for e, diff, r_norm in zip(stats["val"], stats["delta_val"], stats["res_norm"]):
+            conv_info += f"      {e:.6f}         {diff:-11.5e}    {r_norm:12.5e}\n"
+        ConvergenceError.__init__(self,
+                                  eqn_description=f"""TDSCF solver ({what})""",
+                                  iteration=iteration,
+                                  additional_info=conv_info)
+        self.wfn = wfn
+        self.what = what
+        self.stats = stats
+
+
 class CSXError(PsiException):
     """Error called when CSX generation fails.
 
@@ -171,10 +210,14 @@ class MissingMethodError(ValidationError):
 class ManagedMethodError(PsiException):
     def __init__(self, circs):
         if circs[5] == '':
-            msg = """{0}: Method '{1}' with {2} '{3}' and REFERENCE '{4}' not available{5}""".format(*circs)
+            modulemsg = "not available"
         else:
-            msg = """{0}: Method '{1}' with {2} '{3}' and REFERENCE '{4}' not directable to QC_MODULE '{5}'""".format(
-                *circs)
+            modulemsg = f"not directable to QC_MODULE '{circs[5]}'"
+
+        if len(circs) == 7:
+            msg = f"""{circs[0]}: Method '{circs[1]}' with {circs[2]} '{circs[3]}', FREEZE_CORE '{not circs[6]}', and REFERENCE '{circs[4]}' {modulemsg}"""
+        else:
+            msg = f"""{circs[0]}: Method '{circs[1]}' with {circs[2]} '{circs[3]}' and REFERENCE '{circs[4]}' {modulemsg}"""
         PsiException.__init__(self, msg)
         self.message = '\nPsiException: %s\n\n' % msg
 
@@ -206,7 +249,7 @@ class PastureRequiredError(PsiException):
     >>> # clone the pasture repo
     >>> git clone https://github.com/psi4/psi4pasture.git
 
-    >>> cmake -H. -Bobjdir -Dpsi4_DIR=$PSI4_INSTALL_PREFIX/share/cmake/psi4 {module_args}
+    >>> cmake -S. -Bobjdir -Dpsi4_DIR=$PSI4_INSTALL_PREFIX/share/cmake/psi4 {module_args}
     >>> # $PSI4_INSTALL_PREFIX is the $CMAKE_INSTALL_PREFIX for the psi4
     >>> # install you want to install pasture to
 

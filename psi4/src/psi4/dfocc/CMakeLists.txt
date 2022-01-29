@@ -79,7 +79,6 @@ list(APPEND sources
   mp3_W_intr.cc
   mp3_pdm_3index_intr.cc
   occ_iterations.cc
-  oei_grad.cc
   olccd_tpdm.cc
   omp2_opdm.cc
   omp2_tpdm.cc
@@ -89,7 +88,6 @@ list(APPEND sources
   prepare4grad.cc
   properties.cc
   qchf.cc
-  ref_grad.cc
   s2_response.cc
   semi_canonic.cc
   separable_tpdm.cc
@@ -99,8 +97,6 @@ list(APPEND sources
   t2_2nd_gen.cc
   t2_2nd_sc.cc
   t2_mp2_direct.cc
-  tei_grad_corr.cc
-  tei_grad_ref.cc
   tensors.cc
   tpdm_tilde.cc
   update_hfmo.cc
@@ -109,3 +105,5 @@ list(APPEND sources
   z_vector_pcg.cc
   )
 psi4_add_module(bin dfocc sources)
+
+target_link_libraries(dfocc PUBLIC diis)

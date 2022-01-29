@@ -3,7 +3,7 @@
 .. #
 .. # Psi4: an open-source quantum chemistry software package
 .. #
-.. # Copyright (c) 2007-2019 The Psi4 Developers.
+.. # Copyright (c) 2007-2022 The Psi4 Developers.
 .. #
 .. # The copyrights for code used from other parties are included in
 .. # the corresponding files.
@@ -37,7 +37,7 @@ Interface to DKH by A. Wolf, M. Reiher, and B. A. Hess
 .. codeauthor:: Justin M. Turney
 .. sectionauthor:: Justin M. Turney
 
-*Module:* :ref:`Keywords <apdx:dkh>`, :ref:`Samples <apdx:testSuitedkh>`
+*Module:* :ref:`Keywords <sec:dkhkeywords>`, :ref:`Samples <apdx:testSuitedkh>`
 
 .. image:: https://img.shields.io/badge/home-dkh-5077AB.svg
    :target: https://github.com/psi4/dkh
@@ -70,8 +70,8 @@ Installation
   hint its location with :makevar:`CMAKE_PREFIX_PATH`,
   and rebuild |PSIfour| to detect dkh and activate dependent code.
 
-* Previous bullet had details. To build |PSIfour| from source and use
-  dkh from conda without thinking, consult :ref:`sec:condapsi4dev`.
+.. * Previous bullet had details. To build |PSIfour| from source and use
+..   dkh from conda without thinking, consult.
 
 * To remove a conda installation, ``conda remove dkh``.
 
@@ -108,6 +108,8 @@ By default a 2nd-order DKH calculation is performed. To change the default
 order use the |globals__dkh_order| option. The version of the code found in
 |Psifour| is capable of up to 4th-order DKH calculations.
 
+.. _`sec:dkhkeywords`:
+
 Keywords
 ~~~~~~~~
 
@@ -121,7 +123,7 @@ When using this code please make reference to the appropriate following paper:
 
 * "The Generalized Douglas-Kroll Transformation," A. Wolf,
   M. Reiher, and B. A. Hess, *J. Chem. Phys.* **117**, 9215 (2002).
-  (doi: `10.1063/1.1515314 <http://dx.doi.org/10.1063/1.1515314>`_)
+  (doi: `10.1063/1.1515314 <https://doi.org/10.1063/1.1515314>`_)
 
 .. _`cmake:dkh`:
 

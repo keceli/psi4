@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -36,7 +36,7 @@
 namespace psi {
 
 /* dpd_buf4_symm2(): Symmetrizes two dpdbuf4's by
-** taking, I'(pq,rs) = 1/2 [I1(pq,rs) + I2(pq,rs)] (note the
+** taking, I'(pq,rs) = 1/2 [I1(pq,rs) + I2(rs,pq)] (note the
 ** indices!).  Users should keep in mind that the first! buffer will
 ** be overwritten when this function is called.  Also note that this
 ** routine will NOT check to see if the row and column dimensions of

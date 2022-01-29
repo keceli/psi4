@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -61,6 +61,8 @@ class Functional {
     std::string description_;
     // Citations(s) defining functionals
     std::string citation_;
+    // Name, version, and citation of XC provider
+    std::string xclib_description_;
 
     // Is GGA?
     bool gga_;
@@ -78,6 +80,8 @@ class Functional {
     double lsda_cutoff_;
     // Tau-based cutoff
     double meta_cutoff_;
+    // LibXC Densty-based cutoff
+    double density_cutoff_;
 
     // Initialize null functional
     void common_init();
@@ -113,18 +117,21 @@ class Functional {
         omega_ = omega;
         lrc_ = (omega_ != 0.0);
     }
-    void set_name(const std::string& name) { name_ = name; }
-    void set_description(const std::string& description) { description_ = description; }
-    void set_citation(const std::string& citation) { citation_ = citation; }
+    void set_name(const std::string &name) { name_ = name; }
+    void set_description(const std::string &description) { description_ = description; }
+    void set_citation(const std::string &citation) { citation_ = citation; }
+    void set_xclib_description(const std::string &description) { xclib_description_ = description; }
 
     void set_lsda_cutoff(double cut) { lsda_cutoff_ = cut; }
     void set_meta_cutoff(double cut) { meta_cutoff_ = cut; }
+    virtual void set_density_cutoff(double cut);
 
     // => Accessors <= //
 
     std::string name() const { return name_; }
     std::string description() const { return description_; }
     std::string citation() const { return citation_; }
+    std::string xclib_description() const { return xclib_description_; }
 
     bool is_meta() const { return meta_; }
     bool is_gga() const { return gga_; }
@@ -136,6 +143,8 @@ class Functional {
 
     double lsda_cutoff() const { return lsda_cutoff_; }
     double meta_cutoff() const { return meta_cutoff_; }
+    double density_cutoff() const { return density_cutoff_; }
+    virtual double query_density_cutoff();
 
     // => Utility <= //
     virtual void print(std::string out_fname = "outfile", int print = 1) const;

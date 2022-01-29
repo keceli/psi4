@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -31,22 +31,19 @@
 
 #include "blas.h"
 #include "mp2_ccsd.h"
-#include "debugging.h"
 #include "matrix.h"
-
-extern FILE* outfile;
 
 namespace psi {
 namespace psimrcc {
 
 void MP2_CCSD::build_Z_intermediates() {
-    blas->solve("Z_iJaM[aAa][O]{u} = #1234#   tau_oOvV[aA][vV]{u} 2@2 <[ao]|[vv]>");
-    blas->solve("Z_iJAm[aAA][o]{u} = #1234# - tau_oOVv[aA][Vv]{u} 2@2 <[ao]|[vv]>");
+    wfn_->blas()->solve("Z_iJaM[aAa][O]{u} = #1234#   tau_oOvV[aA][vV]{u} 2@2 <[ao]|[vv]>");
+    wfn_->blas()->solve("Z_iJAm[aAA][o]{u} = #1234# - tau_oOVv[aA][Vv]{u} 2@2 <[ao]|[vv]>");
 
-    blas->solve("Z_iJaM[oAa][O]{u} = #1234#   tau_oOvV[oA][vV]{u} 2@2 <[ao]|[vv]>");
-    blas->solve("Z_iJAm[oAA][o]{u} = #1234# - tau_oOVv[oA][Vv]{u} 2@2 <[ao]|[vv]>");
+    wfn_->blas()->solve("Z_iJaM[oAa][O]{u} = #1234#   tau_oOvV[oA][vV]{u} 2@2 <[ao]|[vv]>");
+    wfn_->blas()->solve("Z_iJAm[oAA][o]{u} = #1234# - tau_oOVv[oA][Vv]{u} 2@2 <[ao]|[vv]>");
 
-    blas->solve("Z_iJaM[aAv][O]{u} = #1234#   tau_oOvV[aA][vV]{u} 2@2 <[vo]|[vv]>");
+    wfn_->blas()->solve("Z_iJaM[aAv][O]{u} = #1234#   tau_oOvV[aA][vV]{u} 2@2 <[vo]|[vv]>");
 }
 
 }  // namespace psimrcc

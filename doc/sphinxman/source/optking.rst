@@ -3,7 +3,7 @@
 .. #
 .. # Psi4: an open-source quantum chemistry software package
 .. #
-.. # Copyright (c) 2007-2019 The Psi4 Developers.
+.. # Copyright (c) 2007-2022 The Psi4 Developers.
 .. #
 .. # The copyrights for code used from other parties are included in
 .. # the corresponding files.
@@ -128,7 +128,9 @@ Then the following are examples of various types of calculations that can be com
    set intrafrag_step_limit 0.1
    optimize('scf')
 
-* Optimize while always limiting the step size to 0.1 au::
+* Optimize while always limiting the step size to 0.1 au:
+
+.. code-block:: none
 
    set {
      intrafrag_step_limit     0.1
@@ -138,7 +140,9 @@ Then the following are examples of various types of calculations that can be com
 
    optimize('scf')
 
-* Optimize while calculating the Hessian at every step::
+* Optimize while calculating the Hessian at every step:
+
+.. code-block:: none
 
    set full_hess_every 1
    optimize('scf')
@@ -233,14 +237,18 @@ Transition States, Reaction Paths, and Constrained Optimizations
 
 For bends, the corresponding keyword is "frozen_bend".
 
-* To freeze the cartesian coordinates of atom 2 ::
+* To freeze the cartesian coordinates of atom 2
+
+.. code-block:: none
 
    freeze_list = """
      2 xyz
    """
    set optking frozen_cartesian $freeze_list
 
-* To freeze only the y coordinates of atoms 2 and 3 ::
+* To freeze only the y coordinates of atoms 2 and 3
+
+.. code-block:: none
 
    freeze_list = """
      2 y
@@ -249,7 +257,9 @@ For bends, the corresponding keyword is "frozen_bend".
    set optking frozen_cartesian $freeze_list
 
 * To optimize toward a value of 0.95 Angstroms for the distance between 
-  atoms 1 and 3, as well as that between 2 and 4 ::
+  atoms 1 and 3, as well as that between 2 and 4
+
+.. code-block:: none
 
    set optking {
      fixed_distance = ("
@@ -262,7 +272,9 @@ Note that the effect of the frozen and fixed keywords is independent of
 how the geometry of the molecule was input (whether Z-matrix or cartesian, etc.)..
 
 * To scan the potential energy surface by optimizing at several fixed values
-  of the dihedral angle of HOOH. ::
+  of the dihedral angle of HOOH.
+
+.. code-block:: none
 
    molecule hooh {
     0 1
@@ -440,6 +452,105 @@ achieve convergence. To avoid this revokation, turn on keyword |optking__flexibl
 
 .. index::
    pair: geometry optimization; output
+
+Interface to GeomeTRIC
+^^^^^^^^^^^^^^^^^^^^^^
+
+The GeomeTRIC optimizer developed by Wang and Song [Wang:2016:214108]_ may be used in place of
+Psi4's native Optking optimizer. GeomeTRIC uses a translation-rotation-internal coordinate (TRIC)
+system that works well for optimizing geometries of systems containing noncovalent interactions.
+
+Use of the GeomeTRIC optimizer is specified with the ``engine`` argument to
+:py:func:`~psi4.optimize`. The optimization will respect the keywords |optking__g_convergence|
+and |optking__geom_maxiter|. Any other GeomeTRIC-specific options (including constraints)
+may be specified with the ``optimizer_keywords`` argument to :py:func:`~psi4.optimize`. 
+Constraints may be placed on cartesian coordinates, bonds, angles, and dihedrals, and they can be
+used to either freeze a coordinate or set it to a specific value. See the `GeomeTRIC github
+<https://github.com/leeping/geomeTRIC>`_ 
+for more information on keywords and JSON specification of constraints.
+
+* Optimize the water molecule using GeomeTRIC::
+
+   molecule h2o {
+      O
+      H 1 1.0
+      H 1 1.0 2 160.0
+   }
+
+   set {
+      maxiter 100
+      g_convergence gau
+   }
+
+   optimize('hf/cc-pvdz', engine='geometric')
+
+* Optimize the water molecule using GeomeTRIC, with one of the two OH bonds constrained to 2.0 au
+  and the HOH angle constrained to 104.5 degrees::
+
+   molecule h2o {
+      O
+      H 1 1.0
+      H 1 1.0 2 160.0
+   }
+
+   set {
+      maxiter 100
+      g_convergence gau
+   }
+
+   geometric_keywords = { 
+     'coordsys' : 'tric',
+     'constraints' : { 
+     'set' : [{'type'    : 'distance',
+               'indices' : [0, 1], 
+               'value'   : 2.0 },
+              {'type'    : 'angle',
+               'indices' : [1, 0, 2], 
+               'value'   : 104.5 }]
+      }   
+   }   
+
+   optimize('hf/cc-pvdz', engine='geometric', optimizer_keywords=geometric_keywords)
+
+* Optimize the benzene/water dimer using GeomeTRIC, with the 6 carbon atoms of benzene frozen in 
+  place::
+
+   molecule h2o {
+     C            0.833     1.221    -0.504
+     H            1.482     2.086    -0.518
+     C            1.379    -0.055    -0.486
+     H            2.453    -0.184    -0.483
+     C            0.546    -1.167    -0.474
+     H            0.971    -2.162    -0.466
+     C           -0.833    -1.001    -0.475
+     H           -1.482    -1.867    -0.468
+     C           -1.379     0.275    -0.490
+     H           -2.453     0.404    -0.491
+     C           -0.546     1.386    -0.506
+     H           -0.971     2.381    -0.524
+     --
+     O            0.000     0.147     3.265
+     H            0.000    -0.505     2.581
+     H            0.000     0.965     2.790
+     no_com
+     no_reorient
+   }
+
+   set {
+      maxiter 100
+      g_convergence gau
+   }
+
+   geometric_keywords = { 
+     'coordsys' : 'tric',
+     'constraints' : { 
+     'freeze' : [{'type'    : 'xyz',
+                  'indices' : [0, 2, 4, 6, 8, 10]}]
+      }   
+   }   
+
+   optimize('hf/cc-pvdz', engine='geometric', optimizer_keywords=geometric_keywords)
+
 
 Output
 ^^^^^^

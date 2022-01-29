@@ -3,7 +3,7 @@
 .. #
 .. # Psi4: an open-source quantum chemistry software package
 .. #
-.. # Copyright (c) 2007-2019 The Psi4 Developers.
+.. # Copyright (c) 2007-2022 The Psi4 Developers.
 .. #
 .. # The copyrights for code used from other parties are included in
 .. # the corresponding files.
@@ -42,6 +42,7 @@ Evaluation of One-Electron Properties |w---w| :py:func:`~psi4.oeprop`
 .. sectionauthor:: Andrew C. Simmonett
 
 .. autofunction:: psi4.oeprop(wfn, \*args[, title])
+   :noindex:
 
 |PSIfour| is capable of computing a number of one-electron properties
 summarized in the table below. 
@@ -77,6 +78,8 @@ summarized in the table below.
    +------------------------------------+-----------------------+-----------------------------------------------------------------------------------+
    | Natural orbital occupations        | NO_OCCUPATIONS        |                                                                                   |
    +------------------------------------+-----------------------+-----------------------------------------------------------------------------------+
+   | Stockholder Atomic Multipoles      | MBIS_CHARGES          | Generates atomic charges, dipoles, etc. See :ref:`sec:oeprop_mbis`                |
+   +------------------------------------+-----------------------+-----------------------------------------------------------------------------------+
 
 There are two ways the computation of one-electron properties can be requested. 
 Firstly, the properties can be evaluated from the last
@@ -97,12 +100,12 @@ properties to compute.  The available properties are shown in the table above.
 The syntax above works well for computing properties using the SCF
 wavefunction, however, may be difficult (or impossible) to use for some of the
 correlated levels of theory. Alternatively, one-electron properties can be
-computed using the built-in property() function, e.g.::
+computed using the built-in properties() function, e.g.::
 
-  property('ccsd', properties=['dipole'])
+  properties('ccsd', properties=['dipole'])
 
-The :py:func:`~psi4.property` function provides limited functionality, but is a lot easier to
-use for correlated methods. For capabilities of :py:func:`~psi4.property` see the
+The :py:func:`~psi4.properties` function provides limited functionality, but is a lot easier to
+use for correlated methods. For capabilities of :py:func:`~psi4.properties` see the
 corresponding section of the manual.
 
 
@@ -166,3 +169,27 @@ grid point, in the order that the grid was specified, while the *Exvals*,
 electric field, respectively; all of these arrays can be iterated and
 manipulated using standard Python syntax.  For a complete demonstration of this
 utility, see the :srcsample:`props4` test case.
+
+
+.. index:: ISA; MBIS
+
+.. _`sec:oeprop_mbis`:
+
+Minimal Basis Iterative Stockholder
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The Minimal Basis Iterative Stockholder (MBIS) method is one of many procedures
+that partitions a molecular one-particle density matrix into atomic electron densities.
+Running MBIS in |PSIfour| will calculate atomic valence charge widths, volume ratios,
+atomic charges, as well as dipoles, quadrupoles, and octupoles. 
+Additionally, all expectation values of radial moments of n-th order (:math:`<r^n>`) 
+are computed up to fourth order. Higher moments can be computed by specifying |globals__max_radial_moment|.
+The volume ratios are computed as the ratio between the volume of the atomic density
+(:math:`<r^3>`) and the volume of the free atom computed using the same level
+of theory, but with a potentially unrestricted reference.
+
+The allowed number of iterations and convergence criteria for the stockholder 
+algorithm is controlled by |globals__mbis_maxiter| and |globals__mbis_d_convergence|. Note 
+that the density is partitioned on a molecular quadrature grid, the details of which can be
+controlled with the keywords |globals__mbis_radial_points|, |globals__mbis_spherical_points|, and 
+|globals__mbis_pruning_scheme|. (Associated Paper: [Verstraelen:2016]_)

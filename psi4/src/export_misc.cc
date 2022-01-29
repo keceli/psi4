@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -33,10 +33,12 @@
 
 using namespace psi;
 namespace py = pybind11;
+using namespace pybind11::literals;
 
 void export_misc(py::module &m) {
-    m.def("timer_on", timer_on, "Start timer with argument as label");
-    m.def("timer_off", timer_off, "Stop timer of label argument");
-    m.def("tstart", tstart, "docstring");
-    m.def("tstop", tstop, "docstring");
+    m.def("timer_on", timer_on, "label"_a, "Start timer with *label*. Needs to be paired with :func:`psi4.core.timer_off`.");
+    m.def("timer_off", timer_off, "label"_a, "Stop timer with *label*.");
+    m.def("tstart", tstart, "Start module-level timer. Only one active at once.");
+    m.def("tstop", tstop, "Stop module-level timer. Prints user, system, and total times to outfile.");
+    m.def("clean_timers", clean_timers, "Reinitialize timers for independent ``timer.dat`` entries. Vital when earlier independent calc finished improperly.");
 }

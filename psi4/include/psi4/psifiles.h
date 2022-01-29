@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -56,8 +56,6 @@
 #define PSIF_GRAD                11   /*- geometry optimization, geometry, and gradient; currently is an ASCII file like output.grad -*/
 #define PSIF_INTCO               12   /*- internal coordinates file, currently is ASCII file like output.intco -*/
 #define PSIF_3INDEX              16   /*-  -*/
-#define PSIF_DSCF                31   /*-  -*/
-#define PSIF_CHKPT               32   /*- new libpsio checkpoint file number -*/
 #define PSIF_SO_TEI              33   /*-  -*/
 #define PSIF_SO_PK               34   /*-  -*/
 #define PSIF_OEI                 35   /*-  -*/
@@ -67,7 +65,6 @@
 #define PSIF_SO_R12T1            39   /*-  -*/
 #define PSIF_DERINFO             40   /*-  -*/
 #define PSIF_SO_PRESORT          41   /*-  -*/
-#define PSIF_OLD_CHKPT           42   /*- Until we have flexible PSIF_CHKPT this will store previous calculation info -*/
 #define PSIF_CIVECT              43   /*- CI vector from DETCI along with string and determinant info -*/
 
 #define PSIF_AO_DGDBX            44   /*- B-field derivative AO integrals over GIAO Gaussians -- only bra-ket permutational symmetry holds -*/
@@ -86,10 +83,6 @@
 #define PSIF_LIBTRANS_B_HT       63   /*- libtrans: Beta half-transformed integrals in DPD format -*/
 
 #define PSIF_LIBDIIS             64   /*- Storage for libdiis -*/
-#define PSIF_DFT_GRID            65   /*- Storage for DFT/pseudospectral grid -*/
-// DFCC 3-index files
-#define PSIF_DF_TENSOR           66   /*-  -*/
-#define PSIF_PS_TENSOR           67   /*-  -*/
 
 #define PSIF_TPDM_PRESORT        71   /*-  -*/
 #define PSIF_MO_TEI              72   /*-  -*/
@@ -98,8 +91,6 @@
 #define PSIF_MO_LAG              75   /*-  -*/
 #define PSIF_AO_OPDM             76   /*- PSIF_AO_OPDM also contains AO Lagrangian -*/
 #define PSIF_AO_TPDM             77   /*-  -*/
-
-#define PSIF_DBOC                78   /*- dboc: -*/
 
 #define PSIF_MO_R12              79   /*-  -*/
 #define PSIF_MO_R12T2            80   /*-  -*/
@@ -117,13 +108,6 @@
 #define PSIF_AA_PRESORT          87   /*- AA UHF twopdm presort file -*/
 #define PSIF_BB_PRESORT          88   /*- BB UHF twopdm presort file -*/
 #define PSIF_AB_PRESORT          89   /*- AB UHF twopdm presort file -*/
-/*
-** MO Hessian File (also contains specialized integral and Fock lists.
-** See programs STABLE and CPHF for more info.
-** -TDC, 7/00
-*/
-#define PSIF_MO_HESS             90   /*-  -*/
-#define PSIF_CPHF                91   /*-  -*/
 
 #define PSIF_SO_PKSUPER1         92   /*-  -*/
 #define PSIF_SO_PKSUPER2         93   /*-  -*/
@@ -132,10 +116,7 @@
 #define PSIF_HALFT0              94   /*-  -*/
 #define PSIF_HALFT1              95   /*-  -*/
 
-#define PSIF_DFSCF_A             96   /*- B Matrix containing 3-index tensor in AOs for use with DF-SCF -*/
 #define PSIF_DFSCF_BJ            97   /*- B Matrix containing 3-index tensor in AOs with J^-1/2 for use with DF-SCF -*/
-#define PSIF_DFSCF_K             98   /*- Exchange tensor for DF-SCF -*/
-#define PSIF_DFSCF_BJI           99   /*- The three-center integrals for DF-SCF -*/
 
 // The miscellaneous CC information file
 #define PSIF_CC_INFO             100  /*-  -*/
@@ -242,9 +223,6 @@
 
 #define PSIF_SAPT_LRINTS         198  /*- SAPT0 2-Body linear response LDA integrals -*/
 
-#define PSIF_SO_D1OEI            199  /*- Derivative OEIs are stored in file 199 -*/
-#define PSIF_SO_D1ERI            200  /*- Derivative ERIs are stored in files 200, 201, 202, etc. File 200 -*/
-
 #define PSIF_3B_SAPT_TRIMER      220  /*- SAPT Three-Body Trimer -*/
 #define PSIF_3B_SAPT_DIMER_AB    221  /*- SAPT Three-Body Dimer AB -*/
 #define PSIF_3B_SAPT_DIMER_AC    222  /*- SAPT Three-Body Dimer AC -*/
@@ -294,8 +272,14 @@
 
 #define PSIF_SAD                 300  /*- A SAD file (File for SAD related quantities -*/
 
-#define PSIF_DCFT_DPD            400 /*- DCFT DPD handle -*/
-#define PSIF_DCFT_DENSITY        401 /*- DCFT density -*/
+// following four are not completely managed by PSIO and starting number resettable through CI_FILE_START option
+#define PSIF_CI_HD_FILE          350  /*- DETCI H diagonal -*/
+#define PSIF_CI_C_FILE           351  /*- DETCI CI coeffs -*/
+#define PSIF_CI_S_FILE           352  /*- DETCI sigma coeffs -*/
+#define PSIF_CI_D_FILE           353  /*- DETCI D correction vectors -*/
+
+#define PSIF_DCT_DPD             400 /*- DCT DPD handle -*/
+#define PSIF_DCT_DENSITY         401 /*- DCT density -*/
 
 // All of these one-electron quantities have been moved into PSIF_OEI Most integrals are real Hermitian hence only lower
 //  triangle of the matrix is written out
@@ -304,6 +288,7 @@
 #define PSIF_SO_T                "SO-basis Kinetic Energy Ints"
 #define PSIF_SO_V                "SO-basis Potential Energy Ints"
 #define PSIF_SO_H                "SO-basis Core Hamiltonian"
+#define PSIF_SO_ECP              "SO-basis ECP Ints"
 #define PSIF_AO_S                "AO-basis Overlap Ints"
 #define PSIF_AO_MX               "AO-basis Mu-X Ints"
 #define PSIF_AO_MY               "AO-basis Mu-Y Ints"
@@ -352,15 +337,9 @@
 #define PSIF_MO_DFDB_Y           "AO-basis dF/dBy Ints"
 #define PSIF_MO_DFDB_Z           "AO-basis dF/dBz Ints"
 
-#define PSIF_MO_OEI              "MO-basis One-electron Ints"
-#define PSIF_MO_A_OEI            "MO-basis Alpha One-electron Ints"
-#define PSIF_MO_B_OEI            "MO-basis Beta One-electron Ints"
 #define PSIF_MO_FZC              "MO-basis Frozen-Core Operator"
-#define PSIF_MO_FOCK             "MO-basis Fock Matrix"
 #define PSIF_MO_A_FZC            "MO-basis Alpha Frozen-Core Oper"
 #define PSIF_MO_B_FZC            "MO-basis Beta Frozen-Core Oper"
-#define PSIF_MO_A_FOCK           "MO-basis Alpha Fock Matrix"
-#define PSIF_MO_B_FOCK           "MO-basis Beta Fock Matrix"
 
 // More macros
 #define PSIF_AO_OPDM_TRIANG      "AO-basis OPDM triang"

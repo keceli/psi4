@@ -3,7 +3,7 @@
  *
  * Psi4: an open-source quantum chemistry software package
  *
- * Copyright (c) 2007-2019 The Psi4 Developers.
+ * Copyright (c) 2007-2022 The Psi4 Developers.
  *
  * The copyrights for code used from other parties are included in
  * the corresponding files.
@@ -37,6 +37,7 @@ PRAGMA_WARNING_IGNORE_DEPRECATED_DECLARATIONS
 #include <memory>
 PRAGMA_WARNING_POP
 #include "psi4/liboptions/liboptions.h"
+#include "psi4/libpsio/psio.hpp"
 #include "psi4/libmints/typedefs.h"
 #include "psi4/libpsi4util/PsiOutStream.h"
 
@@ -52,6 +53,21 @@ class PSI_API Process {
         size_t memory_;
         int nthread_;
         std::string datadir_;
+
+        /* Keep a shared_ptr to the default psio_manager
+         *
+         * If not, some destructors (like for Wavefunction) will call for the
+         * default _psio_manager. However, the default psio manager is also global.
+         * Destruction order is not specified for global variables, and therefore
+         * the default psio manager can be destructed BEFORE destructors from within
+         * wavefunction are called. By keeping a copy of the shared pointer here,
+         * we can keep it alive as long as we need.
+         *
+         * HOWEVER, pay attention to the order. Order of destruction is reverse
+         * of declaration within a class (guaranteed). So we put it early in the
+         * class definition
+         */
+        std::shared_ptr<PSIOManager> _psio_manager_keepalive;
 
         std::shared_ptr<Molecule> molecule_;
         SharedMatrix gradient_;

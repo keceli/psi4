@@ -1,6 +1,75 @@
 *******************************************************************************
 *******************************************************************************
 
+Friday, September 4, 2020 -- LAB
+
+[50] Removed ambiguity of L>=7 character from HIJ (GBS convention)
+     and HIK (BSE convention) by replacing K with L=7 in following basis sets:
+
+                 7zapa-nr.gbs
+           aug-cc-pv6z-ri.gbs       aug-cc-pv_6pd_z-ri.gbs
+     heavy-aug-cc-pv6z-ri.gbs heavy-aug-cc-pv_6pd_z-ri.gbs
+           jun-cc-pv6z-ri.gbs       jun-cc-pv_6pd_z-ri.gbs
+           may-cc-pv6z-ri.gbs       may-cc-pv_6pd_z-ri.gbs
+           apr-cc-pv6z-ri.gbs       apr-cc-pv_6pd_z-ri.gbs
+           mar-cc-pv6z-ri.gbs       mar-cc-pv_6pd_z-ri.gbs
+           feb-cc-pv6z-ri.gbs       feb-cc-pv_6pd_z-ri.gbs
+               cc-pv6z-ri.gbs           cc-pv_6pd_z-ri.gbs
+
+*******************************************************************************
+*******************************************************************************
+
+Friday, March 20, 2020 -- JBS
+
+[49] Adds STO-6G for H-Xe 
+
+*******************************************************************************
+*******************************************************************************
+
+Friday, February 7, 2020 -- LAB
+
+[48] Realizing that the diff_gbs.py script is great for detecting format
+errors preventing the parser from forming an atomic basis, I ran the
+orbital and RI def2 bases through it. Many missing ``1.0`` coefficients
+have been added, along with a couple sets of shells that were missing
+entirely (values replaced from MolSSI BSE), and some spurious stars
+and a concatenated basis removed. One change involved calcium, but
+others were high atomic number elements. I recommend new basis set
+files be run through the script to detect simple errors. (Note that
+Dunning have already done so, since the purpose of the script was to
+check newly edited and composed primitives against the previous fully
+composed basis files.)
+
+*******************************************************************************
+*******************************************************************************
+
+Thursday, February 6, 2020 -- SL
+
+[47] The def2 JFIT and JKFIT basis sets have been replaced with the
+universal def2 fitting basis set. The sets are all supposed to be the
+same but weren't, see #1804.
+
+*******************************************************************************
+*******************************************************************************
+
+Thursday, December 19, 2019 -- LAB
+
+[46] Pursuant to sworn affidavit of Kirk Peterson, it's ok to use
+valence JKFIT basis sets for the JKFIT role of core-valence orbital
+basis sets. Accordingly, JKFITs have been attached to the pwCV Dunning
+families. (pCV Dunning families not similarly supplied since they don't
+have RIs defined.)
+
+*******************************************************************************
+*******************************************************************************
+
+Sunday, September 15, 2019 -- LAB
+
+[45] Added qz2p basis translated from CFOUR's GENBAS.
+
+*******************************************************************************
+*******************************************************************************
+
 Tuesday, February 12, 2019 -- Jonathon Misiewicz
 
 [44] Added polarization functions to second-row atoms in Pople basis sets.
@@ -310,7 +379,7 @@ Dunning basis sets
 
 [5]	Hattig and co. (the developers) have defined the (aug-)cc-p(wC)VXZ-RI basis set to be equivalent to the corresponding (aug-)cc-p(wC)V(X+d)Z-RI set. That is, they optimized the RI fitting bases to reproduce the more correct (X+d) variant.
 
-[4]	The JKFIT basis sets (Weigend) were published just a year after the announcement that cc-pVXZ were deficient for Al-Ar and that cc-pV(X+d)Z were recommended in their stead. Weigend makes no acknowledgement of the (X+d) variant in his discussion. Since the original trouble with Al-Ar arose from CBS extrapolations of the correlation energy and JKFIT is primarily concerned with the HF stage, this would seem a minimal issue. Nevertheless, Weigand states that an additional steep f function for Al-Cl was added to jkfit (x=t,q). Since fitting basis sets generally have l+1 highest angmom fns (where l is highest in target basis), this is actually compatible with the extra tight d function in (X+d). Thus I (the copy-and-paster) declare (aug-)cc-p(wC)VXZ-JKFIT basis set to be equivalent to the corresponding (aug-)cc-p(wC)V(X+d)Z-JKFIT set.
+[4]	The JKFIT basis sets (Weigend) were published just a year after the announcement that cc-pVXZ were deficient for Al-Ar and that cc-pV(X+d)Z were recommended in their stead. Weigend makes no acknowledgement of the (X+d) variant in his discussion. Since the original trouble with Al-Ar arose from CBS extrapolations of the correlation energy and JKFIT is primarily concerned with the HF stage, this would seem a minimal issue. Nevertheless, Weigend states that an additional steep f function for Al-Cl was added to jkfit (x=t,q). Since fitting basis sets generally have l+1 highest angmom fns (where l is highest in target basis), this is actually compatible with the extra tight d function in (X+d). Thus I (the copy-and-paster) declare (aug-)cc-p(wC)VXZ-JKFIT basis set to be equivalent to the corresponding (aug-)cc-p(wC)V(X+d)Z-JKFIT set.
 
 
 Scripts

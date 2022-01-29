@@ -3,7 +3,7 @@
 #
 # Psi4: an open-source quantum chemistry software package
 #
-# Copyright (c) 2007-2019 The Psi4 Developers.
+# Copyright (c) 2007-2022 The Psi4 Developers.
 #
 # The copyrights for code used from other parties are included in
 # the corresponding files.
@@ -92,7 +92,7 @@ class QCEssential(object):
         text += """  DOI:                  %s\n""" % (self.doi)
         text += """  Literature citations:\n"""
         for rol, cit in self.citations.items():
-            text += """    %17s: %s\n""" (rol, cit.doi)
+            text += """    %17s: %s\n""" % (rol, cit.doi)
         text += """  Comment:              %s\n""" % (self.comment)
         text += """\n"""
         return text
@@ -145,7 +145,7 @@ class BasisSet(QCEssential):
         text += """  DOI:                  %s\n""" % (self.doi)
         text += """  Literature citations:\n"""
         for rol, cit in self.citations.items():
-            text += """    %17s: %s\n""" (rol, cit.doi)
+            text += """    %17s: %s\n""" % (rol, cit.doi)
         text += """  Comment:              %s\n""" % (self.comment)
         text += """\n"""
         return text
@@ -167,7 +167,7 @@ class Method(QCEssential):
         text += """  DOI:                  %s\n""" % (self.doi)
         text += """  Literature citations:\n"""
         for rol, cit in self.citations.items():
-            text += """    %17s: %s\n""" (rol, cit.doi)
+            text += """    %17s: %s\n""" % (rol, cit.doi)
         text += """  Comment:              %s\n""" % (self.comment)
         text += """\n"""
         return text
@@ -189,7 +189,7 @@ class Error(QCEssential):
         text += """  DOI:                  %s\n""" % (self.doi)
         text += """  Literature citations:\n"""
         for rol, cit in self.citations.items():
-            text += """    %17s: %s\n""" (rol, cit.doi)
+            text += """    %17s: %s\n""" % (rol, cit.doi)
         text += """  Comment:              %s\n""" % (self.comment)
         text += """\n"""
         return text
